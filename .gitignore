@@ -1,0 +1,5 @@
+.glitchdotcom.json
+.node-gyp
+node_modules
+.DS_Store
+**/dist

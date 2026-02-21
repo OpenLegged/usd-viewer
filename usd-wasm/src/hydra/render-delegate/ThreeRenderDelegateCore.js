@@ -1,0 +1,1725 @@
+// @ts-nocheck
+import { Matrix4, Quaternion, Vector3 } from 'three';
+import * as Shared from './shared.js';
+import { TextureRegistry } from './TextureRegistry.js';
+const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractJointRecordsFromLayerText, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseColliderEntriesFromLayerText, parseGuideCollisionReferencesFromLayerText, parseLinkDynamicsPatchesFromLayerText, parseProtoMeshIdentifier, parseUrdfTruthFromText, parseVector3Text, parseVisualSemanticChildNamesFromLayerText, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
+const HYDRA_PHASE_PROFILE_FROM_QUERY = (() => {
+    try {
+        const search = typeof window !== 'undefined' ? String(window.location?.search || '') : '';
+        if (!search)
+            return false;
+        const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+        const raw = params.get('profileHydraPhases');
+        if (raw === null)
+            return false;
+        const normalized = String(raw || '').trim().toLowerCase();
+        if (normalized === '')
+            return true;
+        return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+    }
+    catch {
+        return false;
+    }
+})();
+export class ThreeRenderDelegateCore {
+    /**
+     * @param {import('..').threeJsRenderDelegateConfig} config
+     */
+    constructor(config) {
+        const safeConfig = (config && typeof config === 'object') ? config : {};
+        this.config = safeConfig;
+        this.registry = new TextureRegistry(safeConfig);
+        this.modelOverrides = safeConfig.modelOverrides || null;
+        this.stageSourcePath = typeof safeConfig.stageSourcePath === 'string'
+            ? String(safeConfig.stageSourcePath).split('?')[0]
+            : null;
+        this.suppressMaterialBindingApiWarnings = safeConfig.suppressMaterialBindingApiWarnings !== false;
+        this.loadCollisionPrims = safeConfig.loadCollisionPrims !== false;
+        this.loadVisualPrims = safeConfig.loadVisualPrims !== false;
+        this.enableXformOpFallbackFromLayerText = safeConfig.enableXformOpFallbackFromLayerText === true;
+        this.enableProtoBlobFastPath = safeConfig.enableProtoBlobFastPath !== false;
+        this.preferProtoBlobOverHydraPayload = safeConfig.preferProtoBlobOverHydraPayload !== false;
+        // Reduce JS<->WASM bridge chatter by default: prime batch payloads once,
+        // then resolve per-mesh reads from JS cache.
+        this.autoBatchProtoBlobsOnFirstAccess = safeConfig.autoBatchProtoBlobsOnFirstAccess !== false;
+        this.autoBatchPrimTransformsOnFirstAccess = safeConfig.autoBatchPrimTransformsOnFirstAccess !== false;
+        // Avoid expensive driver.GetStage() calls inside high-frequency Hydra sync callbacks.
+        // Stage-dependent fallback passes still run later once stage metadata is ready.
+        this.deferDriverStageLookupInSyncHotPath = safeConfig.deferDriverStageLookupInSyncHotPath !== false;
+        this._hydraSyncHotPathDepth = 0;
+        this.enableHydraPhaseInstrumentation = safeConfig.enableHydraPhaseInstrumentation === true
+            || HYDRA_PHASE_PROFILE_FROM_QUERY
+            || globalThis?.__HYDRA_PROFILE_PHASES__ === true;
+        this._hydraPhasePerfState = {
+            drawSeq: 0,
+            renderSeq: 0,
+            activeDraw: null,
+            history: [],
+            maxHistory: 48,
+            firstRenderSample: null,
+        };
+        this.maxVisualPrims = Number.isFinite(safeConfig.maxVisualPrims)
+            ? Math.max(0, Math.floor(Number(safeConfig.maxVisualPrims)))
+            : null;
+        this.loadedVisualPrimCount = 0;
+        this.materials = {};
+        this.meshes = {};
+        this.instancers = {};
+        this.skeletons = {};
+        this._localXformCache = new Map();
+        this._worldXformCache = new Map();
+        this._meshFallbackCache = new Map();
+        this._resolvedProtoPrimPathCache = new Map();
+        this._resolvedVisualPrimPathCache = new Map();
+        this._xformOpFallbackMapByStageSource = new Map();
+        this._rootLayerXformOpFallbackMapByStageSource = new Map();
+        this._stageFallbackMaterialCache = new Map();
+        this._linkVisualTransformCache = new Map();
+        this._visualMeshIdByLinkPath = new Map();
+        this._meshIdByLinkPath = new Map();
+        this._protoMeshMetadataByMeshId = new Map();
+        this._guideCollisionPrimPathCache = new Map();
+        this._guideCollisionRefMapByStageSource = new Map();
+        this._visualSemanticChildMapByStageSource = new Map();
+        this._openedGuideStages = new Map();
+        this._protoDataBlobBatchCache = new Map();
+        this._protoDataBlobBatchPrimed = false;
+        this._primTransformBatchPrimed = false;
+        this._urdfTruthByStageSource = new Map();
+        this._urdfTruthLoadPromisesByStageSource = new Map();
+        this._urdfLinkWorldTransformCacheByStageSource = new Map();
+        this._urdfVisualFallbackDecisionCache = new Map();
+        this._urdfVisualFallbackLinkDecisionCache = new Map();
+        this._robotMetadataSnapshotByStageSource = new Map();
+        this._robotMetadataBuildPromisesByStageSource = new Map();
+        this._preferredVisualMaterialByLinkCache = new Map();
+        this._resolvedDriverStage = null;
+        this._pendingDriverStagePromise = null;
+        this._decomposeScratchPosition = new Vector3();
+        this._decomposeScratchQuaternion = new Quaternion();
+        this._decomposeScratchScale = new Vector3();
+        this._materialBindingWarningSummary = {
+            count: 0,
+            primPaths: new Set(),
+            sampleMessages: [],
+        };
+        this._materialBindingWarningSummaryTimer = null;
+        this._materialBindingSchemaRepairAttempted = false;
+        this._materialBindingSchemaRepairSucceeded = false;
+        this._materialBindingSchemaWriteSupported = null;
+        this._hasRunStageTruthAlignmentDiagnostics = false;
+        this._materialBindingWarningHandler = ({ message, level }) => this.handleMaterialBindingApiWarning({ message, level });
+        setActiveMaterialBindingWarningOwner(this);
+        registerMaterialBindingApiWarningHandler(this._materialBindingWarningHandler);
+        // Bind hot transform helpers defensively so detached callback invocations
+        // from external runtimes cannot lose `this`.
+        if (typeof this.getWorldTransformForPrimPath === 'function') {
+            this.getWorldTransformForPrimPath = this.getWorldTransformForPrimPath.bind(this);
+        }
+        if (typeof this.getLocalTransformForPrimPath === 'function') {
+            this.getLocalTransformForPrimPath = this.getLocalTransformForPrimPath.bind(this);
+        }
+        if (this.isHydraPhaseInstrumentationEnabled() && typeof window !== 'undefined') {
+            window.__HYDRA_PHASE_METRICS__ = {
+                getSnapshot: () => this.getHydraPhasePerfSnapshot(),
+            };
+        }
+    }
+    enterHydraSyncHotPath() {
+        const nextDepth = Number(this._hydraSyncHotPathDepth || 0) + 1;
+        this._hydraSyncHotPathDepth = nextDepth > 0 ? nextDepth : 1;
+    }
+    leaveHydraSyncHotPath() {
+        const currentDepth = Number(this._hydraSyncHotPathDepth || 0);
+        this._hydraSyncHotPathDepth = currentDepth > 1 ? currentDepth - 1 : 0;
+    }
+    isHydraSyncHotPathActive() {
+        return Number(this._hydraSyncHotPathDepth || 0) > 0;
+    }
+    isHydraPhaseInstrumentationEnabled() {
+        return this.enableHydraPhaseInstrumentation === true;
+    }
+    _nowPerfMs() {
+        return (typeof performance !== 'undefined' && typeof performance.now === 'function')
+            ? performance.now()
+            : Date.now();
+    }
+    _markPerf(name) {
+        if (typeof performance === 'undefined' || typeof performance.mark !== 'function')
+            return;
+        try {
+            performance.mark(name);
+        }
+        catch { }
+    }
+    _measurePerf(name, startMark, endMark) {
+        if (typeof performance === 'undefined' || typeof performance.measure !== 'function')
+            return;
+        try {
+            performance.measure(name, startMark, endMark);
+        }
+        catch { }
+    }
+    _accumulatePerfMap(metricMap, key, value) {
+        if (!(metricMap instanceof Map))
+            return;
+        const normalizedKey = String(key || '').trim() || '<unknown>';
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0)
+            return;
+        metricMap.set(normalizedKey, Number(metricMap.get(normalizedKey) || 0) + numeric);
+    }
+    beginHydraDrawPhase(source = 'driver.Draw') {
+        if (!this.isHydraPhaseInstrumentationEnabled())
+            return null;
+        const state = this._hydraPhasePerfState;
+        if (!state)
+            return null;
+        const seq = Number(state.drawSeq || 0) + 1;
+        state.drawSeq = seq;
+        const startMark = `hydra.phase.draw.${seq}.start`;
+        this._markPerf(startMark);
+        state.activeDraw = {
+            seq,
+            source: String(source || 'driver.Draw'),
+            startedAtMs: this._nowPerfMs(),
+            wasmFetchMs: 0,
+            threeBuildMs: 0,
+            commitMs: 0,
+            renderMs: 0,
+            wasmByMesh: new Map(),
+            buildByMesh: new Map(),
+            startMark,
+            endMark: `hydra.phase.draw.${seq}.end`,
+        };
+        return state.activeDraw;
+    }
+    recordHydraWasmFetchPhase(durationMs, meshId = null) {
+        if (!this.isHydraPhaseInstrumentationEnabled())
+            return;
+        const draw = this._hydraPhasePerfState?.activeDraw;
+        if (!draw)
+            return;
+        const duration = Number(durationMs);
+        if (!Number.isFinite(duration) || duration <= 0)
+            return;
+        draw.wasmFetchMs += duration;
+        this._accumulatePerfMap(draw.wasmByMesh, meshId, duration);
+    }
+    recordHydraThreeBuildPhase(durationMs, meshId = null) {
+        if (!this.isHydraPhaseInstrumentationEnabled())
+            return;
+        const draw = this._hydraPhasePerfState?.activeDraw;
+        if (!draw)
+            return;
+        const duration = Number(durationMs);
+        if (!Number.isFinite(duration) || duration <= 0)
+            return;
+        draw.threeBuildMs += duration;
+        this._accumulatePerfMap(draw.buildByMesh, meshId, duration);
+    }
+    recordHydraCommitPhase(durationMs) {
+        if (!this.isHydraPhaseInstrumentationEnabled())
+            return;
+        const draw = this._hydraPhasePerfState?.activeDraw;
+        if (!draw)
+            return;
+        const duration = Number(durationMs);
+        if (!Number.isFinite(duration) || duration <= 0)
+            return;
+        draw.commitMs += duration;
+    }
+    recordHydraRenderPhase(durationMs, source = 'renderer.render') {
+        if (!this.isHydraPhaseInstrumentationEnabled())
+            return;
+        const state = this._hydraPhasePerfState;
+        if (!state)
+            return;
+        const duration = Number(durationMs);
+        if (!Number.isFinite(duration) || duration < 0)
+            return;
+        state.renderSeq = Number(state.renderSeq || 0) + 1;
+        if (!state.firstRenderSample) {
+            state.firstRenderSample = {
+                seq: state.renderSeq,
+                durationMs: duration,
+                source: String(source || 'renderer.render'),
+            };
+            // Keep first-render instrumentation silent in hot paths.
+        }
+        if (state.activeDraw) {
+            state.activeDraw.renderMs += duration;
+        }
+    }
+    endHydraDrawPhase() {
+        if (!this.isHydraPhaseInstrumentationEnabled())
+            return null;
+        const state = this._hydraPhasePerfState;
+        const draw = state?.activeDraw;
+        if (!draw)
+            return null;
+        this._markPerf(draw.endMark);
+        this._measurePerf(`hydra.phase.draw.${draw.seq}`, draw.startMark, draw.endMark);
+        const endedAtMs = this._nowPerfMs();
+        const totalMs = Math.max(0, endedAtMs - Number(draw.startedAtMs || endedAtMs));
+        const textureSnapshot = this.registry?.getTextureLoadSnapshot?.() || null;
+        const summary = {
+            seq: draw.seq,
+            source: draw.source,
+            totalMs,
+            wasmFetchMs: Number(draw.wasmFetchMs || 0),
+            threeBuildMs: Number(draw.threeBuildMs || 0),
+            commitMs: Number(draw.commitMs || 0),
+            renderMs: Number(draw.renderMs || 0),
+            texturePending: Number(textureSnapshot?.pending || 0),
+            loadingManagerPending: Number(textureSnapshot?.manager?.pending || 0),
+            textureStarted: Number(textureSnapshot?.started || 0),
+            textureCompleted: Number(textureSnapshot?.completed || 0),
+            textureFailed: Number(textureSnapshot?.failed || 0),
+            topWasmMeshes: Array.from(draw.wasmByMesh.entries())
+                .sort((left, right) => right[1] - left[1])
+                .slice(0, 5),
+            topBuildMeshes: Array.from(draw.buildByMesh.entries())
+                .sort((left, right) => right[1] - left[1])
+                .slice(0, 5),
+        };
+        state.activeDraw = null;
+        state.history.push(summary);
+        const maxHistory = Number(state.maxHistory || 48);
+        if (state.history.length > maxHistory) {
+            state.history.splice(0, state.history.length - maxHistory);
+        }
+        // Profiling summary is retained in-memory via getHydraPhasePerfSnapshot().
+        return summary;
+    }
+    getHydraPhasePerfSnapshot() {
+        const state = this._hydraPhasePerfState;
+        if (!state)
+            return null;
+        return {
+            drawSeq: Number(state.drawSeq || 0),
+            renderSeq: Number(state.renderSeq || 0),
+            activeDraw: state.activeDraw ? {
+                seq: state.activeDraw.seq,
+                source: state.activeDraw.source,
+                startedAtMs: state.activeDraw.startedAtMs,
+                wasmFetchMs: Number(state.activeDraw.wasmFetchMs || 0),
+                threeBuildMs: Number(state.activeDraw.threeBuildMs || 0),
+                commitMs: Number(state.activeDraw.commitMs || 0),
+                renderMs: Number(state.activeDraw.renderMs || 0),
+            } : null,
+            firstRenderSample: state.firstRenderSample || null,
+            texture: this.registry?.getTextureLoadSnapshot?.() || null,
+            history: Array.isArray(state.history) ? state.history.slice(-24) : [],
+        };
+    }
+    getStageSourcePath() {
+        if (this.stageSourcePath)
+            return this.stageSourcePath;
+        const stage = this.getStage();
+        const rootLayer = stage?.GetRootLayer?.();
+        const identifier = normalizeHydraPath(rootLayer?.identifier || '');
+        if (!identifier)
+            return null;
+        this.stageSourcePath = identifier.split('?')[0];
+        return this.stageSourcePath;
+    }
+    getNormalizedStageSourcePath() {
+        const path = String(this.getStageSourcePath() || '').trim();
+        return path ? path.split('?')[0] : null;
+    }
+    isQueryFlagEnabled(paramName, fallback = false) {
+        try {
+            const search = String(window?.location?.search || '');
+            if (!search)
+                return fallback;
+            const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+            const rawValue = params.get(paramName);
+            if (rawValue === null)
+                return fallback;
+            const normalized = String(rawValue || '').trim().toLowerCase();
+            if (!normalized)
+                return true;
+            if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on')
+                return true;
+            if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off')
+                return false;
+            return fallback;
+        }
+        catch {
+            return fallback;
+        }
+    }
+    shouldAllowUrdfHttpFallback() {
+        return this.isQueryFlagEnabled('allowUrdfHttpFallback', false);
+    }
+    getStageMetadataLayerTexts(stage) {
+        const layerTexts = [];
+        const seenTexts = new Set();
+        const addLayerText = (text) => {
+            const serialized = String(text || '').trim();
+            if (!serialized)
+                return;
+            if (seenTexts.has(serialized))
+                return;
+            seenTexts.add(serialized);
+            layerTexts.push(serialized);
+        };
+        const addLayer = (layer) => {
+            if (!layer || typeof layer.ExportToString !== 'function')
+                return;
+            try {
+                addLayerText(layer.ExportToString());
+            }
+            catch { }
+        };
+        addLayer(stage?.GetRootLayer?.());
+        try {
+            const usedLayers = toArrayLike(stage?.GetUsedLayers?.());
+            if (Array.isArray(usedLayers)) {
+                for (const layer of usedLayers) {
+                    addLayer(layer);
+                }
+            }
+        }
+        catch { }
+        return layerTexts;
+    }
+    getCachedRobotMetadataSnapshot(stageSourcePath = null) {
+        const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0];
+        if (!normalizedStagePath)
+            return null;
+        return this._robotMetadataSnapshotByStageSource.get(normalizedStagePath) || null;
+    }
+    emitRobotMetadataSnapshotReady(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object')
+            return;
+        if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function')
+            return;
+        try {
+            window.dispatchEvent(new CustomEvent('usd:robot-metadata-ready', { detail: snapshot }));
+        }
+        catch {
+            try {
+                window.dispatchEvent(new Event('usd:robot-metadata-ready'));
+            }
+            catch { }
+        }
+    }
+    buildRobotMetadataSnapshotForStage(stageSourcePath, truth) {
+        const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0] || null;
+        const stage = this.getStage?.() || null;
+        const metadataLayerTexts = this.getStageMetadataLayerTexts(stage);
+        const meshCountsByLinkPath = {};
+        const linkPathSet = new Set();
+        const normalizeVector3 = (value, fallback = [0, 0, 0]) => {
+            const source = Array.isArray(value)
+                ? value
+                : (value && typeof value.length === 'number' ? Array.from(value) : null);
+            if (!source || source.length < 3)
+                return fallback.slice(0, 3);
+            const x = Number(source[0]);
+            const y = Number(source[1]);
+            const z = Number(source[2]);
+            if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z))
+                return fallback.slice(0, 3);
+            return [x, y, z];
+        };
+        const normalizeQuaternionWxyz = (value, fallback = [1, 0, 0, 0]) => {
+            const source = Array.isArray(value)
+                ? value
+                : (value && typeof value.length === 'number' ? Array.from(value) : null);
+            if (!source || source.length < 4)
+                return fallback.slice(0, 4);
+            const w = Number(source[0]);
+            const x = Number(source[1]);
+            const y = Number(source[2]);
+            const z = Number(source[3]);
+            if (!Number.isFinite(w) || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z))
+                return fallback.slice(0, 4);
+            return [w, x, y, z];
+        };
+        const normalizeAxisToken = (value) => {
+            const token = String(value || 'X').trim().toUpperCase();
+            if (token.startsWith('Y'))
+                return 'Y';
+            if (token.startsWith('Z'))
+                return 'Z';
+            return 'X';
+        };
+        const toAxisVector = (axisToken) => {
+            if (axisToken === 'Y')
+                return new Vector3(0, 1, 0);
+            if (axisToken === 'Z')
+                return new Vector3(0, 0, 1);
+            return new Vector3(1, 0, 0);
+        };
+        const rotateAxisByQuaternionWxyz = (axisToken, localRot1Wxyz) => {
+            const axis = toAxisVector(axisToken);
+            const normalizedWxyz = normalizeQuaternionWxyz(localRot1Wxyz, [1, 0, 0, 0]);
+            const quaternion = new Quaternion(Number(normalizedWxyz[1] || 0), Number(normalizedWxyz[2] || 0), Number(normalizedWxyz[3] || 0), Number(normalizedWxyz[0] || 1));
+            if (Number.isFinite(quaternion.lengthSq()) && quaternion.lengthSq() > 1e-12) {
+                quaternion.normalize();
+                axis.applyQuaternion(quaternion);
+            }
+            if (!Number.isFinite(axis.lengthSq()) || axis.lengthSq() <= 1e-12) {
+                return [1, 0, 0];
+            }
+            axis.normalize();
+            return [axis.x, axis.y, axis.z];
+        };
+        const axisTokenFromAxis = (axis) => {
+            const x = Math.abs(Number(axis?.[0] || 0));
+            const y = Math.abs(Number(axis?.[1] || 0));
+            const z = Math.abs(Number(axis?.[2] || 0));
+            if (y >= x && y >= z)
+                return 'Y';
+            if (z >= x && z >= y)
+                return 'Z';
+            return 'X';
+        };
+        const hasSignificantVector3 = (vector3Tuple, epsilon = 1e-8) => {
+            if (!Array.isArray(vector3Tuple) || vector3Tuple.length < 3)
+                return false;
+            return (Math.abs(Number(vector3Tuple[0] || 0)) > epsilon
+                || Math.abs(Number(vector3Tuple[1] || 0)) > epsilon
+                || Math.abs(Number(vector3Tuple[2] || 0)) > epsilon);
+        };
+        const hasNonIdentityQuaternionWxyz = (quaternionWxyz, epsilon = 1e-6) => {
+            if (!Array.isArray(quaternionWxyz) || quaternionWxyz.length < 4)
+                return false;
+            return (Math.abs(Number(quaternionWxyz[1] || 0)) > epsilon
+                || Math.abs(Number(quaternionWxyz[2] || 0)) > epsilon
+                || Math.abs(Number(quaternionWxyz[3] || 0)) > epsilon
+                || Math.abs(Number(quaternionWxyz[0] || 1) - 1) > epsilon);
+        };
+        const safeGetPrimAtPath = (stageObject, primPath) => {
+            if (!stageObject?.GetPrimAtPath || !primPath)
+                return null;
+            try {
+                return stageObject.GetPrimAtPath(primPath) || null;
+            }
+            catch {
+                return null;
+            }
+        };
+        const safeGetPrimAttribute = (prim, attributeName) => {
+            if (!prim?.GetAttribute || !attributeName)
+                return null;
+            try {
+                return prim.GetAttribute(attributeName)?.Get?.() ?? null;
+            }
+            catch {
+                return null;
+            }
+        };
+        const isControllableStageJointType = (jointTypeName) => {
+            const normalized = String(jointTypeName || '').trim().toLowerCase();
+            if (!normalized)
+                return false;
+            return normalized.includes('revolute') || normalized.includes('continuous');
+        };
+        const collisionPrimitiveTypeFromProto = (protoType) => {
+            const normalizedType = String(protoType || '').trim().toLowerCase();
+            if (!normalizedType)
+                return null;
+            if (normalizedType === 'cube')
+                return 'box';
+            return normalizedType;
+        };
+        for (const meshId of Object.keys(this.meshes || {})) {
+            const proto = this._protoMeshMetadataByMeshId.get(meshId) || parseProtoMeshIdentifier(meshId);
+            if (!proto?.linkPath)
+                continue;
+            this._protoMeshMetadataByMeshId.set(meshId, proto);
+            linkPathSet.add(proto.linkPath);
+            if (!meshCountsByLinkPath[proto.linkPath]) {
+                meshCountsByLinkPath[proto.linkPath] = {
+                    visualMeshCount: 0,
+                    collisionMeshCount: 0,
+                    collisionPrimitiveCounts: {},
+                };
+            }
+            const counts = meshCountsByLinkPath[proto.linkPath];
+            if (proto.sectionName === 'collisions') {
+                counts.collisionMeshCount += 1;
+                const primitiveType = collisionPrimitiveTypeFromProto(proto.protoType);
+                if (primitiveType) {
+                    counts.collisionPrimitiveCounts[primitiveType] = Number(counts.collisionPrimitiveCounts[primitiveType] || 0) + 1;
+                }
+            }
+            else if (proto.sectionName === 'visuals') {
+                counts.visualMeshCount += 1;
+            }
+        }
+        const jointCatalogEntries = [];
+        const linkDynamicsEntries = [];
+        const sortedLinkPaths = Array.from(linkPathSet).sort((left, right) => left.localeCompare(right));
+        const rootPaths = Array.from(new Set(sortedLinkPaths.map((linkPath) => getRootPathFromPrimPath(linkPath)).filter(Boolean)));
+        const runtimeLinkPathsByName = new Map();
+        for (const linkPath of sortedLinkPaths) {
+            const linkName = getPathBasename(linkPath);
+            if (!linkName)
+                continue;
+            const existing = runtimeLinkPathsByName.get(linkName) || [];
+            existing.push(linkPath);
+            runtimeLinkPathsByName.set(linkName, existing);
+        }
+        const sortByPreferredRoot = (paths, preferredRootPath = null) => {
+            const deduped = Array.from(new Set(paths.filter(Boolean)));
+            deduped.sort((left, right) => left.localeCompare(right));
+            if (!preferredRootPath)
+                return deduped;
+            return deduped.sort((left, right) => {
+                const leftPreferred = getRootPathFromPrimPath(left) === preferredRootPath ? 0 : 1;
+                const rightPreferred = getRootPathFromPrimPath(right) === preferredRootPath ? 0 : 1;
+                if (leftPreferred !== rightPreferred)
+                    return leftPreferred - rightPreferred;
+                return left.localeCompare(right);
+            });
+        };
+        const resolveRuntimeLinkPathsFromSourcePath = (sourcePath, preferredRootPath = null) => {
+            const source = String(sourcePath || '').trim();
+            if (!source)
+                return [];
+            const normalizedSourcePath = normalizeUsdPathToken(source);
+            const matches = [];
+            const addMatch = (candidatePath) => {
+                if (!candidatePath)
+                    return;
+                if (!linkPathSet.has(candidatePath))
+                    return;
+                if (matches.includes(candidatePath))
+                    return;
+                matches.push(candidatePath);
+            };
+            addMatch(normalizedSourcePath);
+            const linkName = getPathBasename(normalizedSourcePath || source.replace(/[<>]/g, ''));
+            if (linkName) {
+                for (const candidatePath of runtimeLinkPathsByName.get(linkName) || []) {
+                    addMatch(candidatePath);
+                }
+            }
+            if (normalizedSourcePath) {
+                const sourceWithoutRoot = getPathWithoutRoot(normalizedSourcePath);
+                if (sourceWithoutRoot && sourceWithoutRoot !== '/') {
+                    const remapOrder = preferredRootPath
+                        ? [preferredRootPath, ...rootPaths.filter((entry) => entry !== preferredRootPath)]
+                        : rootPaths;
+                    for (const rootPath of remapOrder) {
+                        if (!rootPath)
+                            continue;
+                        addMatch(`${rootPath}${sourceWithoutRoot}`);
+                    }
+                }
+            }
+            return sortByPreferredRoot(matches, preferredRootPath);
+        };
+        const stageJointRecordByChildLinkPath = new Map();
+        if (!truth && metadataLayerTexts.length > 0) {
+            const seenJointKeys = new Set();
+            for (const layerText of metadataLayerTexts) {
+                for (const jointRecord of extractJointRecordsFromLayerText(layerText)) {
+                    if (!jointRecord?.body1Path)
+                        continue;
+                    if (!isControllableStageJointType(jointRecord.jointTypeName))
+                        continue;
+                    const key = `${jointRecord.jointName || ''}|${jointRecord.body0Path || ''}|${jointRecord.body1Path || ''}`;
+                    if (seenJointKeys.has(key))
+                        continue;
+                    seenJointKeys.add(key);
+                    const childLinkPaths = resolveRuntimeLinkPathsFromSourcePath(jointRecord.body1Path);
+                    for (const childLinkPath of childLinkPaths) {
+                        if (!childLinkPath || stageJointRecordByChildLinkPath.has(childLinkPath))
+                            continue;
+                        stageJointRecordByChildLinkPath.set(childLinkPath, jointRecord);
+                    }
+                }
+            }
+        }
+        const linkDynamicsPatchesByLinkPath = new Map();
+        if (!truth && metadataLayerTexts.length > 0) {
+            const mergePatch = (linkPath, incomingPatch) => {
+                if (!linkPath || !incomingPatch || typeof incomingPatch !== 'object')
+                    return;
+                const existingPatch = linkDynamicsPatchesByLinkPath.get(linkPath) || {};
+                const nextPatch = { ...existingPatch };
+                if (incomingPatch.mass !== undefined && Number.isFinite(Number(incomingPatch.mass))) {
+                    nextPatch.mass = Number(incomingPatch.mass);
+                }
+                if (Array.isArray(incomingPatch.centerOfMassLocal)) {
+                    nextPatch.centerOfMassLocal = normalizeVector3(incomingPatch.centerOfMassLocal, [0, 0, 0]);
+                }
+                if (Array.isArray(incomingPatch.diagonalInertia)) {
+                    nextPatch.diagonalInertia = normalizeVector3(incomingPatch.diagonalInertia, [0, 0, 0]);
+                }
+                if (Array.isArray(incomingPatch.principalAxesLocalWxyz)) {
+                    nextPatch.principalAxesLocalWxyz = normalizeQuaternionWxyz(incomingPatch.principalAxesLocalWxyz, [1, 0, 0, 0]);
+                }
+                linkDynamicsPatchesByLinkPath.set(linkPath, nextPatch);
+            };
+            for (const layerText of metadataLayerTexts) {
+                const parsedPatches = parseLinkDynamicsPatchesFromLayerText(layerText);
+                for (const [linkPath, patch] of parsedPatches.entries()) {
+                    mergePatch(linkPath, patch);
+                }
+            }
+        }
+        const linkDynamicsPatchesByLinkName = new Map();
+        for (const [linkPath, patch] of linkDynamicsPatchesByLinkPath.entries()) {
+            const linkName = getPathBasename(linkPath);
+            if (!linkName)
+                continue;
+            if (!linkDynamicsPatchesByLinkName.has(linkName)) {
+                linkDynamicsPatchesByLinkName.set(linkName, patch);
+            }
+        }
+        const jointByChildLinkName = truth?.jointByChildLinkName;
+        const inertialByLinkName = truth?.inertialByLinkName;
+        for (const linkPath of sortedLinkPaths) {
+            const linkName = getPathBasename(linkPath);
+            const rootPath = getRootPathFromPrimPath(linkPath);
+            const jointEntry = jointByChildLinkName?.get?.(linkName) || stageJointRecordByChildLinkPath.get(linkPath) || null;
+            if (jointEntry) {
+                const isUrdfJointEntry = !!(jointByChildLinkName?.get?.(linkName));
+                const stageAxisToken = normalizeAxisToken(jointEntry.axisToken || 'X');
+                const axisLocal = isUrdfJointEntry
+                    ? normalizeVector3(jointEntry.axisLocal, [1, 0, 0])
+                    : rotateAxisByQuaternionWxyz(stageAxisToken, jointEntry.localRot1Wxyz);
+                const axisToken = isUrdfJointEntry ? axisTokenFromAxis(axisLocal) : stageAxisToken;
+                const jointName = String(jointEntry.jointName || `${linkName}_joint`).trim() || `${linkName}_joint`;
+                const stageParentCandidates = resolveRuntimeLinkPathsFromSourcePath(jointEntry.body0Path, rootPath);
+                const parentLinkName = String(jointEntry.parentLinkName || '').trim();
+                const parentLinkPath = stageParentCandidates[0]
+                    || (parentLinkName ? (rootPath ? `${rootPath}/${parentLinkName}` : `/${parentLinkName}`) : null);
+                const lowerLimitDeg = Number(jointEntry.lowerLimitDeg);
+                const upperLimitDeg = Number(jointEntry.upperLimitDeg);
+                const localPivotInLink = Array.isArray(jointEntry.originXyz)
+                    ? normalizeVector3(jointEntry.originXyz, [0, 0, 0])
+                    : (Array.isArray(jointEntry.localPos1) ? normalizeVector3(jointEntry.localPos1, [0, 0, 0]) : null);
+                jointCatalogEntries.push({
+                    linkPath,
+                    jointPath: rootPath ? `${rootPath}/joints/${jointName}` : `/joints/${jointName}`,
+                    jointName,
+                    jointType: String(jointEntry.jointType || jointEntry.jointTypeName || 'PhysicsRevoluteJoint'),
+                    parentLinkPath,
+                    axisToken,
+                    axisLocal,
+                    lowerLimitDeg: Number.isFinite(lowerLimitDeg) ? lowerLimitDeg : -180,
+                    upperLimitDeg: Number.isFinite(upperLimitDeg) ? upperLimitDeg : 180,
+                    localPivotInLink,
+                });
+            }
+            const inertialEntry = inertialByLinkName?.get?.(linkName) || null;
+            if (inertialEntry || stage) {
+                const prim = safeGetPrimAtPath(stage, linkPath);
+                const stagePatch = linkDynamicsPatchesByLinkPath.get(linkPath) || linkDynamicsPatchesByLinkName.get(linkName) || null;
+                const massValueFromPrim = toFiniteNumber(safeGetPrimAttribute(prim, 'physics:mass'));
+                const massValue = Number.isFinite(Number(inertialEntry?.mass))
+                    ? Number(inertialEntry.mass)
+                    : (massValueFromPrim !== undefined ? Number(massValueFromPrim) : (Number.isFinite(Number(stagePatch?.mass)) ? Number(stagePatch.mass) : null));
+                const centerOfMassTupleFromPrim = toFiniteVector3Tuple(safeGetPrimAttribute(prim, 'physics:centerOfMass'));
+                const diagonalInertiaTupleFromPrim = toFiniteVector3Tuple(safeGetPrimAttribute(prim, 'physics:diagonalInertia'));
+                const principalAxesTupleFromPrim = toFiniteQuaternionWxyzTuple(safeGetPrimAttribute(prim, 'physics:principalAxes'));
+                const centerOfMassLocal = inertialEntry
+                    ? normalizeVector3(inertialEntry.centerOfMassLocal, [0, 0, 0])
+                    : normalizeVector3(centerOfMassTupleFromPrim || stagePatch?.centerOfMassLocal, [0, 0, 0]);
+                const diagonalInertia = inertialEntry
+                    ? (Array.isArray(inertialEntry.diagonalInertia) ? normalizeVector3(inertialEntry.diagonalInertia, [0, 0, 0]) : null)
+                    : (Array.isArray(diagonalInertiaTupleFromPrim || stagePatch?.diagonalInertia)
+                        ? normalizeVector3(diagonalInertiaTupleFromPrim || stagePatch?.diagonalInertia, [0, 0, 0])
+                        : null);
+                const principalAxesWxyz = inertialEntry
+                    ? normalizeQuaternionWxyz(inertialEntry.principalAxesLocalWxyz, [1, 0, 0, 0])
+                    : normalizeQuaternionWxyz(principalAxesTupleFromPrim || stagePatch?.principalAxesLocalWxyz, [1, 0, 0, 0]);
+                const hasDynamicsData = (massValue !== null
+                    || hasSignificantVector3(centerOfMassLocal)
+                    || hasSignificantVector3(diagonalInertia)
+                    || hasNonIdentityQuaternionWxyz(principalAxesWxyz));
+                if (!hasDynamicsData) {
+                    continue;
+                }
+                linkDynamicsEntries.push({
+                    linkPath,
+                    mass: massValue,
+                    centerOfMassLocal,
+                    diagonalInertia,
+                    principalAxesLocal: [principalAxesWxyz[1], principalAxesWxyz[2], principalAxesWxyz[3], principalAxesWxyz[0]],
+                });
+            }
+        }
+        let metadataSource = 'mesh-only';
+        if (truth) {
+            metadataSource = 'urdf-truth';
+        }
+        else if (jointCatalogEntries.length > 0 || linkDynamicsEntries.length > 0) {
+            metadataSource = 'usd-stage';
+        }
+        return {
+            stageSourcePath: normalizedStagePath,
+            generatedAtMs: this._nowPerfMs(),
+            source: metadataSource,
+            jointCatalogEntries,
+            linkDynamicsEntries,
+            meshCountsByLinkPath,
+        };
+    }
+    startRobotMetadataWarmupForStage(stageSourcePathOrOptions = null, maybeOptions = null) {
+        let stageSourcePath = null;
+        let options = {};
+        if (typeof stageSourcePathOrOptions === 'string') {
+            stageSourcePath = stageSourcePathOrOptions;
+            options = (maybeOptions && typeof maybeOptions === 'object') ? maybeOptions : {};
+        }
+        else {
+            options = (stageSourcePathOrOptions && typeof stageSourcePathOrOptions === 'object')
+                ? stageSourcePathOrOptions
+                : {};
+        }
+        const force = options?.force === true;
+        const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0];
+        if (!normalizedStagePath)
+            return Promise.resolve(null);
+        if (!force && this._robotMetadataSnapshotByStageSource.has(normalizedStagePath)) {
+            return Promise.resolve(this._robotMetadataSnapshotByStageSource.get(normalizedStagePath) || null);
+        }
+        if (this._robotMetadataBuildPromisesByStageSource.has(normalizedStagePath)) {
+            return this._robotMetadataBuildPromisesByStageSource.get(normalizedStagePath);
+        }
+        const buildPromise = Promise.resolve()
+            .then(async () => {
+            let snapshot = this.buildRobotMetadataSnapshotForStage(normalizedStagePath, null);
+            const needsUrdfTruth = (this.shouldAllowUrdfHttpFallback()
+                && (!snapshot
+                    || ((!Array.isArray(snapshot.jointCatalogEntries) || snapshot.jointCatalogEntries.length <= 0)
+                        && (!Array.isArray(snapshot.linkDynamicsEntries) || snapshot.linkDynamicsEntries.length <= 0))));
+            if (needsUrdfTruth) {
+                const truthPromise = this.startUrdfTruthLoadForStage(normalizedStagePath);
+                const truth = truthPromise ? await truthPromise.catch(() => null) : null;
+                snapshot = this.buildRobotMetadataSnapshotForStage(normalizedStagePath, truth || null);
+            }
+            if (!snapshot)
+                return null;
+            this._robotMetadataSnapshotByStageSource.set(normalizedStagePath, snapshot);
+            this.emitRobotMetadataSnapshotReady(snapshot);
+            return snapshot;
+        })
+            .finally(() => {
+            this._robotMetadataBuildPromisesByStageSource.delete(normalizedStagePath);
+        });
+        this._robotMetadataBuildPromisesByStageSource.set(normalizedStagePath, buildPromise);
+        return buildPromise;
+    }
+    async prefetchUrdfTruthForStage() {
+        const stageSourcePath = this.getNormalizedStageSourcePath();
+        if (!stageSourcePath)
+            return null;
+        const loadPromise = this.startUrdfTruthLoadForStage(stageSourcePath);
+        if (!loadPromise)
+            return null;
+        try {
+            return await loadPromise;
+        }
+        catch {
+            return null;
+        }
+    }
+    startUrdfTruthLoadForStage(stageSourcePath) {
+        const normalizedStagePath = String(stageSourcePath || '').trim().split('?')[0];
+        if (!normalizedStagePath)
+            return null;
+        if (!this.shouldAllowUrdfHttpFallback()) {
+            this._urdfTruthByStageSource.set(normalizedStagePath, null);
+            return Promise.resolve(null);
+        }
+        if (this._urdfTruthByStageSource.has(normalizedStagePath)) {
+            return Promise.resolve(this._urdfTruthByStageSource.get(normalizedStagePath) || null);
+        }
+        if (this._urdfTruthLoadPromisesByStageSource.has(normalizedStagePath)) {
+            return this._urdfTruthLoadPromisesByStageSource.get(normalizedStagePath);
+        }
+        const urdfFileName = resolveUrdfTruthFileNameForStagePath(normalizedStagePath);
+        if (!urdfFileName) {
+            this._urdfTruthByStageSource.set(normalizedStagePath, null);
+            return Promise.resolve(null);
+        }
+        const loadPromise = fetch(`/urdf/${encodeURIComponent(urdfFileName)}`)
+            .then(async (response) => {
+            if (!response.ok)
+                return null;
+            const text = await response.text();
+            return parseUrdfTruthFromText(text);
+        })
+            .catch(() => null)
+            .then((truth) => {
+            this._urdfTruthByStageSource.set(normalizedStagePath, truth || null);
+            return truth || null;
+        })
+            .finally(() => {
+            this._urdfTruthLoadPromisesByStageSource.delete(normalizedStagePath);
+        });
+        this._urdfTruthLoadPromisesByStageSource.set(normalizedStagePath, loadPromise);
+        return loadPromise;
+    }
+    getUrdfTruthForCurrentStage() {
+        const stageSourcePath = this.getNormalizedStageSourcePath();
+        if (!stageSourcePath)
+            return null;
+        if (this._urdfTruthByStageSource.has(stageSourcePath)) {
+            return this._urdfTruthByStageSource.get(stageSourcePath) || null;
+        }
+        this.startUrdfTruthLoadForStage(stageSourcePath);
+        return null;
+    }
+    getUrdfJointEntryForPrimPath(primPath) {
+        const truth = this.getUrdfTruthForCurrentStage();
+        if (!truth?.jointByChildLinkName)
+            return null;
+        const linkName = getPathBasename(primPath);
+        if (!linkName)
+            return null;
+        return truth.jointByChildLinkName.get(linkName) || null;
+    }
+    getVisualLinkFrameTransform(linkPath) {
+        if (!linkPath || !linkPath.startsWith('/'))
+            return null;
+        const primaryVisualMeshMatrix = this.meshes?.[`${linkPath}/visuals.proto_mesh_id0`]?._mesh?.matrix || null;
+        if (primaryVisualMeshMatrix)
+            return primaryVisualMeshMatrix.clone();
+        const representativeVisualMatrix = this.getRepresentativeVisualTransformForLinkPath(linkPath) || null;
+        return representativeVisualMatrix ? representativeVisualMatrix.clone() : null;
+    }
+    getStageOrVisualLinkWorldTransform(linkPath) {
+        if (!linkPath || !linkPath.startsWith('/'))
+            return null;
+        const stageWorldMatrix = this.getWorldTransformForPrimPath(linkPath) || null;
+        const visualLinkFrameMatrix = this.getVisualLinkFrameTransform(linkPath) || null;
+        if (!stageWorldMatrix)
+            return visualLinkFrameMatrix ? visualLinkFrameMatrix.clone() : null;
+        if (!visualLinkFrameMatrix)
+            return stageWorldMatrix.clone();
+        const stageLooksIdentity = isMatrixApproximatelyIdentity(stageWorldMatrix);
+        const visualFrameLooksAuthored = !isMatrixApproximatelyIdentity(visualLinkFrameMatrix)
+            || hasNonZeroTranslation(visualLinkFrameMatrix);
+        if (stageLooksIdentity && visualFrameLooksAuthored) {
+            return visualLinkFrameMatrix.clone();
+        }
+        return stageWorldMatrix.clone();
+    }
+    getPreferredLinkWorldTransform(linkPath) {
+        if (!linkPath || !linkPath.startsWith('/'))
+            return null;
+        return this.getStageOrVisualLinkWorldTransform(linkPath);
+    }
+    getUrdfLinkWorldTransformFromJointChain(linkPath) {
+        if (!linkPath || !linkPath.startsWith('/'))
+            return null;
+        const stageSourcePath = this.getNormalizedStageSourcePath() || '__unknown_stage__';
+        let stageCache = this._urdfLinkWorldTransformCacheByStageSource.get(stageSourcePath);
+        if (!(stageCache instanceof Map)) {
+            stageCache = new Map();
+            this._urdfLinkWorldTransformCacheByStageSource.set(stageSourcePath, stageCache);
+        }
+        if (stageCache.has(linkPath)) {
+            const cached = stageCache.get(linkPath);
+            return cached ? cached.clone() : null;
+        }
+        const truth = this.getUrdfTruthForCurrentStage();
+        if (!truth?.jointByChildLinkName) {
+            return null;
+        }
+        const linkName = getPathBasename(linkPath);
+        if (!linkName) {
+            stageCache.set(linkPath, null);
+            return null;
+        }
+        const urdfRelativeMatrix = new Matrix4().identity();
+        let currentLinkName = linkName;
+        let traversedJointCount = 0;
+        const visitedLinks = new Set();
+        while (currentLinkName && !visitedLinks.has(currentLinkName)) {
+            visitedLinks.add(currentLinkName);
+            const jointEntry = truth.jointByChildLinkName.get(currentLinkName);
+            if (!jointEntry) {
+                break;
+            }
+            let jointLocalMatrix = jointEntry.localMatrix || null;
+            if (!jointLocalMatrix && jointEntry.originXyz && jointEntry.originQuatWxyz) {
+                jointLocalMatrix = toMatrixFromUrdfOrigin(jointEntry.originXyz, jointEntry.originQuatWxyz);
+            }
+            if (jointLocalMatrix) {
+                urdfRelativeMatrix.premultiply(jointLocalMatrix);
+            }
+            traversedJointCount += 1;
+            const parentLinkName = String(jointEntry.parentLinkName || '').trim();
+            if (!parentLinkName) {
+                break;
+            }
+            currentLinkName = parentLinkName;
+        }
+        const rootLinkName = currentLinkName;
+        const slashIndex = linkPath.lastIndexOf('/');
+        const linkParentPath = slashIndex > 0 ? linkPath.slice(0, slashIndex) : '';
+        let rootLinkStageMatrix = null;
+        if (rootLinkName) {
+            const rootLinkPathFromParent = linkParentPath ? `${linkParentPath}/${rootLinkName}` : '';
+            const stageRootPath = getRootPathFromPrimPath(linkPath);
+            const rootLinkPathFromStageRoot = stageRootPath ? `${stageRootPath}/${rootLinkName}` : '';
+            const rootPathCandidates = [
+                rootLinkPathFromParent,
+                rootLinkPathFromStageRoot,
+            ].filter((candidatePath, candidateIndex, allCandidates) => {
+                return !!candidatePath && allCandidates.indexOf(candidatePath) === candidateIndex;
+            });
+            for (const candidatePath of rootPathCandidates) {
+                rootLinkStageMatrix = this.getStageOrVisualLinkWorldTransform(candidatePath);
+                if (rootLinkStageMatrix) {
+                    break;
+                }
+            }
+        }
+        let result = null;
+        if (rootLinkStageMatrix) {
+            result = rootLinkStageMatrix.clone().multiply(urdfRelativeMatrix);
+        }
+        else if (traversedJointCount > 0) {
+            result = urdfRelativeMatrix.clone();
+        }
+        stageCache.set(linkPath, result ? result.clone() : null);
+        return result ? result.clone() : null;
+    }
+    getUrdfCollisionEntryForMeshId(meshId) {
+        const truth = this.getUrdfTruthForCurrentStage();
+        if (!truth?.collisionsByLinkName)
+            return null;
+        const proto = parseProtoMeshIdentifier(meshId);
+        if (!proto || proto.sectionName !== 'collisions')
+            return null;
+        const linkName = getPathBasename(proto.linkPath);
+        if (!linkName)
+            return null;
+        const linkCollisions = truth.collisionsByLinkName.get(linkName);
+        if (!linkCollisions)
+            return null;
+        const geometryType = proto.protoType === 'box' ? 'box' : proto.protoType;
+        const typedEntries = linkCollisions.byType?.get(geometryType) || [];
+        if (typedEntries[proto.protoIndex])
+            return typedEntries[proto.protoIndex];
+        // Keep URDF fallback strict by proto index/type. If USD expands a link into
+        // multiple collider prototypes while URDF only exposes one collider entry,
+        // reusing index 0 for all prototypes causes stacked/overlapping colliders.
+        if (proto.protoIndex === 0) {
+            if (typedEntries.length === 1)
+                return typedEntries[0];
+            if (typedEntries.length === 0 && linkCollisions.all?.length === 1)
+                return linkCollisions.all[0];
+        }
+        return null;
+    }
+    getUrdfVisualEntryForMeshId(meshId) {
+        const truth = this.getUrdfTruthForCurrentStage();
+        if (!truth?.visualsByLinkName)
+            return null;
+        const proto = parseProtoMeshIdentifier(meshId);
+        if (!proto || proto.sectionName !== 'visuals')
+            return null;
+        const linkName = getPathBasename(proto.linkPath);
+        if (!linkName)
+            return null;
+        const linkVisuals = truth.visualsByLinkName.get(linkName);
+        if (!Array.isArray(linkVisuals) || linkVisuals.length === 0)
+            return null;
+        if (linkVisuals[proto.protoIndex])
+            return linkVisuals[proto.protoIndex];
+        if (proto.protoIndex === 0 && linkVisuals.length === 1)
+            return linkVisuals[0];
+        return null;
+    }
+    getCollisionWorldTransformFromUrdfTruth(meshId) {
+        const collisionEntry = this.getUrdfCollisionEntryForMeshId(meshId);
+        if (!collisionEntry?.localMatrix)
+            return null;
+        const proto = parseProtoMeshIdentifier(meshId);
+        if (!proto?.linkPath)
+            return null;
+        const linkWorldMatrix = this.getUrdfLinkWorldTransformFromJointChain(proto.linkPath)
+            || this.getPreferredLinkWorldTransform(proto.linkPath)
+            || null;
+        if (!linkWorldMatrix)
+            return null;
+        const linkPosition = new Vector3();
+        const linkQuaternion = new Quaternion();
+        const linkScale = new Vector3();
+        linkWorldMatrix.decompose(linkPosition, linkQuaternion, linkScale);
+        const linkRigidMatrix = new Matrix4().compose(linkPosition, linkQuaternion, new Vector3(1, 1, 1));
+        const urdfWorldMatrix = linkRigidMatrix.multiply(collisionEntry.localMatrix);
+        const resolvedCollisionPrimPath = this.getResolvedPrimPathForMeshId(meshId);
+        if (!resolvedCollisionPrimPath) {
+            return urdfWorldMatrix;
+        }
+        const resolvedCollisionWorldMatrix = this.getWorldTransformForPrimPath(resolvedCollisionPrimPath);
+        if (!resolvedCollisionWorldMatrix) {
+            return urdfWorldMatrix;
+        }
+        const urdfPosition = new Vector3();
+        const urdfQuaternion = new Quaternion();
+        const urdfScale = new Vector3();
+        urdfWorldMatrix.decompose(urdfPosition, urdfQuaternion, urdfScale);
+        const resolvedScale = new Vector3();
+        resolvedCollisionWorldMatrix.decompose(new Vector3(), new Quaternion(), resolvedScale);
+        const epsilon = 1e-8;
+        const resolveScaleComponent = (candidateValue, fallbackValue) => {
+            if (Number.isFinite(candidateValue) && Math.abs(candidateValue) > epsilon) {
+                return candidateValue;
+            }
+            if (Number.isFinite(fallbackValue) && Math.abs(fallbackValue) > epsilon) {
+                return fallbackValue;
+            }
+            return 1;
+        };
+        const mergedScale = new Vector3(resolveScaleComponent(resolvedScale.x, urdfScale.x), resolveScaleComponent(resolvedScale.y, urdfScale.y), resolveScaleComponent(resolvedScale.z, urdfScale.z));
+        return new Matrix4().compose(urdfPosition, urdfQuaternion, mergedScale);
+    }
+    getVisualWorldTransformFromUrdfTruth(meshId) {
+        if (!this.shouldUseUrdfVisualFallbackForMesh(meshId))
+            return null;
+        const proto = parseProtoMeshIdentifier(meshId);
+        if (!proto?.linkPath)
+            return null;
+        const visualEntry = this.getUrdfVisualEntryForMeshId(meshId);
+        const resolvedVisualPrimPath = this.getResolvedVisualTransformPrimPathForMeshId(meshId);
+        const resolvedVisualWorldMatrix = resolvedVisualPrimPath
+            ? this.getWorldTransformForPrimPath(resolvedVisualPrimPath)
+            : null;
+        const stageLinkWorldMatrix = this.getPreferredLinkWorldTransform(proto.linkPath);
+        const linkWorldMatrix = this.getUrdfLinkWorldTransformFromJointChain(proto.linkPath)
+            || stageLinkWorldMatrix
+            || null;
+        if (!linkWorldMatrix)
+            return null;
+        const deriveLocalVisualMatrix = (parentWorldMatrix, childWorldMatrix) => {
+            if (!parentWorldMatrix || !childWorldMatrix)
+                return null;
+            const inverseParentWorldMatrix = parentWorldMatrix.clone().invert();
+            return inverseParentWorldMatrix.multiply(childWorldMatrix.clone());
+        };
+        const resolvedVisualLocalMatrix = deriveLocalVisualMatrix(stageLinkWorldMatrix, resolvedVisualWorldMatrix);
+        let localVisualMatrix = visualEntry?.localMatrix
+            ? visualEntry.localMatrix.clone()
+            : null;
+        if (!localVisualMatrix) {
+            localVisualMatrix = resolvedVisualLocalMatrix;
+        }
+        if (!localVisualMatrix) {
+            // For primary visual proto, identity is a safe fallback when neither URDF
+            // nor stage-local submesh transform is available.
+            localVisualMatrix = proto.protoIndex === 0 ? new Matrix4().identity() : null;
+        }
+        if (!localVisualMatrix)
+            return null;
+        const linkPosition = new Vector3();
+        const linkQuaternion = new Quaternion();
+        const linkScale = new Vector3();
+        linkWorldMatrix.decompose(linkPosition, linkQuaternion, linkScale);
+        const linkRigidMatrix = new Matrix4().compose(linkPosition, linkQuaternion, new Vector3(1, 1, 1));
+        const urdfWorldMatrix = linkRigidMatrix.multiply(localVisualMatrix);
+        return urdfWorldMatrix;
+    }
+    getUrdfFallbackXformOpValueForPrimPath(primPath, opName) {
+        if (!primPath || !opName || !opName.startsWith('xformOp:orient'))
+            return undefined;
+        const normalizedPrimPath = String(primPath || '');
+        const isCollisionPrim = normalizedPrimPath.includes('/collisions/');
+        if (!isCollisionPrim)
+            return undefined;
+        const collisionMatch = normalizedPrimPath.match(/^(.*)\/collisions\/mesh_(\d+)\/([^/]+)$/i);
+        if (!collisionMatch)
+            return undefined;
+        const linkPath = collisionMatch[1];
+        const protoIndex = Number(collisionMatch[2]);
+        const protoTypeToken = String(collisionMatch[3] || '').toLowerCase();
+        if (!Number.isFinite(protoIndex))
+            return undefined;
+        const protoType = protoTypeToken === 'cube' ? 'box' : protoTypeToken;
+        const meshId = `${linkPath}/collisions.proto_${protoType}_id${protoIndex}`;
+        const fallbackEntry = this.getUrdfCollisionEntryForMeshId(meshId);
+        if (!fallbackEntry?.originQuatWxyz)
+            return undefined;
+        return fallbackEntry.originQuatWxyz.slice(0, 4);
+    }
+    safeExportLayerText(layer) {
+        if (!layer || typeof layer.ExportToString !== 'function')
+            return '';
+        try {
+            const exported = layer.ExportToString();
+            return typeof exported === 'string' ? exported : String(exported || '');
+        }
+        catch {
+            return '';
+        }
+    }
+    safeExportRootLayerText(stage) {
+        if (!stage || typeof stage.GetRootLayer !== 'function')
+            return '';
+        try {
+            const rootLayer = stage.GetRootLayer();
+            return this.safeExportLayerText(rootLayer);
+        }
+        catch {
+            return '';
+        }
+    }
+    safeOpenUsdStage(stagePath) {
+        if (!stagePath)
+            return null;
+        if (this._openedGuideStages.has(stagePath)) {
+            return this._openedGuideStages.get(stagePath) || null;
+        }
+        const usdModule = typeof window !== 'undefined' ? window.USD : null;
+        if (!usdModule?.UsdStage?.Open) {
+            this._openedGuideStages.set(stagePath, null);
+            return null;
+        }
+        try {
+            const openedStage = usdModule.UsdStage.Open(stagePath);
+            if (openedStage && typeof openedStage.then === 'function') {
+                this._openedGuideStages.set(stagePath, null);
+                return null;
+            }
+            const stage = openedStage || null;
+            this._openedGuideStages.set(stagePath, stage);
+            return stage;
+        }
+        catch {
+            this._openedGuideStages.set(stagePath, null);
+            return null;
+        }
+    }
+    getGuideCollisionReferenceMapForCurrentStage() {
+        const stageSourcePath = this.getStageSourcePath() || '__unknown_stage__';
+        if (this._guideCollisionRefMapByStageSource.has(stageSourcePath)) {
+            return this._guideCollisionRefMapByStageSource.get(stageSourcePath);
+        }
+        const mergedMap = new Map();
+        const mergeMap = (nextMap) => {
+            if (!(nextMap instanceof Map))
+                return;
+            for (const [linkName, entries] of nextMap.entries()) {
+                if (!linkName || !Array.isArray(entries))
+                    continue;
+                const existing = mergedMap.get(linkName) || [];
+                for (const entry of entries) {
+                    if (!entry)
+                        continue;
+                    const entryName = String(entry.entryName || '').trim();
+                    const referencePath = entry.referencePath ? normalizeUsdPathToken(entry.referencePath) : null;
+                    if (!entryName)
+                        continue;
+                    const isDuplicate = existing.some((item) => item.entryName === entryName && item.referencePath === referencePath);
+                    if (isDuplicate)
+                        continue;
+                    existing.push({ entryName, referencePath });
+                }
+                mergedMap.set(linkName, existing);
+            }
+        };
+        const stage = this.getStage();
+        const rootLayerText = this.safeExportRootLayerText(stage);
+        mergeMap(parseGuideCollisionReferencesFromLayerText(rootLayerText));
+        mergeMap(parseColliderEntriesFromLayerText(rootLayerText));
+        const referencedAssets = extractUsdAssetReferencesFromLayerText(rootLayerText);
+        for (const assetPath of referencedAssets) {
+            if (isPotentiallyLargeBaseAssetPath(assetPath))
+                continue;
+            const resolvedPath = resolveUsdAssetPath(stageSourcePath, assetPath);
+            if (!resolvedPath)
+                continue;
+            if (isPotentiallyLargeBaseAssetPath(resolvedPath))
+                continue;
+            const referencedStage = this.safeOpenUsdStage(resolvedPath);
+            if (!referencedStage)
+                continue;
+            const layerText = this.safeExportRootLayerText(referencedStage);
+            mergeMap(parseGuideCollisionReferencesFromLayerText(layerText));
+            mergeMap(parseColliderEntriesFromLayerText(layerText));
+        }
+        this._guideCollisionRefMapByStageSource.set(stageSourcePath, mergedMap);
+        return mergedMap;
+    }
+    mergeVisualSemanticChildMaps(targetMap, nextMap) {
+        if (!(targetMap instanceof Map) || !(nextMap instanceof Map))
+            return;
+        for (const [linkName, childNames] of nextMap.entries()) {
+            const normalizedLinkName = String(linkName || '').trim();
+            if (!normalizedLinkName || !Array.isArray(childNames) || childNames.length === 0)
+                continue;
+            const existingNames = targetMap.get(normalizedLinkName) || [];
+            for (const childName of childNames) {
+                const normalizedChildName = String(childName || '').trim();
+                if (!normalizedChildName || existingNames.includes(normalizedChildName))
+                    continue;
+                existingNames.push(normalizedChildName);
+            }
+            targetMap.set(normalizedLinkName, existingNames);
+        }
+    }
+    getVisualSemanticChildMapForCurrentStage() {
+        const stageSourcePath = this.getStageSourcePath();
+        const cacheKey = stageSourcePath || '__unknown_stage__';
+        if (this._visualSemanticChildMapByStageSource.has(cacheKey)) {
+            return this._visualSemanticChildMapByStageSource.get(cacheKey);
+        }
+        const stage = this.getStage();
+        const mergedMap = new Map();
+        if (!stage) {
+            this._visualSemanticChildMapByStageSource.set(cacheKey, mergedMap);
+            return mergedMap;
+        }
+        const allowLargeBaseAssetScan = shouldAllowLargeBaseAssetScan(stageSourcePath);
+        const visitedLayerPaths = new Set();
+        const visitLayer = (layerPath, layerText) => {
+            if (!layerText || typeof layerText !== 'string')
+                return;
+            this.mergeVisualSemanticChildMaps(mergedMap, parseVisualSemanticChildNamesFromLayerText(layerText));
+            const resolveBasePath = (layerPath && layerPath.startsWith('/')) ? layerPath : stageSourcePath;
+            const referencedAssets = extractUsdAssetReferencesFromLayerText(layerText);
+            for (const assetPath of referencedAssets) {
+                if (!allowLargeBaseAssetScan && isPotentiallyLargeBaseAssetPath(assetPath))
+                    continue;
+                const resolvedPath = resolveUsdAssetPath(resolveBasePath, assetPath);
+                if (!resolvedPath || visitedLayerPaths.has(resolvedPath))
+                    continue;
+                if (!allowLargeBaseAssetScan && isPotentiallyLargeBaseAssetPath(resolvedPath))
+                    continue;
+                visitedLayerPaths.add(resolvedPath);
+                const referencedStage = this.safeOpenUsdStage(resolvedPath);
+                if (!referencedStage)
+                    continue;
+                const referencedLayerText = this.safeExportRootLayerText(referencedStage);
+                visitLayer(resolvedPath, referencedLayerText);
+            }
+        };
+        const rootLayerText = this.safeExportRootLayerText(stage);
+        if (stageSourcePath) {
+            visitedLayerPaths.add(stageSourcePath);
+        }
+        visitLayer(stageSourcePath || '__current_stage__', rootLayerText);
+        this._visualSemanticChildMapByStageSource.set(cacheKey, mergedMap);
+        return mergedMap;
+    }
+    mergeXformOpFallbackMaps(targetMap, nextMap) {
+        if (!(targetMap instanceof Map) || !(nextMap instanceof Map))
+            return;
+        for (const [primPath, opMap] of nextMap.entries()) {
+            if (!primPath || !(opMap instanceof Map))
+                continue;
+            let mergedOpMap = targetMap.get(primPath);
+            if (!(mergedOpMap instanceof Map)) {
+                mergedOpMap = new Map();
+                targetMap.set(primPath, mergedOpMap);
+            }
+            for (const [opName, opValue] of opMap.entries()) {
+                if (!opName)
+                    continue;
+                mergedOpMap.set(opName, Array.isArray(opValue) ? opValue.slice(0) : opValue);
+            }
+        }
+    }
+    getXformOpFallbackMapForCurrentStage() {
+        const stageSourcePath = this.getStageSourcePath();
+        const cacheKey = stageSourcePath || '__unknown_stage__';
+        if (this._xformOpFallbackMapByStageSource.has(cacheKey)) {
+            return this._xformOpFallbackMapByStageSource.get(cacheKey);
+        }
+        const stage = this.getStage();
+        const mergedMap = new Map();
+        if (!stage) {
+            this._xformOpFallbackMapByStageSource.set(cacheKey, mergedMap);
+            return mergedMap;
+        }
+        const allowLargeBaseAssetScan = shouldAllowLargeBaseAssetScan(stageSourcePath);
+        const visitedLayerPaths = new Set();
+        const visitLayer = (layerPath, layerText) => {
+            if (!layerText || typeof layerText !== 'string')
+                return;
+            const resolveBasePath = (layerPath && layerPath.startsWith('/')) ? layerPath : stageSourcePath;
+            const referencedAssets = extractUsdAssetReferencesFromLayerText(layerText);
+            for (const assetPath of referencedAssets) {
+                if (!allowLargeBaseAssetScan && isPotentiallyLargeBaseAssetPath(assetPath))
+                    continue;
+                const resolvedPath = resolveUsdAssetPath(resolveBasePath, assetPath);
+                if (!resolvedPath || visitedLayerPaths.has(resolvedPath))
+                    continue;
+                if (!allowLargeBaseAssetScan && isPotentiallyLargeBaseAssetPath(resolvedPath))
+                    continue;
+                visitedLayerPaths.add(resolvedPath);
+                const referencedStage = this.safeOpenUsdStage(resolvedPath);
+                if (!referencedStage)
+                    continue;
+                const referencedLayerText = this.safeExportRootLayerText(referencedStage);
+                visitLayer(resolvedPath, referencedLayerText);
+            }
+            this.mergeXformOpFallbackMaps(mergedMap, parseXformOpFallbacksFromLayerText(layerText));
+        };
+        const rootLayerText = this.safeExportRootLayerText(stage);
+        if (stageSourcePath) {
+            visitedLayerPaths.add(stageSourcePath);
+        }
+        visitLayer(stageSourcePath || '__current_stage__', rootLayerText);
+        this._xformOpFallbackMapByStageSource.set(cacheKey, mergedMap);
+        return mergedMap;
+    }
+    getRootLayerXformOpFallbackMapForCurrentStage() {
+        const stageSourcePath = this.getStageSourcePath();
+        const cacheKey = stageSourcePath || '__unknown_stage__';
+        if (this._rootLayerXformOpFallbackMapByStageSource.has(cacheKey)) {
+            return this._rootLayerXformOpFallbackMapByStageSource.get(cacheKey);
+        }
+        const stage = this.getStage();
+        if (!stage) {
+            const empty = new Map();
+            this._rootLayerXformOpFallbackMapByStageSource.set(cacheKey, empty);
+            return empty;
+        }
+        const rootLayerText = this.safeExportRootLayerText(stage);
+        const parsedMap = parseXformOpFallbacksFromLayerText(rootLayerText);
+        const fallbackMap = parsedMap instanceof Map ? parsedMap : new Map();
+        this._rootLayerXformOpFallbackMapByStageSource.set(cacheKey, fallbackMap);
+        return fallbackMap;
+    }
+    getRootLayerFallbackXformOpValueForPrimPath(primPath, opName) {
+        if (!primPath || !opName || !opName.startsWith('xformOp:'))
+            return undefined;
+        const fallbackMap = this.getRootLayerXformOpFallbackMapForCurrentStage();
+        if (!(fallbackMap instanceof Map) || fallbackMap.size === 0)
+            return undefined;
+        const candidatePaths = this.getFallbackXformCandidatePaths(primPath);
+        for (const candidatePath of candidatePaths) {
+            const opMap = fallbackMap.get(candidatePath);
+            if (!(opMap instanceof Map))
+                continue;
+            if (opMap.has(opName)) {
+                const value = opMap.get(opName);
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+            const baseOpNameMatch = opName.match(/^(xformOp:(?:transform|translate|scale|orient|rotate(?:XYZ|XZY|YXZ|YZX|ZXY|ZYX|X|Y|Z)))/);
+            const baseOpName = baseOpNameMatch ? baseOpNameMatch[1] : null;
+            if (baseOpName && baseOpName !== opName && opMap.has(baseOpName)) {
+                const value = opMap.get(baseOpName);
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+            if (opName.startsWith('xformOp:orient') && opMap.has('xformOp:orient')) {
+                const value = opMap.get('xformOp:orient');
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+        }
+        const suffixMatchedOpMap = this.getSuffixMatchedFallbackOpMap(fallbackMap, primPath);
+        if (suffixMatchedOpMap instanceof Map) {
+            if (suffixMatchedOpMap.has(opName)) {
+                const value = suffixMatchedOpMap.get(opName);
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+            const baseOpNameMatch = opName.match(/^(xformOp:(?:transform|translate|scale|orient|rotate(?:XYZ|XZY|YXZ|YZX|ZXY|ZYX|X|Y|Z)))/);
+            const baseOpName = baseOpNameMatch ? baseOpNameMatch[1] : null;
+            if (baseOpName && baseOpName !== opName && suffixMatchedOpMap.has(baseOpName)) {
+                const value = suffixMatchedOpMap.get(baseOpName);
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+            if (opName.startsWith('xformOp:orient') && suffixMatchedOpMap.has('xformOp:orient')) {
+                const value = suffixMatchedOpMap.get('xformOp:orient');
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+        }
+        return undefined;
+    }
+    getCollisionGuideFallbackPrimPath(primPath) {
+        if (!primPath || !primPath.includes('/collisions/'))
+            return null;
+        const marker = '/collisions/';
+        const markerIndex = primPath.indexOf(marker);
+        if (markerIndex <= 0)
+            return null;
+        const linkPath = primPath.slice(0, markerIndex);
+        const linkName = getPathBasename(linkPath);
+        const suffix = primPath.slice(markerIndex + marker.length);
+        if (!linkName || !suffix)
+            return null;
+        return normalizeUsdPathToken(`/colliders/${linkName}/${suffix}`);
+    }
+    getVisualGuideFallbackPrimPath(primPath) {
+        if (!primPath || !primPath.includes('/visuals/'))
+            return null;
+        const marker = '/visuals/';
+        const markerIndex = primPath.indexOf(marker);
+        if (markerIndex <= 0)
+            return null;
+        const linkPath = primPath.slice(0, markerIndex);
+        const linkName = getPathBasename(linkPath);
+        const suffix = primPath.slice(markerIndex + marker.length);
+        if (!linkName || !suffix)
+            return null;
+        // Some Unitree layers author fallback xform ops under `/visuals/<link>/<child>`
+        // instead of `/<root>/<link>/visuals/<child>`. Probe both layouts.
+        return normalizeUsdPathToken(`/visuals/${linkName}/${suffix}`);
+    }
+    getSectionStrippedFallbackPrimPaths(primPath) {
+        const normalizedPath = normalizeUsdPathToken(primPath);
+        if (!normalizedPath)
+            return [];
+        const tokens = normalizedPath.split('/').filter(Boolean);
+        if (tokens.length < 3)
+            return [];
+        const strippedPaths = [];
+        const seen = new Set();
+        const sectionNames = new Set(['visuals', 'collisions']);
+        for (let index = 1; index < tokens.length - 1; index++) {
+            const sectionToken = String(tokens[index] || '').toLowerCase();
+            if (!sectionNames.has(sectionToken))
+                continue;
+            const nextToken = String(tokens[index + 1] || '');
+            if (!nextToken)
+                continue;
+            const parentToken = String(tokens[index - 1] || '');
+            if (sectionToken === 'visuals'
+                && parentToken
+                && nextToken.toLowerCase() === parentToken.toLowerCase()) {
+                continue;
+            }
+            const strippedTokens = tokens.slice(0, index).concat(tokens.slice(index + 1));
+            const strippedPath = normalizeUsdPathToken(`/${strippedTokens.join('/')}`);
+            if (!strippedPath || seen.has(strippedPath))
+                continue;
+            seen.add(strippedPath);
+            strippedPaths.push(strippedPath);
+        }
+        return strippedPaths;
+    }
+    getFallbackXformCandidatePaths(primPath) {
+        const candidatePaths = [];
+        const addCandidatePath = (path) => {
+            const normalizedPath = normalizeUsdPathToken(path);
+            if (!normalizedPath || candidatePaths.includes(normalizedPath))
+                return;
+            candidatePaths.push(normalizedPath);
+        };
+        addCandidatePath(primPath);
+        addCandidatePath(getPathWithoutRoot(primPath));
+        addCandidatePath(this.getCollisionGuideFallbackPrimPath(primPath));
+        const visualGuideFallbackPath = this.getVisualGuideFallbackPrimPath(primPath);
+        addCandidatePath(visualGuideFallbackPath);
+        addCandidatePath(getPathWithoutRoot(visualGuideFallbackPath));
+        const sectionStrippedPaths = this.getSectionStrippedFallbackPrimPaths(primPath);
+        for (const strippedPath of sectionStrippedPaths) {
+            addCandidatePath(strippedPath);
+            addCandidatePath(getPathWithoutRoot(strippedPath));
+        }
+        return candidatePaths;
+    }
+    getSuffixMatchedFallbackOpMap(fallbackMap, primPath) {
+        if (!(fallbackMap instanceof Map) || !primPath)
+            return null;
+        const normalizedPrimPath = normalizeUsdPathToken(primPath);
+        if (!normalizedPrimPath)
+            return null;
+        const primSegments = normalizedPrimPath.split('/').filter(Boolean);
+        if (primSegments.length === 0)
+            return null;
+        // Avoid overly loose basename-only matches that can leak parent-link transforms
+        // into child visual/collision prims (e.g. `/visuals/<same_link_name>` paths).
+        const minimumMatchedSuffixSegments = primSegments.length >= 2 ? 2 : 1;
+        const rootPath = getRootPathFromPrimPath(normalizedPrimPath);
+        let bestRootMatchedOpMap = null;
+        let bestRootMatchedScore = 0;
+        let bestMatchedOpMap = null;
+        let bestMatchedScore = 0;
+        const getMatchedTrailingSegmentCount = (leftSegments, rightSegments) => {
+            const maxComparableSegments = Math.min(leftSegments.length, rightSegments.length);
+            let matchedSegments = 0;
+            while (matchedSegments < maxComparableSegments) {
+                const leftSegment = leftSegments[leftSegments.length - 1 - matchedSegments];
+                const rightSegment = rightSegments[rightSegments.length - 1 - matchedSegments];
+                if (leftSegment !== rightSegment)
+                    break;
+                matchedSegments++;
+            }
+            return matchedSegments;
+        };
+        for (const [fallbackPath, opMap] of fallbackMap.entries()) {
+            if (!(opMap instanceof Map) || opMap.size === 0)
+                continue;
+            const normalizedFallbackPath = normalizeUsdPathToken(fallbackPath);
+            if (!normalizedFallbackPath)
+                continue;
+            const fallbackSegments = normalizedFallbackPath.split('/').filter(Boolean);
+            if (fallbackSegments.length === 0)
+                continue;
+            const matchedTrailingSegments = getMatchedTrailingSegmentCount(primSegments, fallbackSegments);
+            if (matchedTrailingSegments < minimumMatchedSuffixSegments)
+                continue;
+            const sameRoot = !!rootPath && normalizedFallbackPath.startsWith(`${rootPath}/`);
+            if (sameRoot && matchedTrailingSegments > bestRootMatchedScore) {
+                bestRootMatchedScore = matchedTrailingSegments;
+                bestRootMatchedOpMap = opMap;
+            }
+            if (matchedTrailingSegments > bestMatchedScore) {
+                bestMatchedScore = matchedTrailingSegments;
+                bestMatchedOpMap = opMap;
+            }
+        }
+        return bestRootMatchedOpMap || bestMatchedOpMap || null;
+    }
+    getFallbackXformOpNamesForPrimPath(primPath) {
+        if (!primPath)
+            return [];
+        const fallbackMap = this.getXformOpFallbackMapForCurrentStage();
+        if (!(fallbackMap instanceof Map) || fallbackMap.size === 0)
+            return [];
+        const candidatePaths = this.getFallbackXformCandidatePaths(primPath);
+        for (const candidatePath of candidatePaths) {
+            const opMap = fallbackMap.get(candidatePath);
+            if (!(opMap instanceof Map) || opMap.size === 0)
+                continue;
+            const opNames = Array.from(opMap.keys()).filter((opName) => typeof opName === 'string' && opName.startsWith('xformOp:'));
+            if (opNames.length > 0)
+                return opNames;
+        }
+        const suffixMatchedOpMap = this.getSuffixMatchedFallbackOpMap(fallbackMap, primPath);
+        if (suffixMatchedOpMap instanceof Map) {
+            const opNames = Array.from(suffixMatchedOpMap.keys()).filter((opName) => typeof opName === 'string' && opName.startsWith('xformOp:'));
+            if (opNames.length > 0)
+                return opNames;
+        }
+        return [];
+    }
+    getFallbackXformOpValueForPrimPath(primPath, opName) {
+        if (!primPath || !opName || !opName.startsWith('xformOp:'))
+            return undefined;
+        const urdfFallbackValue = this.getUrdfFallbackXformOpValueForPrimPath(primPath, opName);
+        if (urdfFallbackValue !== undefined && urdfFallbackValue !== null) {
+            return Array.isArray(urdfFallbackValue) ? urdfFallbackValue.slice(0) : urdfFallbackValue;
+        }
+        const fallbackMap = this.getXformOpFallbackMapForCurrentStage();
+        if (!(fallbackMap instanceof Map) || fallbackMap.size === 0)
+            return undefined;
+        const candidatePaths = this.getFallbackXformCandidatePaths(primPath);
+        for (const candidatePath of candidatePaths) {
+            const opMap = fallbackMap.get(candidatePath);
+            if (!(opMap instanceof Map))
+                continue;
+            if (opMap.has(opName)) {
+                const value = opMap.get(opName);
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+            const baseOpNameMatch = opName.match(/^(xformOp:(?:transform|translate|scale|orient|rotate(?:XYZ|XZY|YXZ|YZX|ZXY|ZYX|X|Y|Z)))/);
+            const baseOpName = baseOpNameMatch ? baseOpNameMatch[1] : null;
+            if (baseOpName && baseOpName !== opName && opMap.has(baseOpName)) {
+                const value = opMap.get(baseOpName);
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+            if (opName.startsWith('xformOp:orient') && opMap.has('xformOp:orient')) {
+                const value = opMap.get('xformOp:orient');
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+        }
+        const suffixMatchedOpMap = this.getSuffixMatchedFallbackOpMap(fallbackMap, primPath);
+        if (suffixMatchedOpMap instanceof Map) {
+            if (suffixMatchedOpMap.has(opName)) {
+                const value = suffixMatchedOpMap.get(opName);
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+            const baseOpNameMatch = opName.match(/^(xformOp:(?:transform|translate|scale|orient|rotate(?:XYZ|XZY|YXZ|YZX|ZXY|ZYX|X|Y|Z)))/);
+            const baseOpName = baseOpNameMatch ? baseOpNameMatch[1] : null;
+            if (baseOpName && baseOpName !== opName && suffixMatchedOpMap.has(baseOpName)) {
+                const value = suffixMatchedOpMap.get(baseOpName);
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+            if (opName.startsWith('xformOp:orient') && suffixMatchedOpMap.has('xformOp:orient')) {
+                const value = suffixMatchedOpMap.get('xformOp:orient');
+                return Array.isArray(value) ? value.slice(0) : value;
+            }
+        }
+        return undefined;
+    }
+    buildGuideCollisionPrimPathCandidates(meshId, guideEntry) {
+        const proto = parseProtoMeshIdentifier(meshId);
+        if (!proto)
+            return [];
+        const candidates = [];
+        const addCandidate = (path) => {
+            if (!path || candidates.includes(path))
+                return;
+            candidates.push(path);
+        };
+        const names = [];
+        const addName = (value) => {
+            const name = getPathBasename(value);
+            if (!name || names.includes(name))
+                return;
+            names.push(name);
+        };
+        addName(guideEntry?.entryName);
+        addName(guideEntry?.referencePath);
+        addName(proto.linkName);
+        for (const name of names) {
+            addCandidate(`${proto.linkPath}/collisions/${name}/mesh`);
+            addCandidate(`${proto.linkPath}/collisions/${name}/collision_mesh`);
+            addCandidate(`${proto.linkPath}/collisions/${name}/visual_mesh`);
+            addCandidate(`${proto.linkPath}/collisions/${name}/cube`);
+            addCandidate(`${proto.linkPath}/collisions/${name}/sphere`);
+            addCandidate(`${proto.linkPath}/collisions/${name}/cylinder`);
+            addCandidate(`${proto.linkPath}/collisions/${name}/capsule`);
+        }
+        addCandidate(`${proto.linkPath}/collisions/mesh_${proto.protoIndex}/mesh`);
+        addCandidate(`${proto.linkPath}/collisions/mesh_${proto.protoIndex}/cube`);
+        addCandidate(`${proto.linkPath}/collisions/mesh_${proto.protoIndex}/sphere`);
+        addCandidate(`${proto.linkPath}/collisions/mesh_${proto.protoIndex}/cylinder`);
+        addCandidate(`${proto.linkPath}/collisions/mesh_${proto.protoIndex}/capsule`);
+        return candidates;
+    }
+    resolveGuideCollisionPrimPath(meshId) {
+        if (!meshId)
+            return null;
+        const stageKey = this.getStageSourcePath() || '__unknown_stage__';
+        const cacheKey = `${stageKey}::${meshId}`;
+        if (this._guideCollisionPrimPathCache.has(cacheKey)) {
+            return this._guideCollisionPrimPathCache.get(cacheKey) || null;
+        }
+        const stage = this.getStage();
+        const proto = parseProtoMeshIdentifier(meshId);
+        if (!stage || !proto || proto.sectionName !== 'collisions' || proto.protoType !== 'mesh') {
+            this._guideCollisionPrimPathCache.set(cacheKey, null);
+            return null;
+        }
+        const guideMap = this.getGuideCollisionReferenceMapForCurrentStage();
+        const guideEntries = guideMap.get(proto.linkName) || [];
+        if (!guideEntries.length) {
+            this._guideCollisionPrimPathCache.set(cacheKey, null);
+            return null;
+        }
+        const orderedEntries = [];
+        const preferredEntry = guideEntries[proto.protoIndex];
+        if (preferredEntry)
+            orderedEntries.push(preferredEntry);
+        for (const entry of guideEntries) {
+            if (!entry || orderedEntries.includes(entry))
+                continue;
+            orderedEntries.push(entry);
+        }
+        const acceptableTypes = ['mesh', 'cube', 'sphere', 'cylinder', 'capsule'];
+        for (const entry of orderedEntries) {
+            const candidates = this.buildGuideCollisionPrimPathCandidates(meshId, entry);
+            for (const candidatePath of candidates) {
+                const prim = this.safeGetPrimAtPath(stage, candidatePath);
+                if (!prim)
+                    continue;
+                const primType = getSafePrimTypeName(prim);
+                if (!primType || !acceptableTypes.includes(primType))
+                    continue;
+                this._guideCollisionPrimPathCache.set(cacheKey, candidatePath);
+                return candidatePath;
+            }
+        }
+        this._guideCollisionPrimPathCache.set(cacheKey, null);
+        return null;
+    }
+}

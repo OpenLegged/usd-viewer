@@ -1,0 +1,17 @@
+diff --git a/usd-wasm/src/bindings/emHdBindings.js b/usd-wasm/src/bindings/emHdBindings.js
+--- a/usd-wasm/src/bindings/emHdBindings.js
++++ b/usd-wasm/src/bindings/emHdBindings.js
+@@ -5,12 +5,5 @@
+       : undefined;
+   if (typeof __filename !== "undefined") _scriptDir = _scriptDir || __filename;
+-  return function (moduleArg = {
+-    // module overrides can be supplied here
+-    locateFile: (path, prefix) => {
+-      if (!prefix && _scriptDir) prefix = _scriptDir.substr(0, _scriptDir.lastIndexOf('/') + 1);
+-      return prefix + path;
+-    },
+-    ...args
+-}) {
++  return function (moduleArg = {}) {
+     function GROWABLE_HEAP_I8() {
+       if (wasmMemory.buffer != HEAP8.buffer) {

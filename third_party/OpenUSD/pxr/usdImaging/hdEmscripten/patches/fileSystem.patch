@@ -1,0 +1,9 @@
+diff --git a/usd-wasm/src/bindings/emHdBindings.js b/usd-wasm/src/bindings/emHdBindings.js
+--- a/usd-wasm/src/bindings/emHdBindings.js
++++ b/usd-wasm/src/bindings/emHdBindings.js
+@@ -7857,2 +7857,5 @@
+     Module["FS_unlink"] = FS.unlink;
++    Module["FS_readdir"] = FS.readdir;
++    Module["FS_rmdir"] = FS.rmdir;
++    Module["FS_analyzePath"] = FS.analyzePath;
+     Module["FS_createLazyFile"] = FS.createLazyFile;

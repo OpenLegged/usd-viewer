@@ -1,0 +1,33 @@
+{
+  "name": "usd-wasm-runtime",
+  "version": "0.1.0",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "require": "./src/index.cjs"
+    },
+    "./plugins": {
+      "import": "./src/plugins/index.js",
+      "require": "./src/plugins/index.cjs",
+      "types": "./src/types/plugins.d.ts"
+    }
+  },
+  "keywords": [
+    "usd",
+    "openusd",
+    "wasm",
+    "threejs",
+    "webgl",
+    "robotics"
+  ],
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  },
+  "devDependencies": {
+    "vite": "^5.2.13",
+    "@types/three": "^0.164.1"
+  }
+}

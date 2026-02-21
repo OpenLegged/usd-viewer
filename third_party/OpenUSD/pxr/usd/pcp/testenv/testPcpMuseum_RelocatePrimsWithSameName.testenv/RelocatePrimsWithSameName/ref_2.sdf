@@ -1,0 +1,15 @@
+#sdf 1.4.32
+(
+    relocates = {
+        </Ref2/Child>: </Ref2/Child_2>
+    }
+)
+
+def "Ref2" (
+    references = @./base.sdf@</Base>
+)
+{
+    def "Ref2_Child"
+    {
+    }
+}

@@ -1,0 +1,8 @@
+diff --git a/usd-wasm/src/bindings/emHdBindings.js b/usd-wasm/src/bindings/emHdBindings.js
+--- a/usd-wasm/src/bindings/emHdBindings.js
++++ b/usd-wasm/src/bindings/emHdBindings.js
+@@ -12019,4 +12020,2 @@
+ else if (typeof define === "function" && define["amd"])
+   define([], () => getUsdModule);
+-
+globalThis["NEEDLE:USD:GET"] = getUsdModule;

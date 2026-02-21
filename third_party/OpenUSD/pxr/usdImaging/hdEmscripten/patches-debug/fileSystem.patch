@@ -1,0 +1,10 @@
+diff --git a/usd-wasm/src/bindings-debug/emHdBindings.js b/usd-wasm/src/bindings-debug/emHdBindings.js
+--- a/usd-wasm/src/bindings-debug/emHdBindings.js
++++ b/usd-wasm/src/bindings-debug/emHdBindings.js
+@@ -12943,4 +12950,8 @@
+     Module["PThread"] = PThread;
++    Module["FS_readdir"]=FS.readdir;
++    Module["FS_rmdir"] = FS.rmdir;
++    Module["FS_analyzePath"]=FS.analyzePath;
+     var calledRun;
+

@@ -1,0 +1,41 @@
+{
+  "name": "usd-viewer",
+  "version": "0.1.0",
+  "description": "Basic USD viewer",
+  "main": "server.ts",
+  "scripts": {
+    "build": "npm run build:usd-wasm && node node_modules/typescript/bin/tsc -p tsconfig.json && node scripts/sync-vendor.cjs",
+    "build:usd-wasm": "node node_modules/typescript/bin/tsc -p usd-wasm/tsconfig.hydra.json",
+    "rebuild:wasm:speed": "bash scripts/rebuild-wasm-speed.sh",
+    "sync:openusd": "bash scripts/sync-openusd-source.sh",
+    "start": "npm run build && node node_modules/typescript/bin/tsc server.ts --target ES2021 --module commonjs --noCheck --outDir . && node server.js",
+    "accept": "npm run build && node node_modules/typescript/bin/tsc server.ts --target ES2021 --module commonjs --noCheck --outDir . && VALIDATE_ONLY=1 node server.js",
+    "cleanup": "node scripts/cleanup-headless.cjs"
+  },
+  "dependencies": {
+    "@fastify/compress": "^7.0.3",
+    "@fastify/static": "^6.10.2",
+    "fastify": "^4.22.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "engines": {
+    "node": ">16.x"
+  },
+  "repository": {
+    "url": "https://glitch.com/edit/#!/usd-viewer"
+  },
+  "license": "Apache 2.0 License",
+  "keywords": [
+    "usd",
+    "usdz",
+    "viewer"
+  ],
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "playwright": "^1.58.2",
+    "three": "^0.182.0",
+    "typescript": "^5.9.3"
+  }
+}
