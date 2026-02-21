@@ -19,10 +19,10 @@ export async function getUsdModule(opts) {
     /**
      * @type {import("..").getUsdModule}
      */
-    const getUsdModuleFn = globalThis["NEEDLE:USD:GET"];
+    const getUsdModuleFn = globalThis["USD_WASM_MODULE"];
 
     if (!getUsdModuleFn) {
-        throw new Error("\"NEEDLE:USD:GET\" not found in globalThis - please modify \"emHdBindings.js\" and add: globalThis[\"NEEDLE:USD:GET\"] = getUsdModule;");
+        throw new Error("\"USD_WASM_MODULE\" not found in globalThis - please modify \"emHdBindings.js\" and add: globalThis[\"USD_WASM_MODULE\"] = getUsdModule;");
     }
 
 

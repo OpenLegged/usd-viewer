@@ -1,5 +1,8 @@
 .glitchdotcom.json
 .node-gyp
 node_modules
+.claude/
+.vscode/
+.github/
 .DS_Store
 **/dist

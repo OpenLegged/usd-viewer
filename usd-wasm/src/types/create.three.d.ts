@@ -40,7 +40,7 @@ export declare type createThreeHydraConfig = {
 /**
  * Use the hydra handle to update the usd scene periodically.
  */
-export declare type NeedleThreeHydraHandle = {
+export declare type USDThreeHydraHandle = {
     /** The hydra driver
     */
     driver: HdWebSyncDriver,
@@ -62,4 +62,4 @@ export declare class USDLoadingManager {
 /**
  * Creates a new three.js hydra handle.
  */
-export function createThreeHydra(config: createThreeHydraConfig): Promise<NeedleThreeHydraHandle>
+export function createThreeHydra(config: createThreeHydraConfig): Promise<USDThreeHydraHandle>

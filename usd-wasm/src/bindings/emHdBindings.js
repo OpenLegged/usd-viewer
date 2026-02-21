@@ -12,7 +12,7 @@ function GROWABLE_HEAP_I8(){if(wasmMemory.buffer!=HEAP8.buffer){updateMemoryView
 }
 );
 })();
-if (typeof globalThis === 'object') globalThis["NEEDLE:USD:GET"] = getUsdModule;
+if (typeof globalThis === 'object') globalThis["USD_WASM_MODULE"] = getUsdModule;
 if (typeof exports === 'object' && typeof module === 'object')
   module.exports = getUsdModule;
 else if (typeof define === 'function' && define['amd'])

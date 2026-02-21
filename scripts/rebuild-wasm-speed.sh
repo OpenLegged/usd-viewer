@@ -307,12 +307,12 @@ if 'Module["FS_readdir"] = FS.readdir;' not in text and 'Module["PThread"] = PTh
     )
     changed = True
 
-if 'globalThis["NEEDLE:USD:GET"] = getUsdModule;' not in text:
+if 'globalThis["USD_WASM_MODULE"] = getUsdModule;' not in text:
     export_anchor = "if (typeof exports === 'object' && typeof module === 'object')"
     if export_anchor in text:
         text = text.replace(
             export_anchor,
-            """if (typeof globalThis === 'object') globalThis["NEEDLE:USD:GET"] = getUsdModule;
+            """if (typeof globalThis === 'object') globalThis["USD_WASM_MODULE"] = getUsdModule;
 """ + export_anchor,
             1,
         )

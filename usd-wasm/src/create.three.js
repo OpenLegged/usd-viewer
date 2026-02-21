@@ -65,7 +65,7 @@ export async function createThreeHydra(config) {
 
     // Some common directory is needed so that we don't get clashes with root-level files
     // and directories in the virtual file system
-    const directoryForFiles = "needle/";
+    const directoryForFiles = "usd-files/";
 
     // We're loading all provided files into the virtual file system.
     // Potentially, we could also resolve dropped files on the fly and load them only when needed,

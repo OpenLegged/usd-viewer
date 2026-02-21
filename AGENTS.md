@@ -21,7 +21,7 @@
 - 速度构建脚本会做的额外处理：
   - 可选 `wasm-opt`（默认 `-O3`，可 `WASM_OPT_LEVEL` 覆盖，`--skip-wasm-opt` 可跳过）
   - 对 `emHdBindings.js` 打补丁（`public/patches/*.patch`）
-  - 追加兼容性文本补丁（例如 `NEEDLE:USD:GET` 导出、FS 暴露、abort 行为）
+  - 追加兼容性文本补丁（例如 `USD_WASM_MODULE` 导出、FS 暴露、abort 行为）
 
 
 ## 2) 本仓库编译链路
