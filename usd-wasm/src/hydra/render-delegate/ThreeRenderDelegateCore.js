@@ -43,6 +43,7 @@ export class ThreeRenderDelegateCore {
         // then resolve per-mesh reads from JS cache.
         this.autoBatchProtoBlobsOnFirstAccess = safeConfig.autoBatchProtoBlobsOnFirstAccess !== false;
         this.autoBatchPrimTransformsOnFirstAccess = safeConfig.autoBatchPrimTransformsOnFirstAccess !== false;
+        this.autoBatchCollisionProtoOverridesOnFirstAccess = safeConfig.autoBatchCollisionProtoOverridesOnFirstAccess !== false;
         // Avoid expensive driver.GetStage() calls inside high-frequency Hydra sync callbacks.
         // Stage-dependent fallback passes still run later once stage metadata is ready.
         this.deferDriverStageLookupInSyncHotPath = safeConfig.deferDriverStageLookupInSyncHotPath !== false;
@@ -68,6 +69,9 @@ export class ThreeRenderDelegateCore {
         this.skeletons = {};
         this._localXformCache = new Map();
         this._worldXformCache = new Map();
+        this._primPathExistenceCache = new Map();
+        this._knownPrimPathSet = null;
+        this._knownPrimPathSetPrimed = false;
         this._meshFallbackCache = new Map();
         this._resolvedProtoPrimPathCache = new Map();
         this._resolvedVisualPrimPathCache = new Map();
@@ -85,6 +89,9 @@ export class ThreeRenderDelegateCore {
         this._protoDataBlobBatchCache = new Map();
         this._protoDataBlobBatchPrimed = false;
         this._primTransformBatchPrimed = false;
+        this._collisionProtoOverrideCache = new Map();
+        this._collisionProtoOverrideBatchPrimed = false;
+        this._primOverrideDataCache = new Map();
         this._urdfTruthByStageSource = new Map();
         this._urdfTruthLoadPromisesByStageSource = new Map();
         this._urdfLinkWorldTransformCacheByStageSource = new Map();

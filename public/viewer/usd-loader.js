@@ -1,4 +1,5 @@
-import { ThreeRenderDelegateInterface } from "/usd/hydra/ThreeJsRenderDelegate.js";
+// @ts-ignore runtime cache-busting query suffix is resolved by browser ESM loader.
+import { ThreeRenderDelegateInterface } from "/usd/hydra/ThreeJsRenderDelegate.js?v=20260222h";
 import { fitCameraToSelection, scheduleCameraRefit } from "./camera.js";
 import { getDirectoryFromVirtualPath, isLikelyNonRenderableUsdConfig, normalizeUsdPath, parseBooleanFlag } from "./path-utils.js";
 function sleep(ms) {
@@ -667,6 +668,7 @@ export async function loadUsdStage(args) {
                 force: options.force === true,
                 includePrimTransforms: true,
                 includeProtoDataBlobs: prefetchProtoDataBlobs,
+                includeCollisionProtoOverrides: true,
                 includeResolvedPrimPathIndex: true,
                 includeRobotMetadata: warmupRobotMetadata && options.includeRobotMetadata === true,
             });

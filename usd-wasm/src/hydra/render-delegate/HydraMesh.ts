@@ -92,6 +92,7 @@ class HydraMesh {
     this._primitiveFallbackType = this.getPrimitiveFallbackType();
     this._hasGeneratedPrimitiveFallback = false;
     this._appliedCollisionOverride = false;
+    this._lastAppliedResolvedPrimPath = null;
     this._needsNormalFallback = false;
     // Track whether this mesh already received authored topology/vertex payloads
     // from Hydra. When true, proto blob fast-path is redundant and can add avoidable
@@ -253,8 +254,230 @@ class HydraMesh {
     return false;
   }
 
+  getExtentDimensionsFromDescriptor(descriptor) {
+    if (!descriptor || !descriptor.extentSize || typeof descriptor.extentSize.length !== 'number') return null;
+    if (Number(descriptor.extentSize.length) < 3) return null;
+    const width = Math.abs(Number(descriptor.extentSize[0] ?? 0));
+    const height = Math.abs(Number(descriptor.extentSize[1] ?? 0));
+    const depth = Math.abs(Number(descriptor.extentSize[2] ?? 0));
+    if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(depth)) return null;
+    return [Math.max(width, 1e-6), Math.max(height, 1e-6), Math.max(depth, 1e-6)];
+  }
+
+  applyPrimitiveGeometryFromDescriptor(primType, descriptor) {
+    let generated = null;
+    const normalizedType = String(primType || '').toLowerCase();
+    const dimensionsFromExtent = this.getExtentDimensionsFromDescriptor(descriptor);
+    const sizeValue = toFiniteNumber(descriptor?.size);
+    const radiusValue = toFiniteNumber(descriptor?.radius);
+    const heightValue = toFiniteNumber(descriptor?.height);
+    const axis = String(descriptor?.axis || 'Z').toUpperCase();
+
+    if (normalizedType === 'cube') {
+      const extentMatchesSize = dimensionsFromExtent && sizeValue !== undefined
+        ? nearlyEqual(dimensionsFromExtent[0], sizeValue)
+          && nearlyEqual(dimensionsFromExtent[1], sizeValue)
+          && nearlyEqual(dimensionsFromExtent[2], sizeValue)
+        : false;
+
+      const width = dimensionsFromExtent
+        ? (sizeValue !== undefined && !extentMatchesSize ? sizeValue : dimensionsFromExtent[0])
+        : (sizeValue ?? 1);
+      const height = dimensionsFromExtent
+        ? (sizeValue !== undefined && !extentMatchesSize ? sizeValue : dimensionsFromExtent[1])
+        : (sizeValue ?? 1);
+      const depth = dimensionsFromExtent
+        ? (sizeValue !== undefined && !extentMatchesSize ? sizeValue : dimensionsFromExtent[2])
+        : (sizeValue ?? 1);
+      generated = new BoxGeometry(width, height, depth);
+    } else if (normalizedType === 'sphere') {
+      const radiusFromExtent = dimensionsFromExtent
+        ? Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1], dimensionsFromExtent[2]) * 0.5
+        : undefined;
+      const radius = radiusValue ?? radiusFromExtent ?? 0.5;
+      generated = new SphereGeometry(Math.max(radius, 1e-6), 18, 12);
+    } else if (normalizedType === 'cylinder') {
+      let radiusFromExtent = undefined;
+      let heightFromExtent = undefined;
+      if (dimensionsFromExtent) {
+        if (axis === 'X') {
+          heightFromExtent = dimensionsFromExtent[0];
+          radiusFromExtent = Math.max(dimensionsFromExtent[1], dimensionsFromExtent[2]) * 0.5;
+        } else if (axis === 'Y') {
+          heightFromExtent = dimensionsFromExtent[1];
+          radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[2]) * 0.5;
+        } else {
+          heightFromExtent = dimensionsFromExtent[2];
+          radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1]) * 0.5;
+        }
+      }
+      const radius = radiusValue ?? radiusFromExtent ?? 0.5;
+      const height = heightValue ?? heightFromExtent ?? 1;
+      generated = new CylinderGeometry(Math.max(radius, 1e-6), Math.max(radius, 1e-6), Math.max(height, 1e-6), 18, 1, false);
+      if (axis === 'X') {
+        generated.rotateZ(-Math.PI / 2);
+      } else if (axis === 'Z') {
+        generated.rotateX(Math.PI / 2);
+      }
+    } else if (normalizedType === 'capsule') {
+      let radiusFromExtent = undefined;
+      let totalHeightFromExtent = undefined;
+      if (dimensionsFromExtent) {
+        if (axis === 'X') {
+          totalHeightFromExtent = dimensionsFromExtent[0];
+          radiusFromExtent = Math.max(dimensionsFromExtent[1], dimensionsFromExtent[2]) * 0.5;
+        } else if (axis === 'Y') {
+          totalHeightFromExtent = dimensionsFromExtent[1];
+          radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[2]) * 0.5;
+        } else {
+          totalHeightFromExtent = dimensionsFromExtent[2];
+          radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1]) * 0.5;
+        }
+      }
+      const radius = Math.max(radiusValue ?? radiusFromExtent ?? 0.5, 1e-6);
+      const totalHeight = Math.max(heightValue ?? totalHeightFromExtent ?? 1, 1e-6);
+      const capsuleBodyHeight = Math.max(totalHeight - 2 * radius, 1e-6);
+      generated = new CapsuleGeometry(radius, capsuleBodyHeight, 8, 16);
+      if (axis === 'X') {
+        generated.rotateZ(-Math.PI / 2);
+      } else if (axis === 'Z') {
+        generated.rotateX(Math.PI / 2);
+      }
+    }
+
+    if (!generated) return false;
+    generated.computeBoundingBox();
+    generated.computeBoundingSphere();
+    this.replaceGeometry(generated);
+    return true;
+  }
+
+  applyCollisionGeometryFromDriverOverride(overridePayload) {
+    if (!overridePayload || overridePayload.valid !== true) return false;
+    const primType = String(overridePayload.primType || '').toLowerCase();
+    if (!primType) return false;
+
+    let geometryApplied = false;
+    if (primType === 'mesh') {
+      try {
+        geometryApplied = this.tryApplyProtoDataBlobFastPath() === true;
+      } catch {
+        geometryApplied = false;
+      }
+      if (!geometryApplied) {
+        const resolvedPath = normalizeHydraPath(overridePayload.resolvedPrimPath);
+        if (resolvedPath) {
+          geometryApplied = this.applyResolvedPrimGeometry(resolvedPath) === true;
+        }
+      }
+    } else if (primType === 'cube' || primType === 'sphere' || primType === 'cylinder' || primType === 'capsule') {
+      geometryApplied = this.applyPrimitiveGeometryFromDescriptor(primType, overridePayload) === true;
+    }
+    if (!geometryApplied) return false;
+
+    const localXformOverride = this._interface.getCollisionLocalXformOverride(this._id);
+    if (localXformOverride) {
+      const proto = parseProtoMeshIdentifier(this._id);
+      const linkPath = localXformOverride.linkPath || proto?.linkPath || null;
+      const linkTransform = linkPath ? this._interface.getWorldTransformForPrimPath(linkPath) : null;
+      const localMatrix = new Matrix4().compose(
+        localXformOverride.translation,
+        localXformOverride.orientation,
+        localXformOverride.scale
+      );
+      if (linkTransform) {
+        localMatrix.premultiply(linkTransform);
+      }
+      this._mesh.matrix.copy(localMatrix);
+      this._mesh.matrixAutoUpdate = false;
+    } else if (overridePayload.worldTransform && this._setMatrixFromRowMajorSource(overridePayload.worldTransform)) {
+      this._mesh.matrixAutoUpdate = false;
+    } else {
+      const resolvedPath = normalizeHydraPath(overridePayload.resolvedPrimPath);
+      if (resolvedPath) {
+        const resolvedTransform = this._interface.getWorldTransformForPrimPath(resolvedPath);
+        if (resolvedTransform) {
+          this._mesh.matrix.copy(resolvedTransform);
+          this._mesh.matrixAutoUpdate = false;
+        }
+      }
+    }
+
+    this._appliedCollisionOverride = true;
+    this._lastAppliedResolvedPrimPath = normalizeHydraPath(overridePayload.resolvedPrimPath) || this._lastAppliedResolvedPrimPath;
+    this._hasGeneratedPrimitiveFallback = true;
+    return true;
+  }
+
+  hasAppliedCollisionOverrideForPrimPath(primPath) {
+    const normalizedPath = normalizeHydraPath(primPath);
+    if (!normalizedPath || !normalizedPath.startsWith('/')) return false;
+    if (this._appliedCollisionOverride !== true) return false;
+    return this._lastAppliedResolvedPrimPath === normalizedPath;
+  }
+
   applyResolvedPrimGeometryAndTransform(primPath) {
-    if (!this.applyResolvedPrimGeometry(primPath)) return false;
+    const normalizedPrimPath = normalizeHydraPath(primPath);
+    if (!normalizedPrimPath || !normalizedPrimPath.startsWith('/')) return false;
+
+    if (this.hasAppliedCollisionOverrideForPrimPath(normalizedPrimPath)) {
+      const resolvedTransform = this._interface.getWorldTransformForPrimPath(normalizedPrimPath);
+      if (resolvedTransform) {
+        this._mesh.matrix.copy(resolvedTransform);
+        this._mesh.matrixAutoUpdate = false;
+      }
+      return true;
+    }
+
+    const primOverrideData = this._interface?.getPrimOverrideData?.(normalizedPrimPath) || null;
+    if (primOverrideData && primOverrideData.valid === true) {
+      let geometryApplied = false;
+      if (primOverrideData.primType === 'mesh') {
+        try {
+          geometryApplied = this.tryApplyProtoDataBlobFastPath() === true;
+        } catch {
+          geometryApplied = false;
+        }
+        if (!geometryApplied) {
+          geometryApplied = this.applyResolvedPrimGeometry(normalizedPrimPath) === true;
+        }
+      } else if (
+        primOverrideData.primType === 'cube'
+        || primOverrideData.primType === 'sphere'
+        || primOverrideData.primType === 'cylinder'
+        || primOverrideData.primType === 'capsule'
+      ) {
+        geometryApplied = this.applyPrimitiveGeometryFromDescriptor(primOverrideData.primType, primOverrideData) === true;
+      }
+
+      if (geometryApplied) {
+        const localXformOverride = this._interface.getCollisionLocalXformOverride(this._id);
+        if (localXformOverride) {
+          const proto = parseProtoMeshIdentifier(this._id);
+          const linkPath = localXformOverride.linkPath || proto?.linkPath || null;
+          const linkTransform = linkPath ? this._interface.getWorldTransformForPrimPath(linkPath) : null;
+          const localMatrix = new Matrix4().compose(
+            localXformOverride.translation,
+            localXformOverride.orientation,
+            localXformOverride.scale
+          );
+          if (linkTransform) {
+            localMatrix.premultiply(linkTransform);
+          }
+          this._mesh.matrix.copy(localMatrix);
+          this._mesh.matrixAutoUpdate = false;
+        } else if (primOverrideData.worldTransform && this._setMatrixFromRowMajorSource(primOverrideData.worldTransform)) {
+          this._mesh.matrixAutoUpdate = false;
+        }
+
+        this._appliedCollisionOverride = true;
+        this._lastAppliedResolvedPrimPath = normalizedPrimPath;
+        this._hasGeneratedPrimitiveFallback = true;
+        return true;
+      }
+    }
+
+    if (!this.applyResolvedPrimGeometry(normalizedPrimPath)) return false;
 
     const localXformOverride = this._interface.getCollisionLocalXformOverride(this._id);
     if (localXformOverride) {
@@ -272,7 +495,7 @@ class HydraMesh {
       this._mesh.matrix.copy(localMatrix);
       this._mesh.matrixAutoUpdate = false;
     } else {
-      const resolvedTransform = this._interface.getWorldTransformForPrimPath(primPath);
+      const resolvedTransform = this._interface.getWorldTransformForPrimPath(normalizedPrimPath);
       if (resolvedTransform) {
         this._mesh.matrix.copy(resolvedTransform);
         this._mesh.matrixAutoUpdate = false;
@@ -288,6 +511,7 @@ class HydraMesh {
     }
 
     this._appliedCollisionOverride = true;
+    this._lastAppliedResolvedPrimPath = normalizedPrimPath;
     this._hasGeneratedPrimitiveFallback = true;
     return true;
   }
@@ -694,6 +918,14 @@ class HydraMesh {
     const loweredId = this._id.toLowerCase();
     const isCollision = loweredId.includes('/collisions.') || loweredId.includes('/collisions/') || loweredId.includes('/collision.') || loweredId.includes('/collision/');
     if (!isCollision) return false;
+
+    const driverOverride = this._interface?.getCollisionProtoOverride?.(this._id);
+    if (driverOverride && this.applyCollisionGeometryFromDriverOverride(driverOverride)) {
+      this._primitiveFallbackType = null;
+      this._hasGeneratedPrimitiveFallback = true;
+      return true;
+    }
+
     const primPath = this._interface.getCollisionOverridePrimPath(this._id);
     if (!primPath) return false;
     if (!this.applyResolvedPrimGeometryAndTransform(primPath)) return false;

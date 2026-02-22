@@ -37,6 +37,7 @@
 #include "pxr/imaging/hd/smoothNormals.h"
 #include "pxr/imaging/hd/vtBufferSource.h"
 
+#include <algorithm>
 #include <iostream>
 
 using namespace emscripten;
@@ -67,19 +68,28 @@ class Emscripten_Rprim final : public HdMesh {
 public:
     Emscripten_Rprim(TfToken const& typeId,
                  SdfPath const& id,
-                 emscripten::val renderDelegateInterface)
+                 emscripten::val renderDelegateInterface,
+                 WebRenderDelegate* ownerDelegate)
      : HdMesh(id)
      , _typeId(typeId)
      , _renderDelegateInterface(renderDelegateInterface)
+     , _ownerDelegate(ownerDelegate)
      , _rPrim(val::undefined())
      , _meshUtil(NULL)
+     , _transform(1.0f)
+     , _materialIdPath()
+     , _uvPrimvar()
      , _adjacencyValid(false)
      , _normalsValid(false)
+     , _smoothNormals(false)
     {
       _rPrim = _renderDelegateInterface.call<val>("createRPrim", std::string(typeId.GetText()), id.GetAsString());
     }
 
-    virtual ~Emscripten_Rprim() = default;
+    virtual ~Emscripten_Rprim() {
+        if (!_ownerDelegate) return;
+        _ownerDelegate->RemoveProtoDataBlob(GetId().GetAsString());
+    }
 
     struct Section {
         int start;
@@ -137,6 +147,7 @@ public:
         bool fetchedTopology = false;
         if (*dirtyBits & HdChangeTracker::DirtyMaterialId) {
             auto materialId = delegate->GetMaterialId(id);
+            _materialIdPath = materialId.GetAsString();
 
             if (materialId.IsEmpty()){
                 int refineLevel = _topology.GetRefineLevel();
@@ -240,6 +251,7 @@ public:
             });
         }
 
+        _UpdateProtoDataBlobCache();
         *dirtyBits &= ~HdChangeTracker::AllSceneDirtyBits;
     }
 
@@ -271,6 +283,7 @@ protected:
 private:
     TfToken _typeId;
     emscripten::val _renderDelegateInterface;
+    WebRenderDelegate* _ownerDelegate;
     emscripten::val _rPrim;
     HdMeshUtil *_meshUtil;
 
@@ -280,12 +293,83 @@ private:
 
     HdMeshTopology _topology;
     GfMatrix4f _transform;
+    std::string _materialIdPath;
     VtVec3fArray _points;
+    VtVec2fArray _uvPrimvar;
     Hd_VertexAdjacency _adjacency;
 
     bool _adjacencyValid;
     bool _normalsValid;
     bool _smoothNormals;
+
+    bool _IsProtoMeshRprim() const
+    {
+        return GetId().GetAsString().find(".proto_") != std::string::npos;
+    }
+
+    bool _ShouldCapturePrimvarForProtoBlob(std::string const& name) const
+    {
+        return name == "st" || name == "primvars:st";
+    }
+
+    void _UpdateProtoDataBlobCache()
+    {
+        if (!_ownerDelegate || !_IsProtoMeshRprim()) return;
+
+        WebRenderDelegate::ProtoDataBlobRecord record;
+        record.valid = true;
+        record.numVertices = static_cast<int>(_points.size());
+        record.numIndices = static_cast<int>(_triangulatedIndices.size() * 3);
+        record.numUVs = static_cast<int>(_uvPrimvar.size());
+        record.uvDimension = record.numUVs > 0 ? 2 : 0;
+        record.numNormals = static_cast<int>(_computedNormals.size());
+        record.normalsDimension = record.numNormals > 0 ? 3 : 0;
+        record.materialId = _materialIdPath;
+
+        if (!_points.empty()) {
+            record.points.reserve(_points.size() * 3);
+            for (auto const& point : _points) {
+                record.points.push_back(point[0]);
+                record.points.push_back(point[1]);
+                record.points.push_back(point[2]);
+            }
+        }
+
+        if (!_triangulatedIndices.empty()) {
+            record.indices.reserve(_triangulatedIndices.size() * 3);
+            for (auto const& triangle : _triangulatedIndices) {
+                record.indices.push_back(static_cast<uint32_t>(std::max(0, triangle[0])));
+                record.indices.push_back(static_cast<uint32_t>(std::max(0, triangle[1])));
+                record.indices.push_back(static_cast<uint32_t>(std::max(0, triangle[2])));
+            }
+        }
+
+        if (!_uvPrimvar.empty()) {
+            record.uv.reserve(_uvPrimvar.size() * 2);
+            for (auto const& uv : _uvPrimvar) {
+                record.uv.push_back(uv[0]);
+                record.uv.push_back(uv[1]);
+            }
+        }
+
+        if (!_computedNormals.empty()) {
+            record.normals.reserve(_computedNormals.size() * 3);
+            for (auto const& normal : _computedNormals) {
+                record.normals.push_back(normal[0]);
+                record.normals.push_back(normal[1]);
+                record.normals.push_back(normal[2]);
+            }
+        }
+
+        int matrixIndex = 0;
+        for (int row = 0; row < 4; ++row) {
+            for (int column = 0; column < 4; ++column) {
+                record.transform[matrixIndex++] = _transform[row][column];
+            }
+        }
+
+        _ownerDelegate->UpsertProtoDataBlob(GetId().GetAsString(), record);
+    }
 
     // Send primvar data to JS
     void _SendPrimvar(const VtValue &value, const std::string &name, const HdInterpolation &interpolation)
@@ -293,6 +377,9 @@ private:
         const std::string &ip = InterpolationStrings.at(interpolation);
         if (value.CanCast<VtVec2fArray>()) {
             VtVec2fArray primvarData = value.Get<VtVec2fArray>();
+            if (_ShouldCapturePrimvarForProtoBlob(name)) {
+                _uvPrimvar = primvarData;
+            }
             _rPrim.call<void>("updatePrimvar", name, val(typed_memory_view(2 * primvarData.size(), reinterpret_cast<float*>(primvarData.data()))), 2, ip);
         }
         if (value.CanCast<VtVec3fArray>()) {
@@ -508,7 +595,7 @@ HdRprim *
 WebRenderDelegate::CreateRprim(TfToken const& typeId,
                                     SdfPath const& rprimId)
 {
-    return new Emscripten_Rprim(typeId, rprimId, _renderDelegateInterface);
+    return new Emscripten_Rprim(typeId, rprimId, _renderDelegateInterface, this);
 }
 
 void
@@ -576,6 +663,47 @@ void
 WebRenderDelegate::CommitResources(HdChangeTracker *tracker)
 {
     _renderDelegateInterface.call<void>("CommitResources");
+}
+
+void
+WebRenderDelegate::UpsertProtoDataBlob(std::string const& rprimPath,
+                                       ProtoDataBlobRecord const& record)
+{
+    if (rprimPath.empty()) return;
+    std::lock_guard<std::mutex> lock(_protoDataBlobMutex);
+    _protoDataBlobByRprimPath[rprimPath] = record;
+}
+
+bool
+WebRenderDelegate::ReadProtoDataBlob(
+    std::string const& rprimPath,
+    std::function<void(ProtoDataBlobRecord const&)> const& reader) const
+{
+    if (!reader || rprimPath.empty()) return false;
+    std::lock_guard<std::mutex> lock(_protoDataBlobMutex);
+    const auto found = _protoDataBlobByRprimPath.find(rprimPath);
+    if (found == _protoDataBlobByRprimPath.end()) return false;
+    reader(found->second);
+    return true;
+}
+
+void
+WebRenderDelegate::ReadAllProtoDataBlobs(
+    std::function<void(std::string const&, ProtoDataBlobRecord const&)> const& reader) const
+{
+    if (!reader) return;
+    std::lock_guard<std::mutex> lock(_protoDataBlobMutex);
+    for (auto const& entry : _protoDataBlobByRprimPath) {
+        reader(entry.first, entry.second);
+    }
+}
+
+void
+WebRenderDelegate::RemoveProtoDataBlob(std::string const& rprimPath)
+{
+    if (rprimPath.empty()) return;
+    std::lock_guard<std::mutex> lock(_protoDataBlobMutex);
+    _protoDataBlobByRprimPath.erase(rprimPath);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

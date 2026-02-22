@@ -29,7 +29,7 @@ type GetUsdModuleFn = (options: Record<string, unknown>) => Promise<UsdModule>;
 
 // Keep this cache key aligned with the bindings build generation so JS/WASM/data
 // are always fetched from the same build.
-const EMHD_BINDINGS_CACHE_KEY = "20260219e";
+const EMHD_BINDINGS_CACHE_KEY = "20260222g";
 const withEmHdBindingsCacheKey = (resourcePath: string): string => {
   if (!resourcePath) return resourcePath;
   return resourcePath.includes("?")
@@ -130,8 +130,12 @@ const warmupEmHdBindingsAssets = (): void => {
   }
 };
 const resolveGetUsdModuleFn = (): GetUsdModuleFn | null => {
-  const candidate = (globalThis as any)["NEEDLE:USD:GET"];
-  return typeof candidate === "function" ? (candidate as GetUsdModuleFn) : null;
+  const needleGetUsdModule = (globalThis as any)["NEEDLE:USD:GET"];
+  if (typeof needleGetUsdModule === "function") {
+    return needleGetUsdModule as GetUsdModuleFn;
+  }
+  const exportedGetUsdModule = (globalThis as any)["USD_WASM_MODULE"];
+  return typeof exportedGetUsdModule === "function" ? (exportedGetUsdModule as GetUsdModuleFn) : null;
 };
 let emHdBindingsLoadPromise: Promise<GetUsdModuleFn> | null = null;
 const loadEmHdBindingsGetUsdModuleFn = async (): Promise<GetUsdModuleFn> => {

@@ -12,7 +12,7 @@ import { JointPanelController } from "./viewer/joint-panel.js";
 import { LinkDynamicsController } from "./viewer/link-dynamics.js";
 // Keep this cache key aligned with the bindings build generation so JS/WASM/data
 // are always fetched from the same build.
-const EMHD_BINDINGS_CACHE_KEY = "20260219e";
+const EMHD_BINDINGS_CACHE_KEY = "20260222g";
 const withEmHdBindingsCacheKey = (resourcePath) => {
     if (!resourcePath)
         return resourcePath;
@@ -116,8 +116,12 @@ const warmupEmHdBindingsAssets = () => {
     }
 };
 const resolveGetUsdModuleFn = () => {
-    const candidate = globalThis["NEEDLE:USD:GET"];
-    return typeof candidate === "function" ? candidate : null;
+    const needleGetUsdModule = globalThis["NEEDLE:USD:GET"];
+    if (typeof needleGetUsdModule === "function") {
+        return needleGetUsdModule;
+    }
+    const exportedGetUsdModule = globalThis["USD_WASM_MODULE"];
+    return typeof exportedGetUsdModule === "function" ? exportedGetUsdModule : null;
 };
 let emHdBindingsLoadPromise = null;
 const loadEmHdBindingsGetUsdModuleFn = async () => {

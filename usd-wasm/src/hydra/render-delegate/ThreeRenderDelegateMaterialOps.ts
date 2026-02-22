@@ -239,13 +239,26 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
   getCollisionOverridePrimPath(meshId) {
     if (!meshId) return null;
 
-    const resolved = this.getResolvedPrimPathForMeshId(meshId);
-    if (!resolved) return null;
-
     const proto = parseProtoMeshIdentifier(meshId);
     if (!proto) return null;
     const expectedTypes = getExpectedPrimTypesForCollisionProto(proto);
     if (expectedTypes.length === 0) return null;
+
+    const driverOverride = this.getCollisionProtoOverride?.(meshId);
+    const overrideType = String(driverOverride?.primType || '').toLowerCase();
+    const overridePath = normalizeHydraPath(driverOverride?.resolvedPrimPath);
+    if (overridePath && overrideType && expectedTypes.includes(overrideType)) {
+      return overridePath;
+    }
+
+    const resolved = this.getResolvedPrimPathForMeshId(meshId);
+    if (!resolved) return null;
+
+    const primOverrideData = this.getPrimOverrideData?.(resolved);
+    const overridePrimType = String(primOverrideData?.primType || '').toLowerCase();
+    if (overridePrimType && expectedTypes.includes(overridePrimType)) {
+      return resolved;
+    }
 
     const prim = this.safeGetPrimAtPath(this.getStage(), resolved);
     const primType = getSafePrimTypeName(prim);
@@ -264,6 +277,13 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
     const proto = parseProtoMeshIdentifier(meshId);
     if (!proto || proto.sectionName !== 'collisions') {
       return null;
+    }
+
+    const driverOverride = this.getCollisionProtoOverride?.(meshId);
+    const overridePrimPath = normalizeHydraPath(driverOverride?.resolvedPrimPath);
+    if (overridePrimPath) {
+      this._resolvedProtoPrimPathCache.set(meshId, overridePrimPath);
+      return overridePrimPath;
     }
 
     let stageResolved = null;
@@ -712,12 +732,19 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
     };
   }
 
-  invalidateStageCaches() {
+  invalidateStageCaches(options = {}) {
+    const preserveResolvedPrimCaches = options?.preserveResolvedPrimCaches === true;
+    const preserveDriverCaches = options?.preserveDriverCaches === true;
     this._localXformCache.clear();
     this._worldXformCache.clear();
+    this._primPathExistenceCache.clear();
+    this._knownPrimPathSet = null;
+    this._knownPrimPathSetPrimed = false;
     this._meshFallbackCache.clear();
-    this._resolvedProtoPrimPathCache.clear();
-    this._resolvedVisualPrimPathCache.clear();
+    if (!preserveResolvedPrimCaches) {
+      this._resolvedProtoPrimPathCache.clear();
+      this._resolvedVisualPrimPathCache.clear();
+    }
     this._xformOpFallbackMapByStageSource.clear();
     this._rootLayerXformOpFallbackMapByStageSource.clear();
     this._linkVisualTransformCache.clear();
@@ -725,6 +752,11 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
     this._guideCollisionRefMapByStageSource.clear();
     this._visualSemanticChildMapByStageSource.clear();
     this._openedGuideStages.clear();
+    if (!preserveDriverCaches) {
+      this._collisionProtoOverrideCache.clear();
+      this._collisionProtoOverrideBatchPrimed = false;
+      this._primOverrideDataCache.clear();
+    }
     this._urdfLinkWorldTransformCacheByStageSource.clear();
     this._urdfVisualFallbackDecisionCache.clear();
     this._urdfVisualFallbackLinkDecisionCache.clear();
@@ -732,6 +764,9 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
     this._resolvedDriverStage = null;
     this._pendingDriverStagePromise = null;
     this._hasRunStageTruthAlignmentDiagnostics = false;
+    if (!preserveResolvedPrimCaches && !preserveDriverCaches) {
+      this._runtimeBridgeCacheStageKey = null;
+    }
     this.flushMaterialBindingApiWarningSummary();
   }
 
@@ -748,7 +783,15 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
       : Number.POSITIVE_INFINITY;
 
     if (startIndex === 0) {
-      this.invalidateStageCaches();
+      const stageSourcePath = String(this.getStageSourcePath() || '').split('?')[0];
+      const canPreserveRuntimeBridgeCaches = (
+        !!stageSourcePath
+        && stageSourcePath === String(this._runtimeBridgeCacheStageKey || '')
+      );
+      this.invalidateStageCaches({
+        preserveResolvedPrimCaches: canPreserveRuntimeBridgeCaches,
+        preserveDriverCaches: canPreserveRuntimeBridgeCaches,
+      });
       if (!this.suppressMaterialBindingApiWarnings) {
         this.tryRepairMaterialBindingApiSchemas();
       }
@@ -767,7 +810,13 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         if (!isCollisionProto && !includeVisual) continue;
 
         const primPath = isCollisionProto ? this.getResolvedPrimPathForMeshId(mesh._id) : null;
-        if (isCollisionProto && primPath && typeof mesh.applyResolvedPrimGeometryAndTransform === 'function') {
+        const shouldSkipCollisionReapply = (
+          isCollisionProto
+          && primPath
+          && typeof mesh.hasAppliedCollisionOverrideForPrimPath === 'function'
+          && mesh.hasAppliedCollisionOverrideForPrimPath(primPath) === true
+        );
+        if (isCollisionProto && primPath && !shouldSkipCollisionReapply && typeof mesh.applyResolvedPrimGeometryAndTransform === 'function') {
           mesh.applyResolvedPrimGeometryAndTransform(primPath);
         }
         if (typeof mesh.syncProtoTransformFromFallback === 'function') {

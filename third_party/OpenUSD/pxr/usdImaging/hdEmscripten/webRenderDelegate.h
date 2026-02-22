@@ -21,11 +21,36 @@
 #include <emscripten/bind.h>
 #include <emscripten/threading.h>
 
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 class WebRenderDelegate final : public HdRenderDelegate
 {
 public:
+    struct ProtoDataBlobRecord
+    {
+        bool valid = false;
+        int numVertices = 0;
+        int numIndices = 0;
+        int numUVs = 0;
+        int uvDimension = 0;
+        int numNormals = 0;
+        int normalsDimension = 0;
+        std::vector<float> points;
+        std::vector<uint32_t> indices;
+        std::vector<float> uv;
+        std::vector<float> normals;
+        std::array<float, 16> transform = {0.0f};
+        std::string materialId;
+    };
+
     WebRenderDelegate(emscripten::val renderDelegateInterface) :
              _renderDelegateInterface(renderDelegateInterface)
     {
@@ -91,6 +116,15 @@ public:
 
     virtual void CommitResources(HdChangeTracker *tracker) override;
 
+    void UpsertProtoDataBlob(std::string const& rprimPath,
+                             ProtoDataBlobRecord const& record);
+    bool ReadProtoDataBlob(
+        std::string const& rprimPath,
+        std::function<void(ProtoDataBlobRecord const&)> const& reader) const;
+    void ReadAllProtoDataBlobs(
+        std::function<void(std::string const&, ProtoDataBlobRecord const&)> const& reader) const;
+    void RemoveProtoDataBlob(std::string const& rprimPath);
+
 private:
     static const TfTokenVector SUPPORTED_RPRIM_TYPES;
     static const TfTokenVector SUPPORTED_SPRIM_TYPES;
@@ -102,6 +136,8 @@ private:
                                 const WebRenderDelegate &) = delete;
 
     emscripten::val _renderDelegateInterface;
+    mutable std::mutex _protoDataBlobMutex;
+    std::unordered_map<std::string, ProtoDataBlobRecord> _protoDataBlobByRprimPath;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
