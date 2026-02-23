@@ -785,6 +785,8 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
     const stage = this.getStage();
     const includeCollision = options?.includeCollision !== false;
     const includeVisual = options?.includeVisual !== false;
+    const prefetchFinalStageBatch = options?.prefetchFinalStageBatch !== false;
+    const forceFinalStageBatchRefresh = options?.forceFinalStageBatchRefresh === true;
     const startIndexRaw = Number(options?.startIndex);
     const startIndex = Number.isFinite(startIndexRaw) ? Math.max(0, Math.floor(startIndexRaw)) : 0;
     const chunkSizeRaw = Number(options?.chunkSize);
@@ -813,10 +815,10 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
       : null;
     let finalStageBatchEntries = null;
     let finalStageBatchEnabled = false;
-    if (resolvedDriver && typeof this.prefetchFinalStageOverrideBatchFromDriver === 'function') {
+    if (prefetchFinalStageBatch && resolvedDriver && typeof this.prefetchFinalStageOverrideBatchFromDriver === 'function') {
       try {
         const batchSummary = this.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
-          force: startIndex === 0,
+          force: forceFinalStageBatchRefresh || startIndex === 0,
         }) || {};
         const batchSource = String(batchSummary?.source || '');
         const batchEntries = batchSummary?.entries;
@@ -830,6 +832,9 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
           finalStageBatchEnabled = true;
         }
       } catch {}
+    } else if (this._finalStageOverrideBatchCache instanceof Map && this._finalStageOverrideBatchCache.size > 0) {
+      finalStageBatchEntries = this._finalStageOverrideBatchCache;
+      finalStageBatchEnabled = true;
     }
 
     if (!stage && !finalStageBatchEnabled) return;
@@ -887,6 +892,19 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
             && typeof mesh.applyResolvedPrimGeometryAndTransform === 'function'
           ) {
             mesh.applyResolvedPrimGeometryAndTransform(primPath);
+          } else if (
+            !isCollisionProto
+            && typeof mesh.tryApplyProtoDataBlobFastPath === 'function'
+          ) {
+            let visualApplied = false;
+            try {
+              visualApplied = mesh.tryApplyProtoDataBlobFastPath() === true;
+            } catch {
+              visualApplied = false;
+            }
+            if (visualApplied && Object.prototype.hasOwnProperty.call(mesh, '_hasCompletedProtoSync')) {
+              mesh._hasCompletedProtoSync = true;
+            }
           }
           if (typeof mesh.syncProtoTransformFromFallback === 'function') {
             mesh.syncProtoTransformFromFallback();

@@ -75,10 +75,11 @@ export async function loadUsdStage(args) {
     // Stage override scans are the longest blocking phase on large Unitree assets.
     // Truth-first mode keeps this synchronous so initial visible pose/collision
     // state matches stage-authored transforms.
-    const deferStageOverrides = parseBooleanFlag(params.get("deferStageOverrides"), truthFirst ? false : (fastLoad && !loadCollisionPrims));
+    const deferStageOverrides = parseBooleanFlag(params.get("deferStageOverrides"), truthFirst ? false : fastLoad);
+    const primeFinalStageOverrideBatchBeforeDraw = parseBooleanFlag(params.get("primeFinalStageOverrideBatchBeforeDraw"), truthFirst);
     const deferredStageOverridesStartDelayMs = (() => {
         const requested = Number(params.get("deferStageOverridesStartDelayMs"));
-        const fallback = fastLoad ? 2000 : 0;
+        const fallback = fastLoad ? 180 : 0;
         if (!Number.isFinite(requested))
             return fallback;
         return Math.max(0, Math.min(120000, Math.floor(requested)));
@@ -86,13 +87,13 @@ export async function loadUsdStage(args) {
     const deferredStageOverridesChunkSize = (() => {
         const requested = Number(params.get("deferStageOverridesChunkSize"));
         if (!Number.isFinite(requested))
-            return 2;
+            return fastLoad ? 1 : 2;
         return Math.max(1, Math.min(256, Math.floor(requested)));
     })();
     const deferredStageOverridesChunkDelayMs = (() => {
         const requested = Number(params.get("deferStageOverridesChunkDelayMs"));
         if (!Number.isFinite(requested))
-            return 16;
+            return fastLoad ? 8 : 16;
         return Math.max(0, Math.min(5000, Math.floor(requested)));
     })();
     const forceDependencyPreload = parseBooleanFlag(params.get("forceDependencyPreload"), false);
@@ -151,7 +152,11 @@ export async function loadUsdStage(args) {
         const baselineBurst = maxCpuDraw
             ? Math.max(2, Math.min(16, inferredThreadHint))
             : 1;
-        const aggressiveBurst = Math.max(2, Math.min(24, inferredThreadHint * 2));
+        // Keep fast-load interactive: large draw bursts can monopolize the main
+        // thread right after the first visible frame.
+        const aggressiveBurst = maxCpuDraw
+            ? Math.max(2, Math.min(24, inferredThreadHint * 2))
+            : 2;
         const fallback = aggressiveInitialDraw
             ? Math.max(baselineBurst, aggressiveBurst)
             : baselineBurst;
@@ -822,29 +827,48 @@ export async function loadUsdStage(args) {
             }
         }
     };
-    let earlyFinalStageOverrideBatchPrimed = false;
-    const tryPrimeEarlyFinalStageOverrideBatch = () => {
-        if (earlyFinalStageOverrideBatchPrimed)
+    let earlyFinalStageOverrideBatchPrimeScheduled = false;
+    const scheduleEarlyFinalStageOverrideBatchPrime = () => {
+        if (!primeFinalStageOverrideBatchBeforeDraw)
             return;
-        const renderInterface = window.renderInterface;
-        if (!renderInterface || typeof renderInterface.prefetchFinalStageOverrideBatchFromDriver !== "function")
+        if (earlyFinalStageOverrideBatchPrimeScheduled)
             return;
-        const resolvedDriver = state.driver || null;
-        if (!resolvedDriver)
-            return;
-        try {
-            const summary = renderInterface.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
-                force: false,
-            });
-            const count = Number(summary?.count || 0);
-            if (Number.isFinite(count) && count > 0) {
-                markLoadPhase("stage-overrides-batch-primed-pre-burst");
+        earlyFinalStageOverrideBatchPrimeScheduled = true;
+        const runPrime = () => {
+            if (!isLoadStillActive())
+                return;
+            const renderInterface = window.renderInterface;
+            if (!renderInterface || typeof renderInterface.prefetchFinalStageOverrideBatchFromDriver !== "function")
+                return;
+            const resolvedDriver = state.driver || null;
+            if (!resolvedDriver)
+                return;
+            try {
+                const summary = renderInterface.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
+                    force: false,
+                });
+                const count = Number(summary?.count || 0);
+                if (Number.isFinite(count) && count > 0) {
+                    markLoadPhase("stage-overrides-batch-primed-pre-burst");
+                }
             }
-            earlyFinalStageOverrideBatchPrimed = true;
+            catch {
+                // Keep pre-initial override priming best-effort and non-blocking.
+            }
+        };
+        const requestIdle = window.requestIdleCallback;
+        if (typeof requestIdle === "function") {
+            window.setTimeout(() => {
+                try {
+                    requestIdle(() => runPrime(), { timeout: 2500 });
+                }
+                catch {
+                    runPrime();
+                }
+            }, 0);
+            return;
         }
-        catch {
-            // Keep pre-initial override priming best-effort and non-blocking.
-        }
+        window.setTimeout(runPrime, 0);
     };
     if (fastLoad) {
         // Fast path: draw once for first visual feedback, then run a bounded
@@ -862,7 +886,7 @@ export async function loadUsdStage(args) {
         };
         let stats = { total: 0, ready: 0, collisions: 0, visuals: 0 };
         if (safeDraw(drawBurstRenderEveryDraw)) {
-            tryPrimeEarlyFinalStageOverrideBatch();
+            scheduleEarlyFinalStageOverrideBatchPrime();
             stats = updateStreamingStatus();
         }
         if (!state.drawFailed && aggressiveInitialDraw) {
@@ -906,7 +930,7 @@ export async function loadUsdStage(args) {
             if (!runInstrumentedDriverDraw("load-slow"))
                 break;
             if (round === 0) {
-                tryPrimeEarlyFinalStageOverrideBatch();
+                scheduleEarlyFinalStageOverrideBatchPrime();
             }
             const stats = getMeshLoadStats(window.renderInterface);
             setMessage(`Loading meshes... ${stats.ready}/${Math.max(stats.total, 1)} ready`);
@@ -1076,10 +1100,11 @@ export async function loadUsdStage(args) {
     }
     markLoadPhase("stage-mesh-fastpath");
     const refreshMeshStageOverrides = () => {
+        const includeVisualStageOverrides = !!loadVisualPrims && !!applyVisualStageOverrides;
         try {
             window.renderInterface?.refreshMeshStageOverrides?.({
                 includeCollision: !!loadCollisionPrims,
-                includeVisual: !!loadVisualPrims,
+                includeVisual: includeVisualStageOverrides,
             });
         }
         catch {
@@ -1104,7 +1129,38 @@ export async function loadUsdStage(args) {
                 refreshMeshStageOverrides();
                 return;
             }
+            // Prime the final-stage override batch once before chunked refresh.
+            // This avoids expensive per-mesh proto blob fallback work on the main
+            // thread while still keeping stage overrides deferred/off critical path.
+            if (typeof currentRenderInterface.prefetchFinalStageOverrideBatchFromDriver === "function") {
+                try {
+                    const resolvedDriver = state.driver || window.driver || null;
+                    if (resolvedDriver) {
+                        currentRenderInterface.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
+                            force: false,
+                        });
+                    }
+                }
+                catch {
+                    // Keep deferred overrides best-effort.
+                }
+            }
             let nextIndex = 0;
+            const scheduleChunk = (next, delayMs) => {
+                const requestIdle = window.requestIdleCallback;
+                window.setTimeout(() => {
+                    if (typeof requestIdle === "function") {
+                        try {
+                            requestIdle(() => next(), { timeout: Math.max(160, delayMs + 140) });
+                            return;
+                        }
+                        catch {
+                            // Fall through to immediate callback.
+                        }
+                    }
+                    next();
+                }, delayMs);
+            };
             const runChunk = () => {
                 if (!isLoadStillActive())
                     return;
@@ -1114,15 +1170,15 @@ export async function loadUsdStage(args) {
                 try {
                     summary = currentRenderInterface.refreshMeshStageOverrides({
                         includeCollision: !!loadCollisionPrims,
-                        includeVisual: !!loadVisualPrims,
+                        includeVisual: !!loadVisualPrims && !!applyVisualStageOverrides,
                         startIndex: nextIndex,
                         chunkSize: deferredStageOverridesChunkSize,
+                        prefetchFinalStageBatch: false,
                     });
                 }
                 catch {
                     return;
                 }
-                applyMeshFilters();
                 const done = summary && typeof summary === "object"
                     ? summary.done === true
                     : true;
@@ -1131,10 +1187,13 @@ export async function loadUsdStage(args) {
                     ? Math.max(0, Math.floor(reportedNextIndex))
                     : (nextIndex + deferredStageOverridesChunkSize);
                 if (!done) {
-                    window.setTimeout(runChunk, deferredStageOverridesChunkDelayMs);
+                    scheduleChunk(runChunk, deferredStageOverridesChunkDelayMs);
+                }
+                else {
+                    applyMeshFilters();
                 }
             };
-            runChunk();
+            scheduleChunk(runChunk, 0);
         };
         window.setTimeout(runDeferredStageOverrides, deferredStageOverridesStartDelayMs);
         setProgress(96);
