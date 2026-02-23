@@ -33,6 +33,7 @@ type RenderInterfaceLike = {
   getStage?: () => StageLike | null;
   getStageSourcePath?: () => string | null;
   getWorldTransformForPrimPath?: (path: string) => Matrix4 | null;
+  getVisualLinkFrameTransform?: (path: string) => Matrix4 | null;
   getPreferredLinkWorldTransform?: (path: string) => Matrix4 | null;
   getStageOrVisualLinkWorldTransform?: (path: string) => Matrix4 | null;
 } | null | undefined;
@@ -72,6 +73,8 @@ type LinkDynamicsCacheSnapshot = {
   entries: LinkDynamicsCacheEntry[];
 };
 
+type DynamicsFrameMode = "auto" | "stage" | "visual";
+
 const linkDynamicsCacheByStagePath = new Map<string, LinkDynamicsCacheSnapshot>();
 const maxLinkDynamicsCacheEntries = 8;
 
@@ -99,6 +102,79 @@ function normalizeUsdPathToken(path: string): string {
   if (!trimmed) return "";
   if (trimmed.startsWith("/")) return trimmed;
   return `/${trimmed}`;
+}
+
+function cloneMatrix4FromUnknown(value: any): Matrix4 | null {
+  if (!value) return null;
+  if (value instanceof Matrix4) return value.clone();
+
+  if (typeof value?.clone === "function") {
+    try {
+      const cloned = value.clone();
+      if (cloned instanceof Matrix4) return cloned;
+      const clonedElementsSource = (cloned as any)?.elements;
+      const clonedElements = (
+        clonedElementsSource && typeof clonedElementsSource.length === "number"
+      )
+        ? Array.from(clonedElementsSource as ArrayLike<number>)
+        : null;
+      if (clonedElements && clonedElements.length >= 16) {
+        const numeric = clonedElements.slice(0, 16).map((entry: any) => Number(entry));
+        if (numeric.every((entry: number) => Number.isFinite(entry))) {
+          return new Matrix4().fromArray(numeric);
+        }
+      }
+    } catch {
+      // Ignore and continue to generic array parsing.
+    }
+  }
+
+  const elementsSource = (value as any)?.elements;
+  const elements = (
+    elementsSource && typeof elementsSource.length === "number"
+  )
+    ? Array.from(elementsSource as ArrayLike<number>)
+    : (value && typeof (value as any).length === "number"
+      ? Array.from(value as ArrayLike<number>)
+      : null);
+  if (!elements || elements.length < 16) return null;
+
+  const numeric = elements.slice(0, 16).map((entry) => Number(entry));
+  if (!numeric.every((entry) => Number.isFinite(entry))) return null;
+  return new Matrix4().fromArray(numeric);
+}
+
+function quaternionAngularErrorDeg(left: Quaternion, right: Quaternion): number {
+  const normalizedLeft = left.clone().normalize();
+  const normalizedRight = right.clone().normalize();
+  const dot = Math.abs(normalizedLeft.dot(normalizedRight));
+  const clamped = Math.min(1, Math.max(-1, dot));
+  return 2 * Math.acos(clamped) * (180 / Math.PI);
+}
+
+function median(values: number[]): number {
+  if (!Array.isArray(values) || values.length <= 0) return 0;
+  const sorted = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+  if (sorted.length <= 0) return 0;
+  const half = Math.floor(sorted.length / 2);
+  if ((sorted.length % 2) === 1) return sorted[half];
+  return (sorted[half - 1] + sorted[half]) * 0.5;
+}
+
+function getRequestedDynamicsFrameModeFromUrl(): DynamicsFrameMode {
+  if (typeof window === "undefined" || !window.location) return "auto";
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const rawValue = String(params.get("dynamicsFrame") || "").trim().toLowerCase();
+    if (rawValue === "visual") return "visual";
+    if (rawValue === "physics" || rawValue === "stage") return "stage";
+    return "auto";
+  } catch {
+    return "auto";
+  }
 }
 
 function getRootPathFromPrimPath(primPath: string): string | null {
@@ -156,10 +232,43 @@ function parseQuaternionFromTupleLiteral(tupleLiteral: string): Quaternion | nul
   return quaternion;
 }
 
+function toQuaternionFromWxyzTuple(value: any): Quaternion | null {
+  const source = Array.isArray(value)
+    ? value
+    : (value && typeof value.length === "number" ? Array.from(value) : null);
+  if (!source || source.length < 4) return null;
+  const w = toFiniteNumber(source[0]);
+  const x = toFiniteNumber(source[1]);
+  const y = toFiniteNumber(source[2]);
+  const z = toFiniteNumber(source[3]);
+  if (w === null || x === null || y === null || z === null) return null;
+  const quaternion = new Quaternion(x, y, z, w);
+  if (!Number.isFinite(quaternion.lengthSq()) || quaternion.lengthSq() <= 1e-12) {
+    return null;
+  }
+  quaternion.normalize();
+  return quaternion;
+}
+
 function toQuaternionFromValue(value: any): Quaternion | null {
   if (!value) return null;
 
   if (typeof value === "object" && !Array.isArray(value)) {
+    const realPart = toFiniteNumber((value as any).real ?? (value as any).r ?? (value as any).W ?? (value as any).w);
+    const imaginaryPart = (value as any).imaginary ?? (value as any).imag ?? (value as any).v;
+    if (realPart !== null && imaginaryPart) {
+      const imagX = toFiniteNumber((imaginaryPart as any).x ?? (imaginaryPart as any)[0] ?? (imaginaryPart as any).i);
+      const imagY = toFiniteNumber((imaginaryPart as any).y ?? (imaginaryPart as any)[1] ?? (imaginaryPart as any).j);
+      const imagZ = toFiniteNumber((imaginaryPart as any).z ?? (imaginaryPart as any)[2] ?? (imaginaryPart as any).k);
+      if (imagX !== null && imagY !== null && imagZ !== null) {
+        const quaternion = new Quaternion(imagX, imagY, imagZ, realPart);
+        if (Number.isFinite(quaternion.lengthSq()) && quaternion.lengthSq() > 1e-12) {
+          quaternion.normalize();
+          return quaternion;
+        }
+      }
+    }
+
     const xObject = toFiniteNumber((value as any).x ?? (value as any).i ?? (value as any).X);
     const yObject = toFiniteNumber((value as any).y ?? (value as any).j ?? (value as any).Y);
     const zObject = toFiniteNumber((value as any).z ?? (value as any).k ?? (value as any).Z);
@@ -184,10 +293,7 @@ function toQuaternionFromValue(value: any): Quaternion | null {
   const c3 = toFiniteNumber(source[3]);
   if (c0 === null || c1 === null || c2 === null || c3 === null) return null;
 
-  const looksLikeXyzw = Math.abs(c3) >= Math.abs(c0);
-  const quaternion = looksLikeXyzw
-    ? new Quaternion(c0, c1, c2, c3)
-    : new Quaternion(c1, c2, c3, c0);
+  const quaternion = new Quaternion(c0, c1, c2, c3);
   if (!Number.isFinite(quaternion.lengthSq()) || quaternion.lengthSq() <= 1e-12) {
     return null;
   }
@@ -429,6 +535,8 @@ export class LinkDynamicsController {
   private linkDynamicsGroup: Group | null = null;
   private stageSourcePath: string | null = null;
   private readonly linkDynamicsByLinkPath = new Map<string, LinkDynamicsRecord>();
+  private readonly markerGroupByLinkPath = new Map<string, Group>();
+  private preferredDynamicsFrameMode: "stage" | "visual" | null = null;
   private linkDynamicsBuildPromise: Promise<void> | null = null;
   private rebuildRequestId = 0;
 
@@ -438,11 +546,15 @@ export class LinkDynamicsController {
     if (nextValue === this.stageSourcePath) return;
     this.stageSourcePath = nextValue;
     this.linkDynamicsByLinkPath.clear();
+    this.markerGroupByLinkPath.clear();
+    this.preferredDynamicsFrameMode = null;
     this.linkDynamicsBuildPromise = null;
   }
 
   clear(usdRoot: Group): void {
     this.rebuildRequestId++;
+    this.markerGroupByLinkPath.clear();
+    this.preferredDynamicsFrameMode = null;
     if (!this.linkDynamicsGroup) return;
     usdRoot.remove(this.linkDynamicsGroup);
     this.linkDynamicsGroup.traverse((obj: any) => {
@@ -470,16 +582,20 @@ export class LinkDynamicsController {
 
     const group = new Group();
     group.name = "Link Dynamics";
+    this.markerGroupByLinkPath.clear();
+    const preferredFrameMode = this.resolvePreferredDynamicsFrameMode(renderInterface);
 
     for (const record of this.linkDynamicsByLinkPath.values()) {
-      const linkMatrix = renderInterface.getPreferredLinkWorldTransform?.(record.linkPath)
-        || renderInterface.getStageOrVisualLinkWorldTransform?.(record.linkPath)
-        || renderInterface.getWorldTransformForPrimPath?.(record.linkPath)
-        || this.getRepresentativeMatrixForLinkPath(renderInterface, record.linkPath)
-        || null;
+      const linkMatrix = this.getRepresentativeMatrixForLinkPath(
+        renderInterface,
+        record.linkPath,
+        preferredFrameMode,
+      );
       if (!linkMatrix) continue;
-      const markerGroup = this.createMarkerGroupForLink(record, linkMatrix);
+      const markerGroup = this.createMarkerGroupForLink(record);
       if (!markerGroup || markerGroup.children.length === 0) continue;
+      this.applyLinkWorldMatrixToMarkerGroup(markerGroup, linkMatrix);
+      this.markerGroupByLinkPath.set(record.linkPath, markerGroup);
       group.add(markerGroup);
     }
 
@@ -494,6 +610,29 @@ export class LinkDynamicsController {
     if (group.children.length === 0) return;
     this.linkDynamicsGroup = group;
     usdRoot.add(group);
+  }
+
+  syncLinkDynamicsTransforms(renderInterface: RenderInterfaceLike): boolean {
+    if (!this.linkDynamicsGroup) return false;
+    if (!renderInterface) return false;
+    if (this.markerGroupByLinkPath.size <= 0) return false;
+
+    let changed = false;
+    const preferredFrameMode = this.resolvePreferredDynamicsFrameMode(renderInterface);
+    for (const [linkPath, markerGroup] of this.markerGroupByLinkPath.entries()) {
+      if (!markerGroup) continue;
+      const linkMatrix = this.getRepresentativeMatrixForLinkPath(
+        renderInterface,
+        linkPath,
+        preferredFrameMode,
+      );
+      if (!linkMatrix) continue;
+      if (this.applyLinkWorldMatrixToMarkerGroup(markerGroup, linkMatrix)) {
+        changed = true;
+      }
+    }
+
+    return changed;
   }
 
   async getAllLinkDynamics(renderInterface: RenderInterfaceLike): Promise<LinkDynamicsSnapshot[]> {
@@ -660,7 +799,9 @@ export class LinkDynamicsController {
       const diagonalInertia = toVector3FromValue(safeGetPrimAttribute(prim, "physics:diagonalInertia"))
         || textPatch?.diagonalInertia?.clone()
         || null;
-      const principalAxesLocal = toQuaternionFromValue(safeGetPrimAttribute(prim, "physics:principalAxes"))
+      const principalAxesAttrValue = safeGetPrimAttribute(prim, "physics:principalAxes");
+      const principalAxesLocal = toQuaternionFromWxyzTuple(principalAxesAttrValue)
+        || toQuaternionFromValue(principalAxesAttrValue)
         || textPatch?.principalAxesLocal?.clone()
         || new Quaternion();
       principalAxesLocal.normalize();
@@ -705,6 +846,7 @@ export class LinkDynamicsController {
       const centerOfMassLocal = toVector3FromValue(entry.centerOfMassLocal) || new Vector3();
       const diagonalInertia = toVector3FromValue(entry.diagonalInertia);
       const principalAxesLocal = toQuaternionFromXyzwTuple(entry.principalAxesLocal)
+        || toQuaternionFromWxyzTuple((entry as any).principalAxesLocalWxyz)
         || toQuaternionFromValue(entry.principalAxesLocal)
         || new Quaternion();
       principalAxesLocal.normalize();
@@ -810,36 +952,147 @@ export class LinkDynamicsController {
     }
   }
 
-  private getRepresentativeMatrixForLinkPath(renderInterface: RenderInterfaceLike, linkPath: string): Matrix4 | null {
-    if (!renderInterface?.meshes || !linkPath) return null;
+  private resolvePreferredDynamicsFrameMode(renderInterface: RenderInterfaceLike): "stage" | "visual" {
+    if (this.preferredDynamicsFrameMode) return this.preferredDynamicsFrameMode;
+
+    const requestedMode = getRequestedDynamicsFrameModeFromUrl();
+    if (requestedMode === "visual") {
+      this.preferredDynamicsFrameMode = "visual";
+      return this.preferredDynamicsFrameMode;
+    }
+
+    // Dynamics overlays (COM/inertia/principal axes) are authored in physics link
+    // frame. Keep stage frame as default to avoid quarter-turn visual-frame skew.
+    this.preferredDynamicsFrameMode = "stage";
+    return this.preferredDynamicsFrameMode;
+  }
+
+  private inferAutoPreferredDynamicsFrameMode(renderInterface: RenderInterfaceLike): "stage" | "visual" {
+    if (!renderInterface) return "stage";
+    const linkPaths = Array.from(this.linkDynamicsByLinkPath.keys());
+    if (linkPaths.length < 4) return "stage";
+
+    const translationMagnitudes: number[] = [];
+    const rotationAnglesDeg: number[] = [];
+    for (const linkPath of linkPaths) {
+      const stageMatrix = this.getStageLinkWorldMatrixForPath(renderInterface, linkPath);
+      const visualMatrix = this.getVisualLinkWorldMatrixForPath(renderInterface, linkPath);
+      if (!stageMatrix || !visualMatrix) continue;
+
+      const deltaMatrix = stageMatrix.clone().invert().multiply(visualMatrix);
+      const deltaPosition = new Vector3();
+      const deltaRotation = new Quaternion();
+      const deltaScale = new Vector3();
+      deltaMatrix.decompose(deltaPosition, deltaRotation, deltaScale);
+
+      if (!Number.isFinite(deltaPosition.lengthSq())) continue;
+      const angleDeg = quaternionAngularErrorDeg(new Quaternion(), deltaRotation);
+      if (!Number.isFinite(angleDeg)) continue;
+
+      translationMagnitudes.push(deltaPosition.length());
+      rotationAnglesDeg.push(angleDeg);
+    }
+
+    if (rotationAnglesDeg.length < 4 || translationMagnitudes.length < 4) return "stage";
+
+    const translationMedian = median(translationMagnitudes);
+    const rotationMedian = median(rotationAnglesDeg);
+    const translationNearZero = translationMedian <= 1e-4;
+    const isQuarterTurnLike = (
+      (rotationMedian >= 70 && rotationMedian <= 110)
+      || (rotationMedian >= 170 && rotationMedian <= 190)
+    );
+    return (translationNearZero && isQuarterTurnLike) ? "visual" : "stage";
+  }
+
+  private getStageLinkWorldMatrixForPath(renderInterface: RenderInterfaceLike, linkPath: string): Matrix4 | null {
+    if (!renderInterface || !linkPath) return null;
+
+    const worldGetter = (renderInterface as any)?.getWorldTransformForPrimPath;
+    if (typeof worldGetter === "function") {
+      try {
+        const matrix = cloneMatrix4FromUnknown(worldGetter.call(renderInterface, linkPath, { clone: true }));
+        if (matrix) return matrix;
+      } catch {
+        try {
+          const matrix = cloneMatrix4FromUnknown(worldGetter.call(renderInterface, linkPath));
+          if (matrix) return matrix;
+        } catch {}
+      }
+    }
+
+    const preferredGetter = (renderInterface as any)?.getPreferredLinkWorldTransform;
+    if (typeof preferredGetter === "function") {
+      try {
+        const matrix = cloneMatrix4FromUnknown(preferredGetter.call(renderInterface, linkPath));
+        if (matrix) return matrix;
+      } catch {}
+    }
+
+    const stageOrVisualGetter = (renderInterface as any)?.getStageOrVisualLinkWorldTransform;
+    if (typeof stageOrVisualGetter === "function") {
+      try {
+        const matrix = cloneMatrix4FromUnknown(stageOrVisualGetter.call(renderInterface, linkPath));
+        if (matrix) return matrix;
+      } catch {}
+    }
+
+    return null;
+  }
+
+  private getVisualLinkWorldMatrixForPath(renderInterface: RenderInterfaceLike, linkPath: string): Matrix4 | null {
+    if (!renderInterface || !linkPath) return null;
+
+    const visualGetter = (renderInterface as any)?.getVisualLinkFrameTransform;
+    if (typeof visualGetter === "function") {
+      try {
+        const matrix = cloneMatrix4FromUnknown(visualGetter.call(renderInterface, linkPath));
+        if (matrix) return matrix;
+      } catch {}
+    }
+
+    if (!renderInterface.meshes) return null;
     const prefix = `${linkPath}/`;
     let fallbackMatrix: Matrix4 | null = null;
 
     for (const [meshId, hydraMesh] of Object.entries(renderInterface.meshes)) {
       if (!meshId.startsWith(prefix)) continue;
-      const matrix = (hydraMesh as any)?._mesh?.matrix;
+      const matrix = cloneMatrix4FromUnknown((hydraMesh as any)?._mesh?.matrix);
       if (!matrix) continue;
 
       if (/\/visuals\.|\/visuals\//i.test(meshId)) {
-        return matrix.clone();
+        return matrix;
       }
-      if (!fallbackMatrix) fallbackMatrix = matrix.clone();
+      if (!fallbackMatrix) fallbackMatrix = matrix;
     }
 
     return fallbackMatrix;
   }
 
-  private createMarkerGroupForLink(record: LinkDynamicsRecord, linkWorldMatrix: Matrix4): Group | null {
+  private getRepresentativeMatrixForLinkPath(
+    renderInterface: RenderInterfaceLike,
+    linkPath: string,
+    preferredFrameMode: "stage" | "visual",
+  ): Matrix4 | null {
+    if (!linkPath) return null;
+
+    const stageMatrix = this.getStageLinkWorldMatrixForPath(renderInterface, linkPath);
+    const visualMatrix = this.getVisualLinkWorldMatrixForPath(renderInterface, linkPath);
+
+    if (preferredFrameMode === "visual") {
+      return visualMatrix || stageMatrix || null;
+    }
+    return stageMatrix || visualMatrix || null;
+  }
+
+  private createMarkerGroupForLink(record: LinkDynamicsRecord): Group | null {
     const markerGroup = new Group();
     markerGroup.name = `dynamics:${record.linkPath}`;
+    markerGroup.position.set(0, 0, 0);
+    markerGroup.quaternion.set(0, 0, 0, 1);
+    markerGroup.scale.set(1, 1, 1);
 
-    const linkPosition = new Vector3();
-    const linkRotation = new Quaternion();
-    const linkScale = new Vector3();
-    linkWorldMatrix.decompose(linkPosition, linkRotation, linkScale);
-    const linkRigidMatrix = new Matrix4().compose(linkPosition, linkRotation, new Vector3(1, 1, 1));
-
-    const centerOfMassWorld = record.centerOfMassLocal.clone().applyMatrix4(linkRigidMatrix);
+    const centerOfMassLocal = record.centerOfMassLocal.clone();
     const centerMarkerRadius = this.computeCenterMarkerRadius(record.mass);
     const centerMarker = new Mesh(
       new SphereGeometry(centerMarkerRadius, 10, 8),
@@ -851,15 +1104,14 @@ export class LinkDynamicsController {
         depthWrite: false,
       })
     );
-    centerMarker.position.copy(centerOfMassWorld);
+    centerMarker.position.copy(centerOfMassLocal);
     markerGroup.add(centerMarker);
 
-    if (centerOfMassWorld.distanceTo(linkPosition) > 1e-5) {
-      markerGroup.add(this.createLine(linkPosition, centerOfMassWorld, 0x70b8ff, 0.55));
+    if (centerOfMassLocal.lengthSq() > 1e-10) {
+      markerGroup.add(this.createLine(new Vector3(0, 0, 0), centerOfMassLocal, 0x70b8ff, 0.55));
     }
 
     if (record.diagonalInertia && record.diagonalInertia.lengthSq() > 1e-12) {
-      const principalWorldRotation = linkRotation.clone().multiply(record.principalAxesLocal).normalize();
       const inertiaBoxSize = this.computeInertiaBoxSize(record.diagonalInertia, record.mass);
       const inertiaBox = new Mesh(
         new BoxGeometry(inertiaBoxSize.x, inertiaBoxSize.y, inertiaBoxSize.z),
@@ -871,12 +1123,37 @@ export class LinkDynamicsController {
           depthWrite: false,
         }),
       );
-      inertiaBox.position.copy(centerOfMassWorld);
-      inertiaBox.quaternion.copy(principalWorldRotation);
+      inertiaBox.position.copy(centerOfMassLocal);
+      inertiaBox.quaternion.copy(record.principalAxesLocal);
       markerGroup.add(inertiaBox);
     }
 
     return markerGroup.children.length > 0 ? markerGroup : null;
+  }
+
+  private applyLinkWorldMatrixToMarkerGroup(markerGroup: Group, linkWorldMatrix: Matrix4): boolean {
+    const linkPosition = new Vector3();
+    const linkRotation = new Quaternion();
+    const linkScale = new Vector3();
+    linkWorldMatrix.decompose(linkPosition, linkRotation, linkScale);
+
+    const positionChanged = markerGroup.position.distanceToSquared(linkPosition) > 1e-16;
+    const rotationDot = Math.abs(markerGroup.quaternion.dot(linkRotation));
+    const rotationChanged = (1 - Math.min(1, rotationDot)) > 1e-12;
+    if (positionChanged) {
+      markerGroup.position.copy(linkPosition);
+    }
+    if (rotationChanged) {
+      markerGroup.quaternion.copy(linkRotation);
+    }
+    if (markerGroup.scale.x !== 1 || markerGroup.scale.y !== 1 || markerGroup.scale.z !== 1) {
+      markerGroup.scale.set(1, 1, 1);
+    }
+    if (positionChanged || rotationChanged) {
+      markerGroup.updateMatrixWorld(true);
+      return true;
+    }
+    return false;
   }
 
   private createLine(start: Vector3, end: Vector3, color: number, opacity: number): Line {

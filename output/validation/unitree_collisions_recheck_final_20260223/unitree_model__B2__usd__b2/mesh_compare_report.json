@@ -1,0 +1,670 @@
+{
+  "generated_at_utc": "2026-02-23T05:54:46.333899+00:00",
+  "source_truth": "/home/xiangyk/Project/usd-viewer/output/validation/unitree_collisions_recheck_20260223/unitree_model__B2__usd__b2/truth_isaacsim.json",
+  "source_viewer": "/home/xiangyk/Project/usd-viewer/output/validation/unitree_collisions_recheck_20260223/unitree_model__B2__usd__b2/viewer_visual_dump.json",
+  "thresholds": {
+    "pos_threshold_m": 0.01,
+    "rot_threshold_deg": 1.0,
+    "size_abs_threshold_m": 0.01,
+    "size_rel_threshold": 0.15
+  },
+  "summary": {
+    "truth_visual_mesh_count": 13,
+    "viewer_visual_mesh_count": 13,
+    "compared_count": 13,
+    "unresolved_viewer_count": 0,
+    "ignored_unresolved_viewer_count": 0,
+    "resolved_without_truth_count": 0,
+    "missing_truth_paths_count": 0,
+    "failed_count": 0,
+    "rotation_ambiguity_180_count": 0,
+    "max_pos_error_m": 0.0,
+    "max_rot_error_deg": 0.0005216326412701732,
+    "max_size_abs_error_m": 1.1102230246251565e-16,
+    "max_size_rel_error": 2.525628118214466e-16,
+    "pass": true
+  },
+  "unresolved_viewer_ids": [],
+  "ignored_unresolved_viewers": [],
+  "resolved_without_truth": [],
+  "missing_truth_paths": [],
+  "top_errors": [
+    {
+      "id": "/b2_description/FL_calf/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/FL_calf/visuals/FL_calf/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 1.1102230246251565e-16,
+      "size_rel_error": 2.525628118214466e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        0.32850000262260437,
+        0.19164301455020905,
+        -0.3499999940395355
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        0.19164301455020905,
+        -0.3499999940395355
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.08644495531916618,
+        0.4395829364657402,
+        0.05499994195997715
+      ],
+      "viewer_size_effective": [
+        0.08644495531916618,
+        0.4395829364657403,
+        0.054999941959977164
+      ],
+      "truth_size_local": [
+        0.08644495531916618,
+        0.4395829364657402,
+        0.05499994195997715
+      ]
+    },
+    {
+      "id": "/b2_description/FL_thigh/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/FL_thigh/visuals/FL_thigh/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 1.1102230246251565e-16,
+      "size_rel_error": 2.503750535025363e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        0.32850000262260437,
+        0.19172999262809753,
+        0.0
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        0.19172999262809753,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.1384919211268425,
+        0.4434239789843559,
+        0.1363709457218647
+      ],
+      "viewer_size_effective": [
+        0.1384919211268425,
+        0.44342397898435604,
+        0.13637094572186473
+      ],
+      "truth_size_local": [
+        0.1384919211268425,
+        0.4434239789843559,
+        0.1363709457218647
+      ]
+    },
+    {
+      "id": "/b2_description/FR_calf/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/FR_calf/visuals/FR_calf/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 1.1102230246251565e-16,
+      "size_rel_error": 2.525628118214466e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        0.32850000262260437,
+        -0.19164299964904785,
+        -0.3499999940395355
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        -0.19164299964904785,
+        -0.3499999940395355
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.08644495531916618,
+        0.4395829364657402,
+        0.05499994195997715
+      ],
+      "viewer_size_effective": [
+        0.08644495531916618,
+        0.4395829364657403,
+        0.054999941959977164
+      ],
+      "truth_size_local": [
+        0.08644495531916618,
+        0.4395829364657402,
+        0.05499994195997715
+      ]
+    },
+    {
+      "id": "/b2_description/FR_thigh/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/FR_thigh/visuals/FR_thigh/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 1.1102230246251565e-16,
+      "size_rel_error": 2.503750535025363e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        0.32850000262260437,
+        -0.19172999262809753,
+        0.0
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        -0.19172999262809753,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.1384919211268425,
+        0.4434239789843559,
+        0.1363709457218647
+      ],
+      "viewer_size_effective": [
+        0.1384919211268425,
+        0.44342397898435604,
+        0.13637094572186473
+      ],
+      "truth_size_local": [
+        0.1384919211268425,
+        0.4434239789843559,
+        0.1363709457218647
+      ]
+    },
+    {
+      "id": "/b2_description/RL_calf/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/RL_calf/visuals/RL_calf/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 1.1102230246251565e-16,
+      "size_rel_error": 2.525628118214466e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        0.19164301455020905,
+        -0.3499999940395355
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        0.19164301455020905,
+        -0.3499999940395355
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.08644495531916618,
+        0.4395829364657402,
+        0.05499994195997715
+      ],
+      "viewer_size_effective": [
+        0.08644495531916618,
+        0.4395829364657403,
+        0.054999941959977164
+      ],
+      "truth_size_local": [
+        0.08644495531916618,
+        0.4395829364657402,
+        0.05499994195997715
+      ]
+    },
+    {
+      "id": "/b2_description/RL_thigh/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/RL_thigh/visuals/RL_thigh/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 1.1102230246251565e-16,
+      "size_rel_error": 2.503750535025363e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        0.19172999262809753,
+        0.0
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        0.19172999262809753,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.1384919211268425,
+        0.4434239789843559,
+        0.1363709457218647
+      ],
+      "viewer_size_effective": [
+        0.1384919211268425,
+        0.44342397898435604,
+        0.13637094572186473
+      ],
+      "truth_size_local": [
+        0.1384919211268425,
+        0.4434239789843559,
+        0.1363709457218647
+      ]
+    },
+    {
+      "id": "/b2_description/RR_calf/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/RR_calf/visuals/RR_calf/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 1.1102230246251565e-16,
+      "size_rel_error": 2.525628118214466e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        -0.19164299964904785,
+        -0.3499999940395355
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        -0.19164299964904785,
+        -0.3499999940395355
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.08644495531916618,
+        0.4395829364657402,
+        0.05499994195997715
+      ],
+      "viewer_size_effective": [
+        0.08644495531916618,
+        0.4395829364657403,
+        0.054999941959977164
+      ],
+      "truth_size_local": [
+        0.08644495531916618,
+        0.4395829364657402,
+        0.05499994195997715
+      ]
+    },
+    {
+      "id": "/b2_description/RR_thigh/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/RR_thigh/visuals/RR_thigh/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 1.1102230246251565e-16,
+      "size_rel_error": 2.503750535025363e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        -0.19172999262809753,
+        0.0
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        -0.19172999262809753,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.1384919211268425,
+        0.4434239789843559,
+        0.1363709457218647
+      ],
+      "viewer_size_effective": [
+        0.1384919211268425,
+        0.44342397898435604,
+        0.13637094572186473
+      ],
+      "truth_size_local": [
+        0.1384919211268425,
+        0.4434239789843559,
+        0.1363709457218647
+      ]
+    },
+    {
+      "id": "/b2_description/base_link/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/base_link/visuals/base_link/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 5.551115123125783e-17,
+      "size_rel_error": 1.863665692564205e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "truth_position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.8543609976768494,
+        0.34748709201812744,
+        0.2978600263595581
+      ],
+      "viewer_size_effective": [
+        0.8543609976768494,
+        0.3474870920181275,
+        0.29786002635955816
+      ],
+      "truth_size_local": [
+        0.8543609976768494,
+        0.34748709201812744,
+        0.2978600263595581
+      ]
+    },
+    {
+      "id": "/b2_description/FL_hip/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/FL_hip/visuals/FL_hip/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.3823111979801584e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        0.32850000262260437,
+        0.07199999690055847,
+        0.0
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        0.07199999690055847,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.14990495517849922,
+        0.12624192237854004,
+        0.11650692671537399
+      ],
+      "viewer_size_effective": [
+        0.14990495517849922,
+        0.12624192237854007,
+        0.11650692671537402
+      ],
+      "truth_size_local": [
+        0.14990495517849922,
+        0.12624192237854004,
+        0.11650692671537399
+      ]
+    },
+    {
+      "id": "/b2_description/FR_hip/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/FR_hip/visuals/FR_hip/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.3848489698171517e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        0.32850000262260437,
+        -0.07199999690055847,
+        0.0
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        -0.07199999690055847,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.14990495517849922,
+        0.12624192237854004,
+        0.11638294905424118
+      ],
+      "viewer_size_effective": [
+        0.14990495517849922,
+        0.12624192237854007,
+        0.11638294905424121
+      ],
+      "truth_size_local": [
+        0.14990495517849922,
+        0.12624192237854004,
+        0.11638294905424118
+      ]
+    },
+    {
+      "id": "/b2_description/RL_hip/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/RL_hip/visuals/RL_hip/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.3823111979801584e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        0.07199999690055847,
+        0.0
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        0.07199999690055847,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.14990495517849922,
+        0.12624192237854004,
+        0.11650692671537399
+      ],
+      "viewer_size_effective": [
+        0.14990495517849922,
+        0.12624192237854007,
+        0.11650692671537402
+      ],
+      "truth_size_local": [
+        0.14990495517849922,
+        0.12624192237854004,
+        0.11650692671537399
+      ]
+    },
+    {
+      "id": "/b2_description/RR_hip/visuals.proto_mesh_id0",
+      "resolved_path": "/b2_description/RR_hip/visuals/RR_hip/mesh",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 0.0005216326412701732,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.3823111979801584e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "rotation_ambiguity_180": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        -0.07199999690055847,
+        0.0
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        -0.07199999690055847,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.70711,
+        0.7071035623584426,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.14990495517849922,
+        0.12624192237854004,
+        0.11650692671537399
+      ],
+      "viewer_size_effective": [
+        0.14990495517849922,
+        0.12624192237854007,
+        0.11650692671537402
+      ],
+      "truth_size_local": [
+        0.14990495517849922,
+        0.12624192237854004,
+        0.11650692671537399
+      ]
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 {
     "chatgpt.openOnStartup": false,
-    "kiroAgent.configureMCP": "Disabled"
+    "kiroAgent.configureMCP": "Disabled",
+    "cmake.sourceDirectory": "/home/xiangyk/Project/usd-viewer/third_party/OpenUSD/extras/usd/examples/usdMakeFileVariantModelAsset"
 }

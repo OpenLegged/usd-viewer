@@ -23,6 +23,7 @@ export type RenderRobotMetadataSnapshot = {
   stageSourcePath: string | null;
   generatedAtMs: number;
   source: string;
+  linkParentPairs: Array<[string, string | null]>;
   jointCatalogEntries: RenderRobotJointCatalogEntry[];
   linkDynamicsEntries: RenderRobotLinkDynamicsEntry[];
   meshCountsByLinkPath: Record<string, {
@@ -157,12 +158,25 @@ export function normalizeRenderRobotMetadataSnapshot(raw: any): RenderRobotMetad
     }
   }
 
+  const linkParentPairsRaw = Array.isArray((raw as any).linkParentPairs)
+    ? (raw as any).linkParentPairs
+    : [];
+  const linkParentPairs: RenderRobotMetadataSnapshot["linkParentPairs"] = [];
+  for (const pair of linkParentPairsRaw) {
+    if (!Array.isArray(pair) || pair.length <= 0) continue;
+    const childLinkPath = normalizePath(pair[0]);
+    if (!childLinkPath) continue;
+    const parentLinkPath = normalizePath(pair[1]) || null;
+    linkParentPairs.push([childLinkPath, parentLinkPath]);
+  }
+
   return {
     stageSourcePath: String((raw as any).stageSourcePath || "").trim() || null,
     generatedAtMs: Number.isFinite(Number((raw as any).generatedAtMs))
       ? Number((raw as any).generatedAtMs)
       : Date.now(),
     source: String((raw as any).source || "unknown"),
+    linkParentPairs,
     jointCatalogEntries: normalizedJointCatalogEntries,
     linkDynamicsEntries: normalizedLinkDynamicsEntries,
     meshCountsByLinkPath,

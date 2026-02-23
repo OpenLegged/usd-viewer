@@ -44,6 +44,7 @@ export class ThreeRenderDelegateCore {
         this.autoBatchProtoBlobsOnFirstAccess = safeConfig.autoBatchProtoBlobsOnFirstAccess !== false;
         this.autoBatchPrimTransformsOnFirstAccess = safeConfig.autoBatchPrimTransformsOnFirstAccess !== false;
         this.autoBatchCollisionProtoOverridesOnFirstAccess = safeConfig.autoBatchCollisionProtoOverridesOnFirstAccess !== false;
+        this.autoBatchVisualProtoOverridesOnFirstAccess = safeConfig.autoBatchVisualProtoOverridesOnFirstAccess !== false;
         // Avoid expensive driver.GetStage() calls inside high-frequency Hydra sync callbacks.
         // Stage-dependent fallback passes still run later once stage metadata is ready.
         this.deferDriverStageLookupInSyncHotPath = safeConfig.deferDriverStageLookupInSyncHotPath !== false;
@@ -91,6 +92,8 @@ export class ThreeRenderDelegateCore {
         this._primTransformBatchPrimed = false;
         this._collisionProtoOverrideCache = new Map();
         this._collisionProtoOverrideBatchPrimed = false;
+        this._visualProtoOverrideCache = new Map();
+        this._visualProtoOverrideBatchPrimed = false;
         this._primOverrideDataCache = new Map();
         this._urdfTruthByStageSource = new Map();
         this._urdfTruthLoadPromisesByStageSource = new Map();
@@ -464,7 +467,7 @@ export class ThreeRenderDelegateCore {
         const rotateAxisByQuaternionWxyz = (axisToken, localRot1Wxyz) => {
             const axis = toAxisVector(axisToken);
             const normalizedWxyz = normalizeQuaternionWxyz(localRot1Wxyz, [1, 0, 0, 0]);
-            const quaternion = new Quaternion(Number(normalizedWxyz[1] || 0), Number(normalizedWxyz[2] || 0), Number(normalizedWxyz[3] || 0), Number(normalizedWxyz[0] || 1));
+            const quaternion = new Quaternion(Number(normalizedWxyz[1] ?? 0), Number(normalizedWxyz[2] ?? 0), Number(normalizedWxyz[3] ?? 0), Number(normalizedWxyz[0] ?? 1));
             if (Number.isFinite(quaternion.lengthSq()) && quaternion.lengthSq() > 1e-12) {
                 quaternion.normalize();
                 axis.applyQuaternion(quaternion);
@@ -498,7 +501,7 @@ export class ThreeRenderDelegateCore {
             return (Math.abs(Number(quaternionWxyz[1] || 0)) > epsilon
                 || Math.abs(Number(quaternionWxyz[2] || 0)) > epsilon
                 || Math.abs(Number(quaternionWxyz[3] || 0)) > epsilon
-                || Math.abs(Number(quaternionWxyz[0] || 1) - 1) > epsilon);
+                || Math.abs(Number(quaternionWxyz[0] ?? 1) - 1) > epsilon);
         };
         const safeGetPrimAtPath = (stageObject, primPath) => {
             if (!stageObject?.GetPrimAtPath || !primPath)
@@ -623,25 +626,116 @@ export class ThreeRenderDelegateCore {
             return sortByPreferredRoot(matches, preferredRootPath);
         };
         const stageJointRecordByChildLinkPath = new Map();
-        if (!truth && metadataLayerTexts.length > 0) {
+        const stageLinkDynamicsRecordByLinkPath = new Map();
+        const linkParentPathByChildLinkPath = new Map();
+        const ingestStageJointRecords = (jointRecords) => {
+            if (!Array.isArray(jointRecords) || jointRecords.length <= 0)
+                return;
             const seenJointKeys = new Set();
-            for (const layerText of metadataLayerTexts) {
-                for (const jointRecord of extractJointRecordsFromLayerText(layerText)) {
-                    if (!jointRecord?.body1Path)
+            for (const jointRecord of jointRecords) {
+                const body1Path = normalizeUsdPathToken(String(jointRecord?.body1Path || ''));
+                if (!body1Path)
+                    continue;
+                const body0Path = normalizeUsdPathToken(String(jointRecord?.body0Path || '')) || null;
+                const jointPath = normalizeUsdPathToken(String(jointRecord?.jointPath || jointRecord?.path || '')) || null;
+                const fallbackJointName = jointPath ? getPathBasename(jointPath) : '';
+                const jointName = String(jointRecord?.jointName || fallbackJointName || '').trim();
+                const jointTypeName = String(jointRecord?.jointTypeName || jointRecord?.jointType || '').trim();
+                const axisToken = normalizeAxisToken(jointRecord?.axisToken || jointRecord?.axis || 'X');
+                const lowerLimitDeg = Number(jointRecord?.lowerLimitDeg);
+                const upperLimitDeg = Number(jointRecord?.upperLimitDeg);
+                const localPos1 = normalizeVector3(jointRecord?.localPos1 || [0, 0, 0], [0, 0, 0]);
+                const localRot1Wxyz = normalizeQuaternionWxyz(jointRecord?.localRot1Wxyz || jointRecord?.localRot1 || [1, 0, 0, 0], [1, 0, 0, 0]);
+                const key = `${jointName}|${body0Path || ''}|${body1Path}`;
+                if (seenJointKeys.has(key))
+                    continue;
+                seenJointKeys.add(key);
+                const childLinkPaths = resolveRuntimeLinkPathsFromSourcePath(body1Path);
+                for (const childLinkPath of childLinkPaths) {
+                    if (!childLinkPath)
                         continue;
-                    if (!isControllableStageJointType(jointRecord.jointTypeName))
-                        continue;
-                    const key = `${jointRecord.jointName || ''}|${jointRecord.body0Path || ''}|${jointRecord.body1Path || ''}`;
-                    if (seenJointKeys.has(key))
-                        continue;
-                    seenJointKeys.add(key);
-                    const childLinkPaths = resolveRuntimeLinkPathsFromSourcePath(jointRecord.body1Path);
-                    for (const childLinkPath of childLinkPaths) {
-                        if (!childLinkPath || stageJointRecordByChildLinkPath.has(childLinkPath))
-                            continue;
-                        stageJointRecordByChildLinkPath.set(childLinkPath, jointRecord);
+                    const preferredRootPath = getRootPathFromPrimPath(childLinkPath);
+                    const parentCandidates = resolveRuntimeLinkPathsFromSourcePath(body0Path, preferredRootPath);
+                    const parentLinkPath = parentCandidates[0] || null;
+                    if (!linkParentPathByChildLinkPath.has(childLinkPath)) {
+                        linkParentPathByChildLinkPath.set(childLinkPath, parentLinkPath);
                     }
+                    if (!isControllableStageJointType(jointTypeName))
+                        continue;
+                    if (stageJointRecordByChildLinkPath.has(childLinkPath))
+                        continue;
+                    stageJointRecordByChildLinkPath.set(childLinkPath, {
+                        jointName,
+                        jointPath,
+                        jointTypeName,
+                        jointType: jointTypeName,
+                        body0Path,
+                        body1Path,
+                        axisToken,
+                        lowerLimitDeg: Number.isFinite(lowerLimitDeg) ? lowerLimitDeg : null,
+                        upperLimitDeg: Number.isFinite(upperLimitDeg) ? upperLimitDeg : null,
+                        localPos1,
+                        localRot1Wxyz,
+                        parentLinkPath,
+                    });
                 }
+            }
+        };
+        if (!truth) {
+            const driverRecords = (() => {
+                try {
+                    const activeDriver = typeof window !== 'undefined' ? window?.driver : null;
+                    if (!activeDriver) {
+                        return { jointRecords: [], linkDynamicsRecords: [] };
+                    }
+                    const rawJointRecords = (typeof activeDriver.GetPhysicsJointRecords === 'function')
+                        ? activeDriver.GetPhysicsJointRecords()
+                        : [];
+                    const jointRecords = (rawJointRecords && typeof rawJointRecords.length === 'number'
+                        ? Array.from(rawJointRecords)
+                        : []);
+                    const rawLinkDynamicsRecords = (typeof activeDriver.GetPhysicsLinkDynamicsRecords === 'function')
+                        ? activeDriver.GetPhysicsLinkDynamicsRecords()
+                        : [];
+                    const linkDynamicsRecords = (rawLinkDynamicsRecords && typeof rawLinkDynamicsRecords.length === 'number'
+                        ? Array.from(rawLinkDynamicsRecords)
+                        : []);
+                    return { jointRecords, linkDynamicsRecords };
+                }
+                catch {
+                    return { jointRecords: [], linkDynamicsRecords: [] };
+                }
+            })();
+            ingestStageJointRecords(driverRecords.jointRecords);
+            for (const dynamicsRecord of driverRecords.linkDynamicsRecords) {
+                const linkPath = normalizeUsdPathToken(String(dynamicsRecord?.linkPath || ''));
+                if (!linkPath)
+                    continue;
+                if (!linkPathSet.has(linkPath))
+                    continue;
+                const massValue = toFiniteNumber(dynamicsRecord?.mass);
+                const centerOfMassLocal = normalizeVector3(dynamicsRecord?.centerOfMassLocal, [0, 0, 0]);
+                const diagonalInertiaTuple = toFiniteVector3Tuple(dynamicsRecord?.diagonalInertia);
+                const principalAxesLocalWxyz = normalizeQuaternionWxyz(dynamicsRecord?.principalAxesLocalWxyz, [1, 0, 0, 0]);
+                const hasDynamicsData = (massValue !== undefined
+                    || hasSignificantVector3(centerOfMassLocal)
+                    || (Array.isArray(diagonalInertiaTuple) && hasSignificantVector3(diagonalInertiaTuple))
+                    || hasNonIdentityQuaternionWxyz(principalAxesLocalWxyz));
+                if (!hasDynamicsData)
+                    continue;
+                stageLinkDynamicsRecordByLinkPath.set(linkPath, {
+                    mass: massValue === undefined ? null : Number(massValue),
+                    centerOfMassLocal,
+                    diagonalInertia: Array.isArray(diagonalInertiaTuple)
+                        ? normalizeVector3(diagonalInertiaTuple, [0, 0, 0])
+                        : null,
+                    principalAxesLocalWxyz,
+                });
+            }
+        }
+        if (!truth && metadataLayerTexts.length > 0) {
+            for (const layerText of metadataLayerTexts) {
+                ingestStageJointRecords(extractJointRecordsFromLayerText(layerText));
             }
         }
         const linkDynamicsPatchesByLinkPath = new Map();
@@ -697,8 +791,12 @@ export class ThreeRenderDelegateCore {
                 const jointName = String(jointEntry.jointName || `${linkName}_joint`).trim() || `${linkName}_joint`;
                 const stageParentCandidates = resolveRuntimeLinkPathsFromSourcePath(jointEntry.body0Path, rootPath);
                 const parentLinkName = String(jointEntry.parentLinkName || '').trim();
-                const parentLinkPath = stageParentCandidates[0]
+                const parentLinkPath = linkParentPathByChildLinkPath.get(linkPath)
+                    || stageParentCandidates[0]
                     || (parentLinkName ? (rootPath ? `${rootPath}/${parentLinkName}` : `/${parentLinkName}`) : null);
+                if (!linkParentPathByChildLinkPath.has(linkPath)) {
+                    linkParentPathByChildLinkPath.set(linkPath, parentLinkPath || null);
+                }
                 const lowerLimitDeg = Number(jointEntry.lowerLimitDeg);
                 const upperLimitDeg = Number(jointEntry.upperLimitDeg);
                 const localPivotInLink = Array.isArray(jointEntry.originXyz)
@@ -719,26 +817,29 @@ export class ThreeRenderDelegateCore {
             }
             const inertialEntry = inertialByLinkName?.get?.(linkName) || null;
             if (inertialEntry || stage) {
+                const stageDynamicsRecord = stageLinkDynamicsRecordByLinkPath.get(linkPath) || null;
                 const prim = safeGetPrimAtPath(stage, linkPath);
                 const stagePatch = linkDynamicsPatchesByLinkPath.get(linkPath) || linkDynamicsPatchesByLinkName.get(linkName) || null;
                 const massValueFromPrim = toFiniteNumber(safeGetPrimAttribute(prim, 'physics:mass'));
                 const massValue = Number.isFinite(Number(inertialEntry?.mass))
                     ? Number(inertialEntry.mass)
-                    : (massValueFromPrim !== undefined ? Number(massValueFromPrim) : (Number.isFinite(Number(stagePatch?.mass)) ? Number(stagePatch.mass) : null));
+                    : (stageDynamicsRecord?.mass !== null && Number.isFinite(Number(stageDynamicsRecord?.mass))
+                        ? Number(stageDynamicsRecord.mass)
+                        : (massValueFromPrim !== undefined ? Number(massValueFromPrim) : (Number.isFinite(Number(stagePatch?.mass)) ? Number(stagePatch.mass) : null)));
                 const centerOfMassTupleFromPrim = toFiniteVector3Tuple(safeGetPrimAttribute(prim, 'physics:centerOfMass'));
                 const diagonalInertiaTupleFromPrim = toFiniteVector3Tuple(safeGetPrimAttribute(prim, 'physics:diagonalInertia'));
                 const principalAxesTupleFromPrim = toFiniteQuaternionWxyzTuple(safeGetPrimAttribute(prim, 'physics:principalAxes'));
                 const centerOfMassLocal = inertialEntry
                     ? normalizeVector3(inertialEntry.centerOfMassLocal, [0, 0, 0])
-                    : normalizeVector3(centerOfMassTupleFromPrim || stagePatch?.centerOfMassLocal, [0, 0, 0]);
+                    : normalizeVector3(stageDynamicsRecord?.centerOfMassLocal || centerOfMassTupleFromPrim || stagePatch?.centerOfMassLocal, [0, 0, 0]);
                 const diagonalInertia = inertialEntry
                     ? (Array.isArray(inertialEntry.diagonalInertia) ? normalizeVector3(inertialEntry.diagonalInertia, [0, 0, 0]) : null)
-                    : (Array.isArray(diagonalInertiaTupleFromPrim || stagePatch?.diagonalInertia)
-                        ? normalizeVector3(diagonalInertiaTupleFromPrim || stagePatch?.diagonalInertia, [0, 0, 0])
+                    : (Array.isArray(stageDynamicsRecord?.diagonalInertia || diagonalInertiaTupleFromPrim || stagePatch?.diagonalInertia)
+                        ? normalizeVector3(stageDynamicsRecord?.diagonalInertia || diagonalInertiaTupleFromPrim || stagePatch?.diagonalInertia, [0, 0, 0])
                         : null);
                 const principalAxesWxyz = inertialEntry
                     ? normalizeQuaternionWxyz(inertialEntry.principalAxesLocalWxyz, [1, 0, 0, 0])
-                    : normalizeQuaternionWxyz(principalAxesTupleFromPrim || stagePatch?.principalAxesLocalWxyz, [1, 0, 0, 0]);
+                    : normalizeQuaternionWxyz(stageDynamicsRecord?.principalAxesLocalWxyz || principalAxesTupleFromPrim || stagePatch?.principalAxesLocalWxyz, [1, 0, 0, 0]);
                 const hasDynamicsData = (massValue !== null
                     || hasSignificantVector3(centerOfMassLocal)
                     || hasSignificantVector3(diagonalInertia)
@@ -755,17 +856,22 @@ export class ThreeRenderDelegateCore {
                 });
             }
         }
+        const linkParentPairs = Array.from(linkParentPathByChildLinkPath.entries())
+            .filter(([childLinkPath]) => !!childLinkPath)
+            .map(([childLinkPath, parentLinkPath]) => [childLinkPath, parentLinkPath || null]);
+        linkParentPairs.sort((left, right) => String(left[0] || '').localeCompare(String(right[0] || '')));
         let metadataSource = 'mesh-only';
         if (truth) {
             metadataSource = 'urdf-truth';
         }
-        else if (jointCatalogEntries.length > 0 || linkDynamicsEntries.length > 0) {
+        else if (jointCatalogEntries.length > 0 || linkDynamicsEntries.length > 0 || linkParentPairs.length > 0) {
             metadataSource = 'usd-stage';
         }
         return {
             stageSourcePath: normalizedStagePath,
             generatedAtMs: this._nowPerfMs(),
             source: metadataSource,
+            linkParentPairs,
             jointCatalogEntries,
             linkDynamicsEntries,
             meshCountsByLinkPath,

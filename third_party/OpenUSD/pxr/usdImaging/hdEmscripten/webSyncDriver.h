@@ -43,6 +43,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -235,12 +236,169 @@ public:
         if (!_stage) return primPaths;
 
         int index = 0;
-        for (const UsdPrim& prim : _stage->Traverse()) {
+        std::unordered_set<std::string> seenPaths;
+        seenPaths.reserve(4096);
+        auto appendPrimPath = [&](UsdPrim const& prim) {
+            if (!prim) return;
             const std::string path = prim.GetPath().GetString();
-            if (path.empty()) continue;
+            if (path.empty()) return;
+            if (!seenPaths.insert(path).second) return;
             primPaths.set(index++, path);
+        };
+
+        // Default traversal excludes instance proxies, which means many authored
+        // collision/visual mesh prims inside instance hierarchies are absent
+        // from the JS-side path index.
+        for (const UsdPrim& prim : _stage->Traverse()) {
+            appendPrimPath(prim);
+        }
+
+        // Include instance-proxy paths so JS can resolve prims like:
+        // /<robot>/<link>/collisions/<name>/mesh
+        const Usd_PrimFlagsPredicate proxyPredicate = UsdTraverseInstanceProxies(UsdPrimAllPrimsPredicate);
+        for (const UsdPrim& prim : UsdPrimRange::Stage(_stage, proxyPredicate)) {
+            appendPrimPath(prim);
         }
         return primPaths;
+    }
+
+    emscripten::val GetPhysicsJointRecords() {
+        emscripten::val records = emscripten::val::array();
+        if (!_stage) return records;
+
+        const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+        int recordIndex = 0;
+        const Usd_PrimFlagsPredicate predicate = UsdTraverseInstanceProxies(UsdPrimAllPrimsPredicate);
+
+        for (const UsdPrim& prim : UsdPrimRange::Stage(_stage, predicate)) {
+            if (!prim) continue;
+
+            const std::string primTypeName = prim.GetTypeName().GetString();
+            const std::string normalizedTypeName = _ToLowerAscii(primTypeName);
+            if (normalizedTypeName.find("joint") == std::string::npos) continue;
+
+            emscripten::val record = emscripten::val::object();
+            const std::string primPath = prim.GetPath().GetString();
+            record.set("path", primPath);
+            record.set("jointPath", primPath);
+            record.set("jointName", prim.GetName().GetString());
+            record.set("jointTypeName", primTypeName);
+            record.set("jointType", primTypeName);
+            record.set("body0Path", _ReadFirstRelationshipTargetPath(prim.GetRelationship(TfToken("physics:body0"))));
+            record.set("body1Path", _ReadFirstRelationshipTargetPath(prim.GetRelationship(TfToken("physics:body1"))));
+            record.set("axisToken", _ReadAxisToken(prim, timeCode));
+
+            std::array<double, 3> localPos0 = {0.0, 0.0, 0.0};
+            if (_TryReadVec3Attr(prim.GetAttribute(TfToken("physics:localPos0")), timeCode, &localPos0)) {
+                record.set("localPos0", _Vec3ToJsArray(localPos0));
+            }
+
+            std::array<double, 3> localPos1 = {0.0, 0.0, 0.0};
+            if (_TryReadVec3Attr(prim.GetAttribute(TfToken("physics:localPos1")), timeCode, &localPos1)) {
+                record.set("localPos1", _Vec3ToJsArray(localPos1));
+            }
+
+            std::array<double, 4> localRot0Wxyz = {1.0, 0.0, 0.0, 0.0};
+            if (_TryReadQuatWxyzAttr(prim.GetAttribute(TfToken("physics:localRot0")), timeCode, &localRot0Wxyz)) {
+                record.set("localRot0Wxyz", _Vec4ToJsArray(localRot0Wxyz));
+            }
+
+            std::array<double, 4> localRot1Wxyz = {1.0, 0.0, 0.0, 0.0};
+            if (_TryReadQuatWxyzAttr(prim.GetAttribute(TfToken("physics:localRot1")), timeCode, &localRot1Wxyz)) {
+                record.set("localRot1Wxyz", _Vec4ToJsArray(localRot1Wxyz));
+            }
+
+            double lowerLimit = 0.0;
+            if (_TryReadDoubleAttr(prim, "physics:lowerLimit", timeCode, &lowerLimit)) {
+                record.set("lowerLimitDeg", lowerLimit);
+            }
+
+            double upperLimit = 0.0;
+            if (_TryReadDoubleAttr(prim, "physics:upperLimit", timeCode, &upperLimit)) {
+                record.set("upperLimitDeg", upperLimit);
+            }
+
+            records.set(recordIndex++, record);
+        }
+
+        return records;
+    }
+
+    emscripten::val GetPhysicsLinkDynamicsRecords() {
+        emscripten::val records = emscripten::val::array();
+        if (!_stage) return records;
+
+        const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+        const UsdPrim defaultPrim = _stage->GetDefaultPrim();
+        const std::string defaultPrimPath = defaultPrim ? defaultPrim.GetPath().GetString() : std::string();
+        const std::string defaultPrimPrefix = defaultPrimPath.empty()
+            ? std::string()
+            : (defaultPrimPath + "/");
+        int recordIndex = 0;
+
+        for (const UsdPrim& prim : _stage->Traverse()) {
+            if (!prim) continue;
+
+            if (!defaultPrimPrefix.empty()) {
+                const std::string primPath = prim.GetPath().GetString();
+                if (primPath != defaultPrimPath && primPath.rfind(defaultPrimPrefix, 0) != 0) {
+                    continue;
+                }
+            }
+
+            const std::string primPath = prim.GetPath().GetString();
+            if (primPath.empty()) continue;
+            if (primPath.find("/visuals") != std::string::npos) continue;
+            if (primPath.find("/collisions") != std::string::npos) continue;
+            if (primPath.find("/Looks") != std::string::npos) continue;
+            if (primPath.find("/joints") != std::string::npos) continue;
+
+            const std::string primTypeName = _ToLowerAscii(prim.GetTypeName().GetString());
+            if (!primTypeName.empty() && primTypeName != "xform") {
+                continue;
+            }
+
+            double mass = 0.0;
+            const bool hasMass = _TryReadDoubleAttr(prim, "physics:mass", timeCode, &mass);
+
+            std::array<double, 3> centerOfMassLocal = {0.0, 0.0, 0.0};
+            const bool hasCenterOfMass = _TryReadVec3Attr(
+                prim.GetAttribute(TfToken("physics:centerOfMass")),
+                timeCode,
+                &centerOfMassLocal);
+
+            std::array<double, 3> diagonalInertia = {0.0, 0.0, 0.0};
+            const bool hasDiagonalInertia = _TryReadVec3Attr(
+                prim.GetAttribute(TfToken("physics:diagonalInertia")),
+                timeCode,
+                &diagonalInertia);
+
+            std::array<double, 4> principalAxesLocalWxyz = {1.0, 0.0, 0.0, 0.0};
+            const bool hasPrincipalAxes = _TryReadQuatWxyzAttr(
+                prim.GetAttribute(TfToken("physics:principalAxes")),
+                timeCode,
+                &principalAxesLocalWxyz);
+
+            if (!hasMass && !hasCenterOfMass && !hasDiagonalInertia && !hasPrincipalAxes) {
+                continue;
+            }
+
+            emscripten::val record = emscripten::val::object();
+            record.set("linkPath", primPath);
+            record.set("mass", hasMass ? emscripten::val(mass) : emscripten::val::null());
+            record.set("centerOfMassLocal", hasCenterOfMass
+                ? _Vec3ToJsArray(centerOfMassLocal)
+                : _Vec3ToJsArray(std::array<double, 3>{0.0, 0.0, 0.0}));
+            record.set("diagonalInertia", hasDiagonalInertia
+                ? _Vec3ToJsArray(diagonalInertia)
+                : emscripten::val::null());
+            record.set("principalAxesLocalWxyz", hasPrincipalAxes
+                ? _Vec4ToJsArray(principalAxesLocalWxyz)
+                : _Vec4ToJsArray(std::array<double, 4>{1.0, 0.0, 0.0, 0.0}));
+            records.set(recordIndex++, record);
+        }
+
+        return records;
     }
 
     emscripten::val GetProtoDataBlob(std::string const& protoPath) {
@@ -293,6 +451,101 @@ public:
                 overrides.set(rprimPath, _BuildCollisionProtoOverride(rprimPath, timeCode, &xformCache, &candidateMap));
             });
         return overrides;
+    }
+
+    emscripten::val GetVisualProtoOverride(std::string const& meshId) {
+        emscripten::val result = emscripten::val::object();
+        result.set("valid", false);
+        if (!_stage || meshId.empty()) return result;
+
+        const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+        UsdGeomXformCache xformCache(timeCode);
+        return _BuildVisualProtoOverride(meshId, timeCode, &xformCache);
+    }
+
+    emscripten::val GetVisualProtoOverrides() {
+        emscripten::val overrides = emscripten::val::object();
+        if (!_stage) return overrides;
+
+        const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+        UsdGeomXformCache xformCache(timeCode);
+        const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
+        VisualCandidateMap candidateMap = _BuildVisualCandidateMap(acceptableTypes);
+        _renderDelegate.ReadAllProtoDataBlobs(
+            [&](std::string const& rprimPath, WebRenderDelegate::ProtoDataBlobRecord const&) {
+                if (rprimPath.find(".proto_") == std::string::npos) return;
+                const ProtoMeshIdentifier proto = _ParseProtoMeshIdentifier(rprimPath);
+                if (!proto.valid || proto.sectionName != "visuals") return;
+                overrides.set(rprimPath, _BuildVisualProtoOverride(rprimPath, timeCode, &xformCache, &candidateMap));
+            });
+        return overrides;
+    }
+
+    // One-shot proto override payload for both collision and visual proto meshes.
+    // This avoids multiple large JS<->WASM bridge calls and duplicate stage scans.
+    emscripten::val GetProtoMeshOverrides() {
+        emscripten::val bundle = emscripten::val::object();
+        emscripten::val collisionOverrides = emscripten::val::object();
+        emscripten::val visualOverrides = emscripten::val::object();
+        bundle.set("collision", collisionOverrides);
+        bundle.set("visual", visualOverrides);
+        bundle.set("collisionCount", 0.0);
+        bundle.set("visualCount", 0.0);
+        if (!_stage) return bundle;
+
+        const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+        UsdGeomXformCache xformCache(timeCode);
+        const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
+        CollisionCandidateMap collisionCandidateMap = _BuildCollisionCandidateMap(acceptableTypes);
+        VisualCandidateMap visualCandidateMap = _BuildVisualCandidateMap(acceptableTypes);
+
+        size_t collisionCount = 0;
+        size_t visualCount = 0;
+        _renderDelegate.ReadAllProtoDataBlobs(
+            [&](std::string const& rprimPath, WebRenderDelegate::ProtoDataBlobRecord const&) {
+                if (rprimPath.find(".proto_") == std::string::npos) return;
+                const ProtoMeshIdentifier proto = _ParseProtoMeshIdentifier(rprimPath);
+                if (!proto.valid) return;
+
+                if (proto.sectionName == "collisions") {
+                    emscripten::val overrideData = _BuildCollisionProtoOverride(
+                        rprimPath,
+                        timeCode,
+                        &xformCache,
+                        &collisionCandidateMap);
+                    bool valid = false;
+                    try {
+                        valid = overrideData["valid"].as<bool>();
+                    } catch (...) {
+                        valid = false;
+                    }
+                    if (!valid) return;
+                    collisionOverrides.set(rprimPath, overrideData);
+                    ++collisionCount;
+                    return;
+                }
+
+                if (proto.sectionName == "visuals") {
+                    emscripten::val overrideData = _BuildVisualProtoOverride(
+                        rprimPath,
+                        timeCode,
+                        &xformCache,
+                        &visualCandidateMap);
+                    bool valid = false;
+                    try {
+                        valid = overrideData["valid"].as<bool>();
+                    } catch (...) {
+                        valid = false;
+                    }
+                    if (!valid) return;
+                    visualOverrides.set(rprimPath, overrideData);
+                    ++visualCount;
+                }
+            });
+
+        bundle.set("collisionCount", static_cast<double>(collisionCount));
+        bundle.set("visualCount", static_cast<double>(visualCount));
+        return bundle;
     }
 
     emscripten::val GetPrimOverrideData(std::string const& primPath) {
@@ -377,7 +630,9 @@ private:
     };
 
     using PrimCandidate = std::pair<std::string, UsdPrim>;
-    using CollisionCandidateMap = std::unordered_map<std::string, std::vector<PrimCandidate>>;
+    using ProtoCandidateMap = std::unordered_map<std::string, std::vector<PrimCandidate>>;
+    using CollisionCandidateMap = ProtoCandidateMap;
+    using VisualCandidateMap = ProtoCandidateMap;
 
     static emscripten::val _Matrix4dToJsArray(GfMatrix4d const& matrix) {
         emscripten::val values = emscripten::val::array();
@@ -498,19 +753,18 @@ private:
         return result;
     }
 
-    static std::vector<std::string> _GetExpectedCollisionPrimTypes(ProtoMeshIdentifier const& proto) {
+    static std::vector<std::string> _GetExpectedPrimTypesForProtoType(std::string const& protoType) {
         std::vector<std::string> expected;
-        if (!proto.valid || proto.sectionName != "collisions") return expected;
-
-        if (proto.protoType == "box") {
+        const std::string normalizedType = _ToLowerAscii(protoType);
+        if (normalizedType == "box") {
             expected.push_back("cube");
-        } else if (proto.protoType == "sphere") {
+        } else if (normalizedType == "sphere") {
             expected.push_back("sphere");
-        } else if (proto.protoType == "cylinder") {
+        } else if (normalizedType == "cylinder") {
             expected.push_back("cylinder");
-        } else if (proto.protoType == "capsule") {
+        } else if (normalizedType == "capsule") {
             expected.push_back("capsule");
-        } else if (proto.protoType == "mesh") {
+        } else if (normalizedType == "mesh") {
             expected.push_back("mesh");
             expected.push_back("cube");
             expected.push_back("sphere");
@@ -520,7 +774,19 @@ private:
         return expected;
     }
 
-    static std::vector<std::string> _BuildProtoPrimPathCandidates(ProtoMeshIdentifier const& proto) {
+    static std::vector<std::string> _GetExpectedCollisionPrimTypes(ProtoMeshIdentifier const& proto) {
+        if (!proto.valid || proto.sectionName != "collisions") return {};
+        return _GetExpectedPrimTypesForProtoType(proto.protoType);
+    }
+
+    static std::vector<std::string> _GetExpectedVisualPrimTypes(ProtoMeshIdentifier const& proto) {
+        if (!proto.valid || proto.sectionName != "visuals") return {};
+        return _GetExpectedPrimTypesForProtoType(proto.protoType);
+    }
+
+    static std::vector<std::string> _BuildProtoPrimPathCandidates(
+        ProtoMeshIdentifier const& proto,
+        bool includeGenericFallbacks = true) {
         std::vector<std::string> candidates;
         if (!proto.valid) return candidates;
 
@@ -532,17 +798,19 @@ private:
             _AppendUniqueCandidate(&candidates, proto.containerPath + "/mesh_" + std::to_string(proto.protoIndex) + "/sphere");
             _AppendUniqueCandidate(&candidates, proto.containerPath + "/mesh_" + std::to_string(proto.protoIndex) + "/cylinder");
             _AppendUniqueCandidate(&candidates, proto.containerPath + "/mesh_" + std::to_string(proto.protoIndex) + "/capsule");
-            _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.linkName + "/mesh");
-            _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.linkName + "_" + proto.sectionName + "/mesh");
-            _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.linkName + "_link/mesh");
-            _AppendUniqueCandidate(&candidates, proto.containerPath + "/mesh");
-            _AppendUniqueCandidate(&candidates, proto.containerPath + "/collision_mesh");
-            _AppendUniqueCandidate(&candidates, proto.containerPath + "/visual_mesh");
-            _AppendUniqueCandidate(&candidates, proto.containerPath + "/cube");
-            _AppendUniqueCandidate(&candidates, proto.containerPath + "/sphere");
-            _AppendUniqueCandidate(&candidates, proto.containerPath + "/cylinder");
-            _AppendUniqueCandidate(&candidates, proto.containerPath + "/capsule");
             _AppendUniqueCandidate(&candidates, proto.containerPath + "/mesh_" + std::to_string(proto.protoIndex));
+            if (includeGenericFallbacks && proto.protoIndex == 0) {
+                _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.linkName + "/mesh");
+                _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.linkName + "_" + proto.sectionName + "/mesh");
+                _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.linkName + "_link/mesh");
+                _AppendUniqueCandidate(&candidates, proto.containerPath + "/mesh");
+                _AppendUniqueCandidate(&candidates, proto.containerPath + "/collision_mesh");
+                _AppendUniqueCandidate(&candidates, proto.containerPath + "/visual_mesh");
+                _AppendUniqueCandidate(&candidates, proto.containerPath + "/cube");
+                _AppendUniqueCandidate(&candidates, proto.containerPath + "/sphere");
+                _AppendUniqueCandidate(&candidates, proto.containerPath + "/cylinder");
+                _AppendUniqueCandidate(&candidates, proto.containerPath + "/capsule");
+            }
             return candidates;
         }
 
@@ -551,11 +819,80 @@ private:
         _AppendUniqueCandidate(&candidates, proto.containerPath + "/mesh_" + std::to_string(proto.protoIndex) + "/" + usdType);
         _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.protoType + "_" + std::to_string(proto.protoIndex) + "/" + proto.protoType);
         _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.protoType + "_" + std::to_string(proto.protoIndex) + "/" + usdType);
-        _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + usdType);
-        _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.protoType);
-        _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.linkName + "/" + usdType);
-        _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.linkName + "/" + proto.protoType);
+        if (includeGenericFallbacks && proto.protoIndex == 0) {
+            _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + usdType);
+            _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.protoType);
+            _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.linkName + "/" + usdType);
+            _AppendUniqueCandidate(&candidates, proto.containerPath + "/" + proto.linkName + "/" + proto.protoType);
+        }
         return candidates;
+    }
+
+    static std::string _NormalizeLinkToken(std::string value) {
+        std::string lowered = _ToLowerAscii(value);
+        if (lowered.size() > 5 && lowered.substr(lowered.size() - 5) == "_link") {
+            lowered = lowered.substr(0, lowered.size() - 5);
+        }
+        return lowered;
+    }
+
+    static std::string _GetParentPathBasename(std::string const& primPath) {
+        if (primPath.empty()) return std::string();
+        const size_t lastSlash = primPath.find_last_of('/');
+        if (lastSlash == std::string::npos || lastSlash == 0) return std::string();
+        return _GetPathBasename(primPath.substr(0, lastSlash));
+    }
+
+    static bool _IsLikelyLinkNamedCandidatePath(
+        ProtoMeshIdentifier const& proto,
+        std::string const& primPath) {
+        if (!proto.valid || primPath.empty()) return false;
+        const std::string linkToken = _NormalizeLinkToken(proto.linkName);
+        if (linkToken.empty()) return false;
+
+        const std::string parentName = _NormalizeLinkToken(_GetParentPathBasename(primPath));
+        if (parentName.empty()) return false;
+        if (parentName == linkToken) return true;
+        if (parentName.find(linkToken) != std::string::npos) return true;
+        return false;
+    }
+
+    static void _PrepareProtoDiscoveredCandidates(
+        ProtoMeshIdentifier const& proto,
+        std::vector<std::string> const& expectedTypes,
+        std::vector<PrimCandidate>* discovered) {
+        if (!discovered) return;
+        if (discovered->empty()) return;
+
+        std::unordered_set<std::string> seenPaths;
+        std::vector<PrimCandidate> filtered;
+        filtered.reserve(discovered->size());
+        for (PrimCandidate const& candidate : *discovered) {
+            if (!candidate.second) continue;
+            if (candidate.first.empty()) continue;
+            if (!seenPaths.insert(candidate.first).second) continue;
+            const std::string candidateType = _GetSupportedPrimTypeName(candidate.second);
+            if (candidateType.empty() || !_ContainsString(expectedTypes, candidateType)) continue;
+            filtered.push_back(candidate);
+        }
+        if (filtered.empty()) {
+            discovered->clear();
+            return;
+        }
+
+        if (proto.protoType == "mesh" && filtered.size() > 1) {
+            const auto preferred = std::find_if(
+                filtered.begin(),
+                filtered.end(),
+                [&](PrimCandidate const& candidate) {
+                    return _IsLikelyLinkNamedCandidatePath(proto, candidate.first);
+                });
+            if (preferred != filtered.end() && preferred != filtered.begin()) {
+                std::rotate(filtered.begin(), preferred, preferred + 1);
+            }
+        }
+
+        *discovered = std::move(filtered);
     }
 
     bool _TryResolveSupportedCollisionPrim(
@@ -587,19 +924,19 @@ private:
         return false;
     }
 
-    bool _ResolveCollisionProtoPrim(
+    bool _ResolveProtoPrim(
         ProtoMeshIdentifier const& proto,
+        std::vector<std::string> const& expectedTypes,
+        bool collisionSection,
+        ProtoCandidateMap const* candidateMap,
         UsdPrim* outPrim,
         std::string* outPrimPath,
-        std::string* outPrimType,
-        CollisionCandidateMap const* candidateMap = nullptr) const {
+        std::string* outPrimType) const {
         if (!_stage || !proto.valid || !outPrim || !outPrimPath || !outPrimType) return false;
-
-        const std::vector<std::string> expectedTypes = _GetExpectedCollisionPrimTypes(proto);
         if (expectedTypes.empty()) return false;
 
-        const std::vector<std::string> candidates = _BuildProtoPrimPathCandidates(proto);
-        for (std::string const& candidatePath : candidates) {
+        const std::vector<std::string> indexCandidates = _BuildProtoPrimPathCandidates(proto, false);
+        for (std::string const& candidatePath : indexCandidates) {
             if (candidatePath.empty()) continue;
             const SdfPath sdfPath(candidatePath);
             if (sdfPath.IsEmpty()) continue;
@@ -621,37 +958,30 @@ private:
             if (found != candidateMap->end()) {
                 discovered = found->second;
             }
-        } else {
+        } else if (collisionSection) {
             CollisionCandidateMap fallbackMap = _BuildCollisionCandidateMap(expectedTypes);
+            const auto found = fallbackMap.find(proto.containerPath);
+            if (found != fallbackMap.end()) {
+                discovered = found->second;
+            }
+        } else {
+            VisualCandidateMap fallbackMap = _BuildVisualCandidateMap(expectedTypes);
             const auto found = fallbackMap.find(proto.containerPath);
             if (found != fallbackMap.end()) {
                 discovered = found->second;
             }
         }
 
-        if (!discovered.empty()) {
-            discovered.erase(
-                std::remove_if(
-                    discovered.begin(),
-                    discovered.end(),
-                    [&](PrimCandidate const& candidate) {
-                        if (!candidate.second) return true;
-                        const std::string candidateType = _GetSupportedPrimTypeName(candidate.second);
-                        return candidateType.empty() || !_ContainsString(expectedTypes, candidateType);
-                    }),
-                discovered.end());
-        }
+        _PrepareProtoDiscoveredCandidates(proto, expectedTypes, &discovered);
 
         if (!discovered.empty()) {
-            std::sort(
-                discovered.begin(),
-                discovered.end(),
-                [](PrimCandidate const& left, PrimCandidate const& right) {
-                    return left.first < right.first;
-                });
+            const size_t discoveredSize = discovered.size();
+            if (proto.protoIndex > 0 && static_cast<size_t>(proto.protoIndex) >= discoveredSize) {
+                return false;
+            }
             const size_t pickedIndex = (
                 proto.protoIndex >= 0
-                && static_cast<size_t>(proto.protoIndex) < discovered.size())
+                && static_cast<size_t>(proto.protoIndex) < discoveredSize)
                 ? static_cast<size_t>(proto.protoIndex)
                 : 0;
             const UsdPrim pickedPrim = discovered[pickedIndex].second;
@@ -662,16 +992,71 @@ private:
             *outPrimType = pickedPrimType;
             return true;
         }
+
+        if (proto.protoIndex == 0) {
+            const std::vector<std::string> genericCandidates = _BuildProtoPrimPathCandidates(proto, true);
+            for (std::string const& candidatePath : genericCandidates) {
+                if (candidatePath.empty()) continue;
+                const SdfPath sdfPath(candidatePath);
+                if (sdfPath.IsEmpty()) continue;
+                const UsdPrim candidatePrim = _stage->GetPrimAtPath(sdfPath);
+                if (!candidatePrim) continue;
+                if (_TryResolveSupportedCollisionPrim(
+                    candidatePrim,
+                    expectedTypes,
+                    outPrim,
+                    outPrimPath,
+                    outPrimType)) {
+                    return true;
+                }
+            }
+        }
+
         return false;
     }
 
-    CollisionCandidateMap _BuildCollisionCandidateMap(
-        std::vector<std::string> const& acceptedTypes) const {
-        CollisionCandidateMap candidateMap;
-        if (!_stage || acceptedTypes.empty()) return candidateMap;
+    bool _ResolveCollisionProtoPrim(
+        ProtoMeshIdentifier const& proto,
+        UsdPrim* outPrim,
+        std::string* outPrimPath,
+        std::string* outPrimType,
+        CollisionCandidateMap const* candidateMap = nullptr) const {
+        const std::vector<std::string> expectedTypes = _GetExpectedCollisionPrimTypes(proto);
+        return _ResolveProtoPrim(
+            proto,
+            expectedTypes,
+            true,
+            candidateMap,
+            outPrim,
+            outPrimPath,
+            outPrimType);
+    }
 
-        static const std::string collisionsMarker = "/collisions/";
-        static const size_t collisionsContainerLength = std::string("/collisions").size();
+    bool _ResolveVisualProtoPrim(
+        ProtoMeshIdentifier const& proto,
+        UsdPrim* outPrim,
+        std::string* outPrimPath,
+        std::string* outPrimType,
+        VisualCandidateMap const* candidateMap = nullptr) const {
+        const std::vector<std::string> expectedTypes = _GetExpectedVisualPrimTypes(proto);
+        return _ResolveProtoPrim(
+            proto,
+            expectedTypes,
+            false,
+            candidateMap,
+            outPrim,
+            outPrimPath,
+            outPrimType);
+    }
+
+    ProtoCandidateMap _BuildProtoCandidateMap(
+        std::vector<std::string> const& acceptedTypes,
+        std::string const& sectionMarker,
+        size_t sectionContainerLength) const {
+        ProtoCandidateMap candidateMap;
+        if (!_stage || acceptedTypes.empty()) return candidateMap;
+        if (sectionMarker.empty() || sectionContainerLength == 0) return candidateMap;
+
         const Usd_PrimFlagsPredicate predicate = UsdTraverseInstanceProxies(UsdPrimAllPrimsPredicate);
         for (UsdPrim const& prim : UsdPrimRange::Stage(_stage, predicate)) {
             if (!prim) continue;
@@ -679,10 +1064,10 @@ private:
             if (primType.empty() || !_ContainsString(acceptedTypes, primType)) continue;
 
             const std::string primPath = prim.GetPath().GetString();
-            const size_t markerPos = primPath.find(collisionsMarker);
+            const size_t markerPos = primPath.find(sectionMarker);
             if (markerPos == std::string::npos) continue;
 
-            const size_t containerEnd = markerPos + collisionsContainerLength;
+            const size_t containerEnd = markerPos + sectionContainerLength;
             if (containerEnd <= 0 || containerEnd > primPath.size()) continue;
             const std::string containerPath = primPath.substr(0, containerEnd);
             if (containerPath.empty()) continue;
@@ -690,6 +1075,22 @@ private:
             candidateMap[containerPath].push_back({primPath, prim});
         }
         return candidateMap;
+    }
+
+    CollisionCandidateMap _BuildCollisionCandidateMap(
+        std::vector<std::string> const& acceptedTypes) const {
+        return _BuildProtoCandidateMap(
+            acceptedTypes,
+            "/collisions/",
+            std::string("/collisions").size());
+    }
+
+    VisualCandidateMap _BuildVisualCandidateMap(
+        std::vector<std::string> const& acceptedTypes) const {
+        return _BuildProtoCandidateMap(
+            acceptedTypes,
+            "/visuals/",
+            std::string("/visuals").size());
     }
 
     static bool _TryReadExtentSize(
@@ -745,16 +1146,24 @@ private:
         UsdPrim const& prim,
         UsdTimeCode const& timeCode) {
         std::string axis = "Z";
-        UsdAttribute axisAttr = prim.GetAttribute(TfToken("axis"));
-        if (!axisAttr) return axis;
+        const std::array<TfToken, 2> axisAttrNames = {
+            TfToken("physics:axis"),
+            TfToken("axis")
+        };
+        for (TfToken const& axisAttrName : axisAttrNames) {
+            UsdAttribute axisAttr = prim.GetAttribute(axisAttrName);
+            if (!axisAttr) continue;
 
-        TfToken axisToken;
-        if (axisAttr.Get(&axisToken, timeCode) && !axisToken.IsEmpty()) {
-            axis = axisToken.GetString();
-        } else {
+            TfToken axisToken;
+            if (axisAttr.Get(&axisToken, timeCode) && !axisToken.IsEmpty()) {
+                axis = axisToken.GetString();
+                break;
+            }
+
             std::string axisString;
             if (axisAttr.Get(&axisString, timeCode) && !axisString.empty()) {
                 axis = axisString;
+                break;
             }
         }
         axis = _ToLowerAscii(axis);
@@ -769,6 +1178,76 @@ private:
         out.set(1, value[1]);
         out.set(2, value[2]);
         return out;
+    }
+
+    static emscripten::val _Vec4ToJsArray(std::array<double, 4> const& value) {
+        emscripten::val out = emscripten::val::array();
+        out.set(0, value[0]);
+        out.set(1, value[1]);
+        out.set(2, value[2]);
+        out.set(3, value[3]);
+        return out;
+    }
+
+    static std::string _ReadFirstRelationshipTargetPath(UsdRelationship const& relationship) {
+        if (!relationship) return std::string();
+        SdfPathVector targets;
+        if (!relationship.GetTargets(&targets) || targets.empty()) return std::string();
+        return targets[0].GetString();
+    }
+
+    static bool _TryReadVec3Attr(
+        UsdAttribute const& attribute,
+        UsdTimeCode const& timeCode,
+        std::array<double, 3>* outValue) {
+        if (!attribute || !outValue) return false;
+
+        GfVec3f valueF(0.0f);
+        if (attribute.Get(&valueF, timeCode)) {
+            (*outValue)[0] = static_cast<double>(valueF[0]);
+            (*outValue)[1] = static_cast<double>(valueF[1]);
+            (*outValue)[2] = static_cast<double>(valueF[2]);
+            return true;
+        }
+
+        GfVec3d valueD(0.0);
+        if (attribute.Get(&valueD, timeCode)) {
+            (*outValue)[0] = valueD[0];
+            (*outValue)[1] = valueD[1];
+            (*outValue)[2] = valueD[2];
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool _TryReadQuatWxyzAttr(
+        UsdAttribute const& attribute,
+        UsdTimeCode const& timeCode,
+        std::array<double, 4>* outValue) {
+        if (!attribute || !outValue) return false;
+
+        GfQuatf valueQuatf;
+        if (attribute.Get(&valueQuatf, timeCode)) {
+            const GfVec3f imaginary = valueQuatf.GetImaginary();
+            (*outValue)[0] = static_cast<double>(valueQuatf.GetReal());
+            (*outValue)[1] = static_cast<double>(imaginary[0]);
+            (*outValue)[2] = static_cast<double>(imaginary[1]);
+            (*outValue)[3] = static_cast<double>(imaginary[2]);
+            return true;
+        }
+
+        GfQuatd valueQuatd;
+        if (attribute.Get(&valueQuatd, timeCode)) {
+            const GfVec3d imaginary = valueQuatd.GetImaginary();
+            (*outValue)[0] = valueQuatd.GetReal();
+            (*outValue)[1] = imaginary[0];
+            (*outValue)[2] = imaginary[1];
+            (*outValue)[3] = imaginary[2];
+            return true;
+        }
+
+        return false;
     }
 
     emscripten::val _ProtoDataBlobRecordToJsVal(
@@ -808,6 +1287,30 @@ private:
         std::string resolvedPrimPath;
         std::string resolvedPrimType;
         if (!_ResolveCollisionProtoPrim(proto, &resolvedPrim, &resolvedPrimPath, &resolvedPrimType, candidateMap)) {
+            return out;
+        }
+
+        out = _BuildPrimOverrideDataFromPrim(resolvedPrim, resolvedPrimPath, timeCode, xformCache);
+        out.set("meshId", meshId);
+        return out;
+    }
+
+    emscripten::val _BuildVisualProtoOverride(
+        std::string const& meshId,
+        UsdTimeCode const& timeCode,
+        UsdGeomXformCache* xformCache,
+        VisualCandidateMap const* candidateMap = nullptr) const {
+        emscripten::val out = emscripten::val::object();
+        out.set("valid", false);
+        if (!_stage || !xformCache) return out;
+
+        const ProtoMeshIdentifier proto = _ParseProtoMeshIdentifier(meshId);
+        if (!proto.valid || proto.sectionName != "visuals") return out;
+
+        UsdPrim resolvedPrim;
+        std::string resolvedPrimPath;
+        std::string resolvedPrimType;
+        if (!_ResolveVisualProtoPrim(proto, &resolvedPrim, &resolvedPrimPath, &resolvedPrimType, candidateMap)) {
             return out;
         }
 

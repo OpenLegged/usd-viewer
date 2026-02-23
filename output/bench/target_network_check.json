@@ -1,0 +1,20 @@
+{
+  "generated_at_utc": "2026-02-22T12:26:01.473Z",
+  "server": "http://127.0.0.1:3003",
+  "results": [
+    {
+      "model": "unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd",
+      "requestFailedCount": 0,
+      "badResponseCount": 0,
+      "requestFailed": [],
+      "badResponses": []
+    },
+    {
+      "model": "unitree_model/Go2/usd/go2.usd",
+      "requestFailedCount": 0,
+      "badResponseCount": 0,
+      "requestFailed": [],
+      "badResponses": []
+    }
+  ]
+}

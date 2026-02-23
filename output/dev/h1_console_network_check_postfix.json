@@ -1,0 +1,31 @@
+{
+  "checkedAt": "2026-02-23T08:58:07.487Z",
+  "consoleErrorCount": 0,
+  "consoleWarnCount": 5,
+  "failedRequestCount": 0,
+  "badStatusCount": 0,
+  "consoleMessages": [
+    {
+      "type": "warning",
+      "text": "RGBELoader has been deprecated. Please use HDRLoader instead."
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x3e2c00124a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x3e2c00124a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x3e2c00124a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x3e2c00124a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+    }
+  ],
+  "failedRequests": [],
+  "badStatus": []
+}

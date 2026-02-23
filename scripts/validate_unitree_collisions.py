@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Batch-validate Unitree USD mesh/collision alignment using Isaac truth vs viewer runtime."""
+"""Batch-validate Unitree USD mesh/collision/joint alignment using Isaac truth vs viewer runtime."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate mesh and collision alignment for Unitree USD models.")
+    parser = argparse.ArgumentParser(description="Validate mesh, collision, and joint alignment for Unitree USD models.")
     parser.add_argument(
         "--unitree-root",
         default="unitree_model",
@@ -63,6 +63,42 @@ def parse_args() -> argparse.Namespace:
         default=0.15,
         help="Relative size threshold for compare script.",
     )
+    parser.add_argument(
+        "--joint-axis-angle-threshold-deg",
+        type=float,
+        default=1.0,
+        help="Axis vector angle threshold (deg) for joint compare script.",
+    )
+    parser.add_argument(
+        "--joint-limit-threshold-deg",
+        type=float,
+        default=0.5,
+        help="Joint limit absolute error threshold (deg) for joint compare script.",
+    )
+    parser.add_argument(
+        "--inertial-mass-threshold",
+        type=float,
+        default=1e-4,
+        help="Mass absolute error threshold (kg) for inertial compare script.",
+    )
+    parser.add_argument(
+        "--inertial-com-threshold",
+        type=float,
+        default=1e-4,
+        help="Center-of-mass position error threshold (m) for inertial compare script.",
+    )
+    parser.add_argument(
+        "--inertial-diagonal-threshold",
+        type=float,
+        default=1e-4,
+        help="Diagonal inertia vector error threshold for inertial compare script.",
+    )
+    parser.add_argument(
+        "--inertial-principal-threshold-deg",
+        type=float,
+        default=1.0,
+        help="Principal-axes angular error threshold (deg) for inertial compare script.",
+    )
     return parser.parse_args()
 
 
@@ -84,14 +120,15 @@ def _supports_node_strip_types(workspace: Path) -> bool:
     return completed.returncode == 0
 
 
-def _resolve_dump_viewer_runner(workspace: Path, output_dir: Path) -> list[str]:
+def _resolve_typescript_runner(workspace: Path, output_dir: Path, script_relative_path: str) -> list[str]:
     if _supports_node_strip_types(workspace):
-        return ["node", "--experimental-strip-types", "scripts/dump_viewer_collision_state.ts"]
+        return ["node", "--experimental-strip-types", script_relative_path]
 
     compiled_dir = output_dir / "_compiled_scripts"
     compiled_dir.mkdir(parents=True, exist_ok=True)
-    compiled_script_path = compiled_dir / "dump_viewer_collision_state.js"
-    source_script_path = workspace / "scripts" / "dump_viewer_collision_state.ts"
+    script_name = Path(script_relative_path).name
+    compiled_script_path = compiled_dir / script_name.replace(".ts", ".js")
+    source_script_path = workspace / script_relative_path
 
     should_rebuild = True
     if compiled_script_path.exists():
@@ -144,7 +181,8 @@ def main() -> None:
     workspace = Path.cwd().resolve()
     output_dir = (workspace / args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    dump_viewer_runner = _resolve_dump_viewer_runner(workspace, output_dir)
+    dump_viewer_runner = _resolve_typescript_runner(workspace, output_dir, "scripts/dump_viewer_collision_state.ts")
+    dump_viewer_joint_runner = _resolve_typescript_runner(workspace, output_dir, "scripts/dump_viewer_robot_metadata.ts")
 
     if args.models:
         model_paths = []
@@ -171,8 +209,11 @@ def main() -> None:
         truth_output = model_dir / "truth_isaacsim.json"
         viewer_visual_output = model_dir / "viewer_visual_dump.json"
         viewer_collision_output = model_dir / "viewer_collision_dump.json"
+        viewer_joint_output = model_dir / "viewer_joint_dump.json"
         collision_report_output = model_dir / "collision_compare_report.json"
         mesh_report_output = model_dir / "mesh_compare_report.json"
+        joint_report_output = model_dir / "joint_compare_report.json"
+        inertial_report_output = model_dir / "inertial_compare_report.json"
 
         print(f"[validate] model={relative_model_path}")
 
@@ -275,28 +316,102 @@ def main() -> None:
             workspace,
         )
 
+        _run_command(
+            [
+                *dump_viewer_joint_runner,
+                "--server",
+                args.server,
+                "--file",
+                viewer_file_arg,
+                "--output",
+                str(viewer_joint_output),
+                "--show-visuals",
+                "1",
+                "--show-collisions",
+                "1",
+            ],
+            workspace,
+        )
+
+        _run_command(
+            [
+                "python",
+                "scripts/compare_joint_truth.py",
+                "--truth",
+                str(truth_output),
+                "--viewer",
+                str(viewer_joint_output),
+                "--output",
+                str(joint_report_output),
+                "--axis-angle-threshold-deg",
+                str(args.joint_axis_angle_threshold_deg),
+                "--limit-threshold-deg",
+                str(args.joint_limit_threshold_deg),
+            ],
+            workspace,
+        )
+
+        _run_command(
+            [
+                "python",
+                "scripts/compare_inertial_truth.py",
+                "--truth",
+                str(truth_output),
+                "--viewer",
+                str(viewer_joint_output),
+                "--output",
+                str(inertial_report_output),
+                "--mass-threshold",
+                str(args.inertial_mass_threshold),
+                "--com-threshold",
+                str(args.inertial_com_threshold),
+                "--inertia-threshold",
+                str(args.inertial_diagonal_threshold),
+                "--principal-axes-threshold-deg",
+                str(args.inertial_principal_threshold_deg),
+            ],
+            workspace,
+        )
+
         collision_report = json.loads(collision_report_output.read_text(encoding="utf-8"))
         mesh_report = json.loads(mesh_report_output.read_text(encoding="utf-8"))
+        joint_report = json.loads(joint_report_output.read_text(encoding="utf-8"))
+        inertial_report = json.loads(inertial_report_output.read_text(encoding="utf-8"))
         collision_summary = collision_report.get("summary", {})
         mesh_summary = mesh_report.get("summary", {})
+        joint_summary = joint_report.get("summary", {})
+        inertial_summary = inertial_report.get("summary", {})
         collision_pass = bool(collision_summary.get("pass"))
         mesh_pass = bool(mesh_summary.get("pass"))
-        overall_pass = collision_pass and mesh_pass
+        joint_pass = bool(joint_summary.get("pass"))
+        inertial_pass = bool(inertial_summary.get("pass"))
+        overall_pass = collision_pass and mesh_pass and joint_pass and inertial_pass
         summary = {
             "model": relative_model_path,
             "pass": overall_pass,
             "collision_pass": collision_pass,
             "mesh_pass": mesh_pass,
+            "joint_pass": joint_pass,
+            "inertial_pass": inertial_pass,
             "collision_report": str(collision_report_output.relative_to(workspace)),
             "mesh_report": str(mesh_report_output.relative_to(workspace)),
+            "joint_report": str(joint_report_output.relative_to(workspace)),
+            "inertial_report": str(inertial_report_output.relative_to(workspace)),
             "viewer_visual_dump": str(viewer_visual_output.relative_to(workspace)),
             "viewer_collision_dump": str(viewer_collision_output.relative_to(workspace)),
+            "viewer_joint_dump": str(viewer_joint_output.relative_to(workspace)),
             "collision_failed_count": int(collision_summary.get("failed_count", 0)),
             "mesh_failed_count": int(mesh_summary.get("failed_count", 0)),
+            "joint_failed_count": int(joint_summary.get("failed_count", 0)),
+            "inertial_failed_count": int(inertial_summary.get("failed_count", 0)),
             "collision_unresolved_viewer_count": int(collision_summary.get("unresolved_viewer_count", 0)),
             "mesh_unresolved_viewer_count": int(mesh_summary.get("unresolved_viewer_count", 0)),
+            "joint_unresolved_viewer_count": int(joint_summary.get("unresolved_viewer_count", 0)),
+            "inertial_extra_viewer_count": int(inertial_summary.get("extra_viewer_count", 0)),
             "collision_missing_truth_paths_count": int(collision_summary.get("missing_truth_paths_count", 0)),
             "mesh_missing_truth_paths_count": int(mesh_summary.get("missing_truth_paths_count", 0)),
+            "joint_missing_truth_joint_count": int(joint_summary.get("missing_truth_joint_count", 0)),
+            "inertial_missing_truth_count": int(inertial_summary.get("missing_truth_count", 0)),
             "collision_max_pos_error_m": float(collision_summary.get("max_pos_error_m", 0.0)),
             "mesh_max_pos_error_m": float(mesh_summary.get("max_pos_error_m", 0.0)),
             "collision_max_rot_error_deg": float(collision_summary.get("max_rot_error_deg", 0.0)),
@@ -305,6 +420,13 @@ def main() -> None:
             "mesh_max_size_abs_error_m": float(mesh_summary.get("max_size_abs_error_m", 0.0)),
             "collision_max_size_rel_error": float(collision_summary.get("max_size_rel_error", 0.0)),
             "mesh_max_size_rel_error": float(mesh_summary.get("max_size_rel_error", 0.0)),
+            "joint_max_axis_angle_error_deg": float(joint_summary.get("max_axis_angle_error_deg", 0.0)),
+            "joint_max_lower_limit_error_deg": float(joint_summary.get("max_lower_limit_error_deg", 0.0)),
+            "joint_max_upper_limit_error_deg": float(joint_summary.get("max_upper_limit_error_deg", 0.0)),
+            "inertial_max_mass_error": float(inertial_summary.get("max_mass_error", 0.0)),
+            "inertial_max_com_error_m": float(inertial_summary.get("max_com_error_m", 0.0)),
+            "inertial_max_inertia_error": float(inertial_summary.get("max_inertia_error", 0.0)),
+            "inertial_max_principal_axes_error_deg": float(inertial_summary.get("max_principal_axes_error_deg", 0.0)),
         }
         summaries.append(summary)
 

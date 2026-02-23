@@ -1,0 +1,238 @@
+{
+  "url": "http://127.0.0.1:3003/?file=%2Funitree_model%2FH1%2Fh1%2Fusd%2Fh1.usd&showVisuals=1&showCollisions=1&showDynamics=1&showRobotInspector=0&readStageMetadata=1&cb=20260223-display-check-1771832724866",
+  "summary": {
+    "checked": 20,
+    "maxLocalErrDeg": 0.0000024148365394514667,
+    "maxWorldErrDegFromBox": 0.0005216354360626332,
+    "maxWorldErrDegCompose": 0.0005216354360626332,
+    "maxWorldErrDegComposeInv": 75.25384574349233,
+    "top": [
+      {
+        "linkPath": "/h1_description/left_elbow_link",
+        "hasInertiaBox": true,
+        "localErrDeg": 0,
+        "worldErrDeg_fromBox": 0.0005216354360626332,
+        "worldErrDeg_compose": 0.0005216354360626332,
+        "worldErrDeg_composeInv": 26.975265574217367
+      },
+      {
+        "linkPath": "/h1_description/left_hip_yaw_link",
+        "hasInertiaBox": true,
+        "localErrDeg": 0.0000017075472925031877,
+        "worldErrDeg_fromBox": 0.0005216354360626332,
+        "worldErrDeg_compose": 0.0005216354360626332,
+        "worldErrDeg_composeInv": 75.25381350273886
+      },
+      {
+        "linkPath": "/h1_description/left_shoulder_roll_link",
+        "hasInertiaBox": true,
+        "localErrDeg": 0.0000017075472925031877,
+        "worldErrDeg_fromBox": 0.0005216354360626332,
+        "worldErrDeg_compose": 0.0005216326412701732,
+        "worldErrDeg_composeInv": 19.91997332887928
+      },
+      {
+        "linkPath": "/h1_description/right_elbow_link",
+        "hasInertiaBox": true,
+        "localErrDeg": 0,
+        "worldErrDeg_fromBox": 0.0005216354360626332,
+        "worldErrDeg_compose": 0.0005216354360626332,
+        "worldErrDeg_composeInv": 26.976282219749784
+      },
+      {
+        "linkPath": "/h1_description/right_hip_yaw_link",
+        "hasInertiaBox": true,
+        "localErrDeg": 0.0000017075472925031877,
+        "worldErrDeg_fromBox": 0.0005216354360626332,
+        "worldErrDeg_compose": 0.0005216326412701732,
+        "worldErrDeg_composeInv": 75.25384574349233
+      },
+      {
+        "linkPath": "/h1_description/right_shoulder_roll_link",
+        "hasInertiaBox": true,
+        "localErrDeg": 0.0000017075472925031877,
+        "worldErrDeg_fromBox": 0.0005216354360626332,
+        "worldErrDeg_compose": 0.0005216354360626332,
+        "worldErrDeg_composeInv": 19.92054688811248
+      },
+      {
+        "linkPath": "/h1_description/left_hip_roll_link",
+        "hasInertiaBox": true,
+        "localErrDeg": 0.0000024148365394514667,
+        "worldErrDeg_fromBox": 0.0005216326412701732,
+        "worldErrDeg_compose": 0.0005216326412701732,
+        "worldErrDeg_composeInv": 19.538515012187542
+      },
+      {
+        "linkPath": "/h1_description/left_knee_link",
+        "hasInertiaBox": true,
+        "localErrDeg": 0,
+        "worldErrDeg_fromBox": 0.0005216326412701732,
+        "worldErrDeg_compose": 0.0005216326412701732,
+        "worldErrDeg_composeInv": 27.58185924035897
+      }
+    ]
+  },
+  "rows": [
+    {
+      "linkPath": "/h1_description/left_elbow_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0,
+      "worldErrDeg_fromBox": 0.0005216354360626332,
+      "worldErrDeg_compose": 0.0005216354360626332,
+      "worldErrDeg_composeInv": 26.975265574217367
+    },
+    {
+      "linkPath": "/h1_description/left_hip_yaw_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0.0000017075472925031877,
+      "worldErrDeg_fromBox": 0.0005216354360626332,
+      "worldErrDeg_compose": 0.0005216354360626332,
+      "worldErrDeg_composeInv": 75.25381350273886
+    },
+    {
+      "linkPath": "/h1_description/left_shoulder_roll_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0.0000017075472925031877,
+      "worldErrDeg_fromBox": 0.0005216354360626332,
+      "worldErrDeg_compose": 0.0005216326412701732,
+      "worldErrDeg_composeInv": 19.91997332887928
+    },
+    {
+      "linkPath": "/h1_description/right_elbow_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0,
+      "worldErrDeg_fromBox": 0.0005216354360626332,
+      "worldErrDeg_compose": 0.0005216354360626332,
+      "worldErrDeg_composeInv": 26.976282219749784
+    },
+    {
+      "linkPath": "/h1_description/right_hip_yaw_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0.0000017075472925031877,
+      "worldErrDeg_fromBox": 0.0005216354360626332,
+      "worldErrDeg_compose": 0.0005216326412701732,
+      "worldErrDeg_composeInv": 75.25384574349233
+    },
+    {
+      "linkPath": "/h1_description/right_shoulder_roll_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0.0000017075472925031877,
+      "worldErrDeg_fromBox": 0.0005216354360626332,
+      "worldErrDeg_compose": 0.0005216354360626332,
+      "worldErrDeg_composeInv": 19.92054688811248
+    },
+    {
+      "linkPath": "/h1_description/left_hip_roll_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0.0000024148365394514667,
+      "worldErrDeg_fromBox": 0.0005216326412701732,
+      "worldErrDeg_compose": 0.0005216326412701732,
+      "worldErrDeg_composeInv": 19.538515012187542
+    },
+    {
+      "linkPath": "/h1_description/left_knee_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0,
+      "worldErrDeg_fromBox": 0.0005216326412701732,
+      "worldErrDeg_compose": 0.0005216326412701732,
+      "worldErrDeg_composeInv": 27.58185924035897
+    },
+    {
+      "linkPath": "/h1_description/left_shoulder_yaw_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0,
+      "worldErrDeg_fromBox": 0.0005216326412701732,
+      "worldErrDeg_compose": 0.0005216298464627394,
+      "worldErrDeg_composeInv": 13.281178273659007
+    },
+    {
+      "linkPath": "/h1_description/right_ankle_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0.0000024148365394514667,
+      "worldErrDeg_fromBox": 0.0005216326412701732,
+      "worldErrDeg_compose": 0.0005216326412701732,
+      "worldErrDeg_composeInv": 6.086632369713645
+    },
+    {
+      "linkPath": "/h1_description/right_hip_roll_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0.0000024148365394514667,
+      "worldErrDeg_fromBox": 0.0005216326412701732,
+      "worldErrDeg_compose": 0.0005216354360626332,
+      "worldErrDeg_composeInv": 19.53826304598175
+    },
+    {
+      "linkPath": "/h1_description/right_shoulder_pitch_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0,
+      "worldErrDeg_fromBox": 0.0005216326412701732,
+      "worldErrDeg_compose": 0.0005216326412701732,
+      "worldErrDeg_composeInv": 38.705418944490745
+    },
+    {
+      "linkPath": "/h1_description/torso_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0.0000017075472925031877,
+      "worldErrDeg_fromBox": 0.0005216326412701732,
+      "worldErrDeg_compose": 0.0005216326412701732,
+      "worldErrDeg_composeInv": 1.0715735203732915
+    },
+    {
+      "linkPath": "/h1_description/left_ankle_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0.0000024148365394514667,
+      "worldErrDeg_fromBox": 0.0005216298464627394,
+      "worldErrDeg_compose": 0.0005216326412701732,
+      "worldErrDeg_composeInv": 6.086635454002868
+    },
+    {
+      "linkPath": "/h1_description/left_shoulder_pitch_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0,
+      "worldErrDeg_fromBox": 0.0005216298464627394,
+      "worldErrDeg_compose": 0.0005216298464627394,
+      "worldErrDeg_composeInv": 38.70438480429866
+    },
+    {
+      "linkPath": "/h1_description/pelvis",
+      "hasInertiaBox": true,
+      "localErrDeg": 0.0000017075472925031877,
+      "worldErrDeg_fromBox": 0.0005216298464627394,
+      "worldErrDeg_compose": 0.0005216298464627394,
+      "worldErrDeg_composeInv": 0.5821888458830285
+    },
+    {
+      "linkPath": "/h1_description/right_hip_pitch_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0,
+      "worldErrDeg_fromBox": 0.0005216298464627394,
+      "worldErrDeg_compose": 0.0005216270516403314,
+      "worldErrDeg_composeInv": 46.110936335207306
+    },
+    {
+      "linkPath": "/h1_description/right_knee_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0,
+      "worldErrDeg_fromBox": 0.0005216298464627394,
+      "worldErrDeg_compose": 0.0005216298464627394,
+      "worldErrDeg_composeInv": 27.581813766692896
+    },
+    {
+      "linkPath": "/h1_description/right_shoulder_yaw_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0,
+      "worldErrDeg_fromBox": 0.0005216270516403314,
+      "worldErrDeg_compose": 0.0005216270516403314,
+      "worldErrDeg_composeInv": 13.280997238080348
+    },
+    {
+      "linkPath": "/h1_description/left_hip_pitch_link",
+      "hasInertiaBox": true,
+      "localErrDeg": 0,
+      "worldErrDeg_fromBox": 0.000521624256802949,
+      "worldErrDeg_compose": 0.000521624256802949,
+      "worldErrDeg_composeInv": 46.11120441576361
+    }
+  ]
+}

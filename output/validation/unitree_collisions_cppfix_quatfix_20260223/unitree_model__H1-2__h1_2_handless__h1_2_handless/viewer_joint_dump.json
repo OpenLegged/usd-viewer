@@ -1,0 +1,548 @@
+{
+  "generated_at": "2026-02-23T05:10:00.580Z",
+  "stage_source_path": "/unitree_model/H1-2/h1_2_handless/h1_2_handless.usd",
+  "snapshot_source": "usd-stage",
+  "joint_count": 27,
+  "joints": [
+    {
+      "linkPath": "/h1_2/left_ankle_pitch_link",
+      "jointPath": "/h1_2/joints/left_ankle_pitch_joint",
+      "jointName": "left_ankle_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_knee_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -51.413448333740234,
+      "upperLimitDeg": 29.999954223632812,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_ankle_roll_link",
+      "jointPath": "/h1_2/joints/left_ankle_roll_joint",
+      "jointName": "left_ankle_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_ankle_pitch_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -14.999977111816406,
+      "upperLimitDeg": 14.999977111816406,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_elbow_link",
+      "jointPath": "/h1_2/joints/left_elbow_joint",
+      "jointName": "left_elbow_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_shoulder_yaw_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -54.43098831176758,
+      "upperLimitDeg": 182.20057678222656,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_hip_pitch_link",
+      "jointPath": "/h1_2/joints/left_hip_pitch_joint",
+      "jointName": "left_hip_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_hip_yaw_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -179.9087371826172,
+      "upperLimitDeg": 143.23944091796875,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_hip_roll_link",
+      "jointPath": "/h1_2/joints/left_hip_roll_joint",
+      "jointName": "left_hip_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_hip_pitch_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -24.637184143066406,
+      "upperLimitDeg": 179.9087371826172,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_hip_yaw_link",
+      "jointPath": "/h1_2/joints/left_hip_yaw_joint",
+      "jointName": "left_hip_yaw_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/pelvis",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -24.637184143066406,
+      "upperLimitDeg": 24.637184143066406,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_knee_link",
+      "jointPath": "/h1_2/joints/left_knee_joint",
+      "jointName": "left_knee_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_hip_roll_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -6.875493049621582,
+      "upperLimitDeg": 125.47775268554688,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_shoulder_pitch_link",
+      "jointPath": "/h1_2/joints/left_shoulder_pitch_joint",
+      "jointName": "left_shoulder_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/torso_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -179.9087371826172,
+      "upperLimitDeg": 89.9543685913086,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_shoulder_roll_link",
+      "jointPath": "/h1_2/joints/left_shoulder_roll_joint",
+      "jointName": "left_shoulder_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_shoulder_pitch_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -21.77239418029785,
+      "upperLimitDeg": 194.80564880371094,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_shoulder_yaw_link",
+      "jointPath": "/h1_2/joints/left_shoulder_yaw_joint",
+      "jointName": "left_shoulder_yaw_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_shoulder_roll_link",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -152.40676879882812,
+      "upperLimitDeg": 172.4602813720703,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_wrist_pitch_link",
+      "jointPath": "/h1_2/joints/left_wrist_pitch_joint",
+      "jointName": "left_wrist_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_wrist_roll_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -26.499296188354492,
+      "upperLimitDeg": 26.499296188354492,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_wrist_roll_link",
+      "jointPath": "/h1_2/joints/left_wrist_roll_joint",
+      "jointName": "left_wrist_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_elbow_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -172.4602813720703,
+      "upperLimitDeg": 157.56338500976562,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/left_wrist_yaw_link",
+      "jointPath": "/h1_2/joints/left_wrist_yaw_joint",
+      "jointName": "left_wrist_yaw_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/left_wrist_pitch_link",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -72.76563262939453,
+      "upperLimitDeg": 72.76563262939453,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_ankle_pitch_link",
+      "jointPath": "/h1_2/joints/right_ankle_pitch_joint",
+      "jointName": "right_ankle_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_knee_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -51.413448333740234,
+      "upperLimitDeg": 29.999954223632812,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_ankle_roll_link",
+      "jointPath": "/h1_2/joints/right_ankle_roll_joint",
+      "jointName": "right_ankle_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_ankle_pitch_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -14.999977111816406,
+      "upperLimitDeg": 14.999977111816406,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_elbow_link",
+      "jointPath": "/h1_2/joints/right_elbow_joint",
+      "jointName": "right_elbow_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_shoulder_yaw_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -54.43098831176758,
+      "upperLimitDeg": 182.20057678222656,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_hip_pitch_link",
+      "jointPath": "/h1_2/joints/right_hip_pitch_joint",
+      "jointName": "right_hip_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_hip_yaw_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -179.9087371826172,
+      "upperLimitDeg": 143.23944091796875,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_hip_roll_link",
+      "jointPath": "/h1_2/joints/right_hip_roll_joint",
+      "jointName": "right_hip_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_hip_pitch_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -179.9087371826172,
+      "upperLimitDeg": 24.637184143066406,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_hip_yaw_link",
+      "jointPath": "/h1_2/joints/right_hip_yaw_joint",
+      "jointName": "right_hip_yaw_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/pelvis",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -24.637184143066406,
+      "upperLimitDeg": 24.637184143066406,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_knee_link",
+      "jointPath": "/h1_2/joints/right_knee_joint",
+      "jointName": "right_knee_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_hip_roll_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -6.875493049621582,
+      "upperLimitDeg": 125.47775268554688,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_shoulder_pitch_link",
+      "jointPath": "/h1_2/joints/right_shoulder_pitch_joint",
+      "jointName": "right_shoulder_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/torso_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -179.9087371826172,
+      "upperLimitDeg": 89.9543685913086,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_shoulder_roll_link",
+      "jointPath": "/h1_2/joints/right_shoulder_roll_joint",
+      "jointName": "right_shoulder_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_shoulder_pitch_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -194.80564880371094,
+      "upperLimitDeg": 21.77239418029785,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_shoulder_yaw_link",
+      "jointPath": "/h1_2/joints/right_shoulder_yaw_joint",
+      "jointName": "right_shoulder_yaw_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_shoulder_roll_link",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -172.4602813720703,
+      "upperLimitDeg": 152.40676879882812,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_wrist_pitch_link",
+      "jointPath": "/h1_2/joints/right_wrist_pitch_joint",
+      "jointName": "right_wrist_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_wrist_roll_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -26.499296188354492,
+      "upperLimitDeg": 26.499296188354492,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_wrist_roll_link",
+      "jointPath": "/h1_2/joints/right_wrist_roll_joint",
+      "jointName": "right_wrist_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_elbow_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -157.56338500976562,
+      "upperLimitDeg": 172.4602813720703,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/right_wrist_yaw_link",
+      "jointPath": "/h1_2/joints/right_wrist_yaw_joint",
+      "jointName": "right_wrist_yaw_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/right_wrist_pitch_link",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -72.76563262939453,
+      "upperLimitDeg": 72.76563262939453,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_2/torso_link",
+      "jointPath": "/h1_2/joints/torso_joint",
+      "jointName": "torso_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_2/pelvis",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -134.6450653076172,
+      "upperLimitDeg": 134.6450653076172,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

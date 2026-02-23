@@ -663,10 +663,14 @@ export async function loadUsdStage(args) {
             return null;
         if (window.driver !== state.driver)
             return null;
+        const hasDedicatedTransformPrefetchInPhase = (phaseLabel === "driver-init" && prefetchStageTransformsBeforeDraw)
+            || (phaseLabel === "post-initial-draw" && prefetchStageTransformsPostDraw);
         try {
             const summary = activeRenderInterface.warmupRuntimeBridgeFromDriver(state.driver, {
                 force: options.force === true,
-                includePrimTransforms: true,
+                // Avoid duplicate GetPrimTransforms bridge calls when this phase already
+                // runs a dedicated prefetch step via refreshPrefetchedStageTransforms().
+                includePrimTransforms: !hasDedicatedTransformPrefetchInPhase,
                 includeProtoDataBlobs: prefetchProtoDataBlobs,
                 includeCollisionProtoOverrides: true,
                 includeResolvedPrimPathIndex: true,
@@ -1144,7 +1148,10 @@ export async function loadUsdStage(args) {
     }
     const loadedMeshCount = window.renderInterface?.meshes ? Object.keys(window.renderInterface.meshes).length : 0;
     if (loadedMeshCount === 0) {
-        if (isLikelyNonRenderableUsdConfig(normalizedPath)) {
+        if (!loadVisualPrims && !loadCollisionPrims) {
+            setMessage("Both visual and collision meshes are disabled (showVisuals=0 & showCollisions=0).");
+        }
+        else if (isLikelyNonRenderableUsdConfig(normalizedPath)) {
             setMessage("This USD config contains no renderable meshes (sensor/robot metadata only).");
         }
         else {

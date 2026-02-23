@@ -1,0 +1,791 @@
+{
+  "generated_at": "2026-02-23T08:44:39.622Z",
+  "stage_source_path": "/unitree_model/H1/h1/usd/h1.usd",
+  "snapshot_source": "usd-stage",
+  "joint_count": 19,
+  "link_dynamics_count": 20,
+  "joints": [
+    {
+      "linkPath": "/h1_description/left_ankle_link",
+      "jointPath": "/h1_description/joints/left_ankle_joint",
+      "jointName": "left_ankle_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/left_knee_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -49.84732437133789,
+      "upperLimitDeg": 29.79380226135254,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_elbow_link",
+      "jointPath": "/h1_description/joints/left_elbow_joint",
+      "jointName": "left_elbow_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/left_shoulder_yaw_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -71.61972045898438,
+      "upperLimitDeg": 149.54197692871094,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_hip_pitch_link",
+      "jointPath": "/h1_description/joints/left_hip_pitch_joint",
+      "jointName": "left_hip_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/left_hip_roll_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -179.9087371826172,
+      "upperLimitDeg": 144.95831298828125,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_hip_roll_link",
+      "jointPath": "/h1_description/joints/left_hip_roll_joint",
+      "jointName": "left_hip_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/left_hip_yaw_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -24.637184143066406,
+      "upperLimitDeg": 24.637184143066406,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_hip_yaw_link",
+      "jointPath": "/h1_description/joints/left_hip_yaw_joint",
+      "jointName": "left_hip_yaw_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/pelvis",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -24.637184143066406,
+      "upperLimitDeg": 24.637184143066406,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_knee_link",
+      "jointPath": "/h1_description/joints/left_knee_joint",
+      "jointName": "left_knee_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/left_hip_pitch_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -14.89690113067627,
+      "upperLimitDeg": 117.45633697509766,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_shoulder_pitch_link",
+      "jointPath": "/h1_description/joints/left_shoulder_pitch_joint",
+      "jointName": "left_shoulder_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/torso_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -164.43887329101562,
+      "upperLimitDeg": 164.43887329101562,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_shoulder_roll_link",
+      "jointPath": "/h1_description/joints/left_shoulder_roll_joint",
+      "jointName": "left_shoulder_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/left_shoulder_pitch_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -19.48056411743164,
+      "upperLimitDeg": 178.1898651123047,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_shoulder_yaw_link",
+      "jointPath": "/h1_description/joints/left_shoulder_yaw_joint",
+      "jointName": "left_shoulder_yaw_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/left_shoulder_roll_link",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -74.48450469970703,
+      "upperLimitDeg": 254.9661865234375,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_ankle_link",
+      "jointPath": "/h1_description/joints/right_ankle_joint",
+      "jointName": "right_ankle_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/right_knee_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -49.84732437133789,
+      "upperLimitDeg": 29.79380226135254,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_elbow_link",
+      "jointPath": "/h1_description/joints/right_elbow_joint",
+      "jointName": "right_elbow_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/right_shoulder_yaw_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -71.61972045898438,
+      "upperLimitDeg": 149.54197692871094,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_hip_pitch_link",
+      "jointPath": "/h1_description/joints/right_hip_pitch_joint",
+      "jointName": "right_hip_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/right_hip_roll_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -179.9087371826172,
+      "upperLimitDeg": 144.95831298828125,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_hip_roll_link",
+      "jointPath": "/h1_description/joints/right_hip_roll_joint",
+      "jointName": "right_hip_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/right_hip_yaw_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -24.637184143066406,
+      "upperLimitDeg": 24.637184143066406,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_hip_yaw_link",
+      "jointPath": "/h1_description/joints/right_hip_yaw_joint",
+      "jointName": "right_hip_yaw_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/pelvis",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -24.637184143066406,
+      "upperLimitDeg": 24.637184143066406,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_knee_link",
+      "jointPath": "/h1_description/joints/right_knee_joint",
+      "jointName": "right_knee_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/right_hip_pitch_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -14.89690113067627,
+      "upperLimitDeg": 117.45633697509766,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_shoulder_pitch_link",
+      "jointPath": "/h1_description/joints/right_shoulder_pitch_joint",
+      "jointName": "right_shoulder_pitch_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/torso_link",
+      "axisToken": "Y",
+      "axisLocal": [
+        0,
+        1,
+        0
+      ],
+      "lowerLimitDeg": -164.43887329101562,
+      "upperLimitDeg": 164.43887329101562,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_shoulder_roll_link",
+      "jointPath": "/h1_description/joints/right_shoulder_roll_joint",
+      "jointName": "right_shoulder_roll_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/right_shoulder_pitch_link",
+      "axisToken": "X",
+      "axisLocal": [
+        1,
+        0,
+        0
+      ],
+      "lowerLimitDeg": -178.1898651123047,
+      "upperLimitDeg": 19.48056411743164,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_shoulder_yaw_link",
+      "jointPath": "/h1_description/joints/right_shoulder_yaw_joint",
+      "jointName": "right_shoulder_yaw_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/right_shoulder_roll_link",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -254.9661865234375,
+      "upperLimitDeg": 74.48450469970703,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "linkPath": "/h1_description/torso_link",
+      "jointPath": "/h1_description/joints/torso_joint",
+      "jointName": "torso_joint",
+      "jointType": "PhysicsRevoluteJoint",
+      "parentLinkPath": "/h1_description/pelvis",
+      "axisToken": "Z",
+      "axisLocal": [
+        0,
+        0,
+        1
+      ],
+      "lowerLimitDeg": -134.6450653076172,
+      "upperLimitDeg": 134.6450653076172,
+      "localPivotInLink": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "link_dynamics": [
+    {
+      "linkPath": "/h1_description/left_ankle_link",
+      "mass": 0.4740000069141388,
+      "centerOfMassLocal": [
+        0.04257500171661377,
+        -9.999999974752427e-7,
+        -0.04467200115323067
+      ],
+      "diagonalInertia": [
+        0.00015216828614939004,
+        0.0029002861119806767,
+        0.0028129376005381346
+      ],
+      "principalAxesLocal": [
+        0.00007850624388083816,
+        0.026554713025689125,
+        -0.0000010414183861939819,
+        0.9996473789215088
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_elbow_link",
+      "mass": 0.7229999899864197,
+      "centerOfMassLocal": [
+        0.1648620069026947,
+        0.00011800000356743112,
+        -0.015734000131487846
+      ],
+      "diagonalInertia": [
+        0.00040830488433130085,
+        0.006005787756294012,
+        0.006018287502229214
+      ],
+      "principalAxesLocal": [
+        -0.11443612724542618,
+        0.025614898651838303,
+        0.006214754190295935,
+        0.9930808544158936
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_hip_pitch_link",
+      "mass": 4.1519999504089355,
+      "centerOfMassLocal": [
+        0.007459999993443489,
+        -0.02346000075340271,
+        -0.0819299966096878
+      ],
+      "diagonalInertia": [
+        0.08295033127069473,
+        0.08214566856622696,
+        0.00510909128934145
+      ],
+      "principalAxesLocal": [
+        0.05135224759578705,
+        -0.0169853325933218,
+        -0.19238398969173431,
+        0.9798280000686646
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_hip_roll_link",
+      "mass": 2.2320001125335693,
+      "centerOfMassLocal": [
+        -0.005799999926239252,
+        -0.0031900000758469105,
+        -0.00009000000136438757
+      ],
+      "diagonalInertia": [
+        0.002054917626082897,
+        0.0022532450966537,
+        0.0024326369166374207
+      ],
+      "principalAxesLocal": [
+        0.020564958453178406,
+        0.0037783533334732056,
+        -0.08254194259643555,
+        0.9963682889938354
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_hip_yaw_link",
+      "mass": 2.24399995803833,
+      "centerOfMassLocal": [
+        -0.049229998141527176,
+        0.00009999999747378752,
+        0.007199999876320362
+      ],
+      "diagonalInertia": [
+        0.00296885147690773,
+        0.003044935641810298,
+        0.001892012427560985
+      ],
+      "principalAxesLocal": [
+        -0.009966080076992512,
+        0.31995144486427307,
+        -0.03911884129047394,
+        0.9465735554695129
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_knee_link",
+      "mass": 1.7209999561309814,
+      "centerOfMassLocal": [
+        -0.0013599999947473407,
+        -0.005119999870657921,
+        -0.13840000331401825
+      ],
+      "diagonalInertia": [
+        0.012310395017266273,
+        0.012523702345788479,
+        0.001942804898135364
+      ],
+      "principalAxesLocal": [
+        0.005233078263700008,
+        -0.05363738164305687,
+        0.1072828397154808,
+        0.9927668571472168
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_shoulder_pitch_link",
+      "mass": 1.0329999923706055,
+      "centerOfMassLocal": [
+        0.005044999998062849,
+        0.05365699902176857,
+        -0.01571499928832054
+      ],
+      "diagonalInertia": [
+        0.001299359486438334,
+        0.0008581975707784295,
+        0.0009871129877865314
+      ],
+      "principalAxesLocal": [
+        -0.16661034524440765,
+        -0.007595954462885857,
+        -0.020839892327785492,
+        0.9857733249664307
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_shoulder_roll_link",
+      "mass": 0.7929999828338623,
+      "centerOfMassLocal": [
+        0.000678999989759177,
+        0.0011500000255182385,
+        -0.0940760001540184
+      ],
+      "diagonalInertia": [
+        0.0015825586160644889,
+        0.001703882240690291,
+        0.0010033592116087675
+      ],
+      "principalAxesLocal": [
+        -0.047725364565849304,
+        0.06069619581103325,
+        -0.039674755185842514,
+        0.9962249398231506
+      ]
+    },
+    {
+      "linkPath": "/h1_description/left_shoulder_yaw_link",
+      "mass": 0.8389999866485596,
+      "centerOfMassLocal": [
+        0.013650000095367432,
+        0.002767000114545226,
+        -0.16266000270843506
+      ],
+      "diagonalInertia": [
+        0.003703666850924492,
+        0.00408037519082427,
+        0.0006226872210390866
+      ],
+      "principalAxesLocal": [
+        0.010050264187157154,
+        -0.05689321458339691,
+        0.004069717600941658,
+        0.9983214735984802
+      ]
+    },
+    {
+      "linkPath": "/h1_description/pelvis",
+      "mass": 5.389999866485596,
+      "centerOfMassLocal": [
+        -0.00019999999494757503,
+        0.000039999998989515007,
+        -0.04521999880671501
+      ],
+      "diagonalInertia": [
+        0.044582121074199677,
+        0.008246192708611488,
+        0.04902108758687973
+      ],
+      "principalAxesLocal": [
+        -0.00004720906508737244,
+        -0.0022397171705961227,
+        0.0011977674439549446,
+        0.9999967813491821
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_ankle_link",
+      "mass": 0.4740000069141388,
+      "centerOfMassLocal": [
+        0.04257500171661377,
+        9.999999974752427e-7,
+        -0.04467200115323067
+      ],
+      "diagonalInertia": [
+        0.00015216828614939004,
+        0.0029002861119806767,
+        0.0028129376005381346
+      ],
+      "principalAxesLocal": [
+        -0.00007850624388083816,
+        0.026554713025689125,
+        0.0000010414183861939819,
+        0.9996473789215088
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_elbow_link",
+      "mass": 0.7229999899864197,
+      "centerOfMassLocal": [
+        0.1648620069026947,
+        -0.00011800000356743112,
+        -0.015734000131487846
+      ],
+      "diagonalInertia": [
+        0.00040830488433130085,
+        0.006005787756294012,
+        0.006018287502229214
+      ],
+      "principalAxesLocal": [
+        0.11443612724542618,
+        0.025614898651838303,
+        -0.006214754190295935,
+        0.9930808544158936
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_hip_pitch_link",
+      "mass": 4.1519999504089355,
+      "centerOfMassLocal": [
+        0.007459999993443489,
+        0.02346000075340271,
+        -0.0819299966096878
+      ],
+      "diagonalInertia": [
+        0.08295033127069473,
+        0.08214566856622696,
+        0.00510909128934145
+      ],
+      "principalAxesLocal": [
+        -0.05135224759578705,
+        -0.0169853325933218,
+        0.19238398969173431,
+        0.9798280000686646
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_hip_roll_link",
+      "mass": 2.2320001125335693,
+      "centerOfMassLocal": [
+        -0.005799999926239252,
+        0.0031900000758469105,
+        -0.00009000000136438757
+      ],
+      "diagonalInertia": [
+        0.002054917626082897,
+        0.0022532450966537,
+        0.0024326369166374207
+      ],
+      "principalAxesLocal": [
+        -0.020564958453178406,
+        0.0037783533334732056,
+        0.08254194259643555,
+        0.9963682889938354
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_hip_yaw_link",
+      "mass": 2.24399995803833,
+      "centerOfMassLocal": [
+        -0.049229998141527176,
+        -0.00009999999747378752,
+        0.007199999876320362
+      ],
+      "diagonalInertia": [
+        0.00296885147690773,
+        0.003044935641810298,
+        0.001892012427560985
+      ],
+      "principalAxesLocal": [
+        0.009966080076992512,
+        0.31995144486427307,
+        0.03911884129047394,
+        0.9465735554695129
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_knee_link",
+      "mass": 1.7209999561309814,
+      "centerOfMassLocal": [
+        -0.0013599999947473407,
+        0.005119999870657921,
+        -0.13840000331401825
+      ],
+      "diagonalInertia": [
+        0.012310395017266273,
+        0.012523702345788479,
+        0.001942804898135364
+      ],
+      "principalAxesLocal": [
+        -0.005233078263700008,
+        -0.05363738164305687,
+        -0.1072828397154808,
+        0.9927668571472168
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_shoulder_pitch_link",
+      "mass": 1.0329999923706055,
+      "centerOfMassLocal": [
+        0.005044999998062849,
+        -0.05365699902176857,
+        -0.01571499928832054
+      ],
+      "diagonalInertia": [
+        0.001299359486438334,
+        0.0008581975707784295,
+        0.0009871129877865314
+      ],
+      "principalAxesLocal": [
+        0.16661034524440765,
+        -0.007595954462885857,
+        0.020839892327785492,
+        0.9857733249664307
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_shoulder_roll_link",
+      "mass": 0.7929999828338623,
+      "centerOfMassLocal": [
+        0.000678999989759177,
+        -0.0011500000255182385,
+        -0.0940760001540184
+      ],
+      "diagonalInertia": [
+        0.0015825586160644889,
+        0.001703882240690291,
+        0.0010033592116087675
+      ],
+      "principalAxesLocal": [
+        0.047725364565849304,
+        0.06069619581103325,
+        0.039674755185842514,
+        0.9962249398231506
+      ]
+    },
+    {
+      "linkPath": "/h1_description/right_shoulder_yaw_link",
+      "mass": 0.8389999866485596,
+      "centerOfMassLocal": [
+        0.013650000095367432,
+        -0.002767000114545226,
+        -0.16266000270843506
+      ],
+      "diagonalInertia": [
+        0.003703666850924492,
+        0.00408037519082427,
+        0.0006226872210390866
+      ],
+      "principalAxesLocal": [
+        -0.010050264187157154,
+        -0.05689321458339691,
+        -0.004069717600941658,
+        0.9983214735984802
+      ]
+    },
+    {
+      "linkPath": "/h1_description/torso_link",
+      "mass": 17.788999557495117,
+      "centerOfMassLocal": [
+        0.0004889999981969595,
+        0.0027970001101493835,
+        0.20484000444412231
+      ],
+      "diagonalInertia": [
+        0.48731523752212524,
+        0.4096281826496124,
+        0.12783659994602203
+      ],
+      "principalAxesLocal": [
+        -0.0013081022771075368,
+        -0.002822886686772108,
+        -0.0034910470712929964,
+        0.9999891519546509
+      ]
+    }
+  ]
+}

@@ -127,12 +127,26 @@ export function normalizeRenderRobotMetadataSnapshot(raw) {
             };
         }
     }
+    const linkParentPairsRaw = Array.isArray(raw.linkParentPairs)
+        ? raw.linkParentPairs
+        : [];
+    const linkParentPairs = [];
+    for (const pair of linkParentPairsRaw) {
+        if (!Array.isArray(pair) || pair.length <= 0)
+            continue;
+        const childLinkPath = normalizePath(pair[0]);
+        if (!childLinkPath)
+            continue;
+        const parentLinkPath = normalizePath(pair[1]) || null;
+        linkParentPairs.push([childLinkPath, parentLinkPath]);
+    }
     return {
         stageSourcePath: String(raw.stageSourcePath || "").trim() || null,
         generatedAtMs: Number.isFinite(Number(raw.generatedAtMs))
             ? Number(raw.generatedAtMs)
             : Date.now(),
         source: String(raw.source || "unknown"),
+        linkParentPairs,
         jointCatalogEntries: normalizedJointCatalogEntries,
         linkDynamicsEntries: normalizedLinkDynamicsEntries,
         meshCountsByLinkPath,

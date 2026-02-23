@@ -1,0 +1,2439 @@
+{
+  "inputs": {
+    "truth": "/home/xiangyk/Project/usd-viewer/output/validation/unitree_collisions_inertial_20260223/unitree_model__H1-2__h1_2_handless__h1_2_handless/truth_isaacsim.json",
+    "viewer": "/home/xiangyk/Project/usd-viewer/output/validation/unitree_collisions_inertial_20260223/unitree_model__H1-2__h1_2_handless__h1_2_handless/viewer_joint_dump.json"
+  },
+  "thresholds": {
+    "mass_threshold": 0.0001,
+    "com_threshold": 0.0001,
+    "inertia_threshold": 0.0001,
+    "principal_axes_threshold_deg": 1.0
+  },
+  "summary": {
+    "pass": true,
+    "truth_count": 28,
+    "viewer_count": 28,
+    "compared_count": 28,
+    "failed_count": 0,
+    "missing_truth_count": 0,
+    "extra_viewer_count": 0,
+    "max_mass_error": 0.0,
+    "max_com_error_m": 0.0,
+    "max_inertia_error": 0.0,
+    "max_principal_axes_error_deg": 1.7075472925031877e-06
+  },
+  "missing_truth_paths": [],
+  "extra_viewer_paths": [],
+  "top_errors": [
+    {
+      "link_path_truth": "/h1_2/left_ankle_roll_link",
+      "link_path_viewer": "/h1_2/left_ankle_roll_link",
+      "mass_truth": 0.746999979019165,
+      "mass_viewer": 0.746999979019165,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.02958899922668934,
+        0.0,
+        -0.01597299985587597
+      ],
+      "center_of_mass_local_viewer": [
+        0.02958899922668934,
+        0.0,
+        -0.01597299985587597
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0006403065053746104,
+        0.003435339080169797,
+        0.0035917824134230614
+      ],
+      "diagonal_inertia_viewer": [
+        0.0006403065053746104,
+        0.003435339080169797,
+        0.0035917824134230614
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9996387958526611,
+        0.0,
+        0.02687918394804001,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9996387958526611,
+        0.0,
+        0.02687918394804001,
+        0.0
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_hip_pitch_link",
+      "link_path_viewer": "/h1_2/left_hip_pitch_link",
+      "mass_truth": 2.9200000762939453,
+      "mass_viewer": 2.9200000762939453,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.007809999864548445,
+        -0.0047240001149475574,
+        -6.299999949987978e-05
+      ],
+      "center_of_mass_local_viewer": [
+        -0.007809999864548445,
+        -0.0047240001149475574,
+        -6.299999949987978e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.005606613587588072,
+        0.0038506812416017056,
+        0.004450548905879259
+      ],
+      "diagonal_inertia_viewer": [
+        0.005606613587588072,
+        0.0038506812416017056,
+        0.004450548905879259
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9991198182106018,
+        0.006943211890757084,
+        0.005736391060054302,
+        0.040970854461193085
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9991198182106018,
+        0.006943211890757084,
+        0.005736391060054302,
+        0.040970854461193085
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_shoulder_roll_link",
+      "link_path_viewer": "/h1_2/left_shoulder_roll_link",
+      "mass_truth": 1.3930000066757202,
+      "mass_viewer": 1.3930000066757202,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.030931999906897545,
+        -9.999999974752427e-07,
+        -0.1060900017619133
+      ],
+      "center_of_mass_local_viewer": [
+        -0.030931999906897545,
+        -9.999999974752427e-07,
+        -0.1060900017619133
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0020086870063096285,
+        0.001934636733494699,
+        0.0004498473135754466
+      ],
+      "diagonal_inertia_viewer": [
+        0.0020086870063096285,
+        0.001934636733494699,
+        0.0004498473135754466
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9860546588897705,
+        0.0004569375596474856,
+        0.16640739142894745,
+        0.0021355284843593836
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9860546588897705,
+        0.0004569375596474856,
+        0.16640739142894745,
+        0.0021355284843593836
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_wrist_yaw_link",
+      "link_path_viewer": "/h1_2/left_wrist_yaw_link",
+      "mass_truth": 0.12399999797344208,
+      "mass_viewer": 0.12399999797344208,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.027967000380158424,
+        9.600000339560211e-05,
+        0.0007389999809674919
+      ],
+      "center_of_mass_local_viewer": [
+        0.027967000380158424,
+        9.600000339560211e-05,
+        0.0007389999809674919
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0001374634593958035,
+        0.00016999892250169069,
+        8.464362326776609e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.0001374634593958035,
+        0.00016999892250169069,
+        8.464362326776609e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9996071457862854,
+        -0.00016411671822424978,
+        -0.027902578935027122,
+        0.0026417376939207315
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9996071457862854,
+        -0.00016411671822424978,
+        -0.027902578935027122,
+        0.0026417376939207315
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_ankle_roll_link",
+      "link_path_viewer": "/h1_2/right_ankle_roll_link",
+      "mass_truth": 0.746999979019165,
+      "mass_viewer": 0.746999979019165,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.02958899922668934,
+        0.0,
+        -0.01597299985587597
+      ],
+      "center_of_mass_local_viewer": [
+        0.02958899922668934,
+        0.0,
+        -0.01597299985587597
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0006403065053746104,
+        0.003435339080169797,
+        0.0035917824134230614
+      ],
+      "diagonal_inertia_viewer": [
+        0.0006403065053746104,
+        0.003435339080169797,
+        0.0035917824134230614
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9996387958526611,
+        0.0,
+        0.02687918394804001,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9996387958526611,
+        0.0,
+        0.02687918394804001,
+        0.0
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_hip_pitch_link",
+      "link_path_viewer": "/h1_2/right_hip_pitch_link",
+      "mass_truth": 2.9200000762939453,
+      "mass_viewer": 2.9200000762939453,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.007809999864548445,
+        0.0047240001149475574,
+        -6.299999949987978e-05
+      ],
+      "center_of_mass_local_viewer": [
+        -0.007809999864548445,
+        0.0047240001149475574,
+        -6.299999949987978e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.005606613587588072,
+        0.0038506812416017056,
+        0.004450548905879259
+      ],
+      "diagonal_inertia_viewer": [
+        0.005606613587588072,
+        0.0038506812416017056,
+        0.004450548905879259
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9991198182106018,
+        -0.006943211890757084,
+        0.005736391060054302,
+        -0.040970854461193085
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9991198182106018,
+        -0.006943211890757084,
+        0.005736391060054302,
+        -0.040970854461193085
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_shoulder_roll_link",
+      "link_path_viewer": "/h1_2/right_shoulder_roll_link",
+      "mass_truth": 1.3930000066757202,
+      "mass_viewer": 1.3930000066757202,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.030931999906897545,
+        9.999999974752427e-07,
+        -0.1060900017619133
+      ],
+      "center_of_mass_local_viewer": [
+        -0.030931999906897545,
+        9.999999974752427e-07,
+        -0.1060900017619133
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0020086870063096285,
+        0.001934636733494699,
+        0.0004498473135754466
+      ],
+      "diagonal_inertia_viewer": [
+        0.0020086870063096285,
+        0.001934636733494699,
+        0.0004498473135754466
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9860546588897705,
+        -0.0004569375596474856,
+        0.16640739142894745,
+        -0.0021355284843593836
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9860546588897705,
+        -0.0004569375596474856,
+        0.16640739142894745,
+        -0.0021355284843593836
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_wrist_yaw_link",
+      "link_path_viewer": "/h1_2/right_wrist_yaw_link",
+      "mass_truth": 0.12399999797344208,
+      "mass_viewer": 0.12399999797344208,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.027967000380158424,
+        -9.600000339560211e-05,
+        0.0007389999809674919
+      ],
+      "center_of_mass_local_viewer": [
+        0.027967000380158424,
+        -9.600000339560211e-05,
+        0.0007389999809674919
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0001374634593958035,
+        0.00016999892250169069,
+        8.464362326776609e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.0001374634593958035,
+        0.00016999892250169069,
+        8.464362326776609e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9996071457862854,
+        0.00016411671822424978,
+        -0.027902578935027122,
+        -0.0026417376939207315
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9996071457862854,
+        0.00016411671822424978,
+        -0.027902578935027122,
+        -0.0026417376939207315
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_ankle_pitch_link",
+      "link_path_viewer": "/h1_2/left_ankle_pitch_link",
+      "mass_truth": 0.10199999809265137,
+      "mass_viewer": 0.10199999809265137,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.00029399999766610563,
+        0.0,
+        -0.010793999768793583
+      ],
+      "center_of_mass_local_viewer": [
+        -0.00029399999766610563,
+        0.0,
+        -0.010793999768793583
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        2.394538933003787e-05,
+        2.183700053137727e-05,
+        1.3412611224339344e-05
+      ],
+      "diagonal_inertia_viewer": [
+        2.394538933003787e-05,
+        2.183700053137727e-05,
+        1.3412611224339344e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999834895133972,
+        0.0,
+        -0.005744446534663439,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999834895133972,
+        0.0,
+        -0.005744446534663439,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_elbow_link",
+      "link_path_viewer": "/h1_2/left_elbow_link",
+      "mass_truth": 0.6909999847412109,
+      "mass_viewer": 0.6909999847412109,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0770919993519783,
+        -0.02875100076198578,
+        -0.009713999927043915
+      ],
+      "center_of_mass_local_viewer": [
+        0.0770919993519783,
+        -0.02875100076198578,
+        -0.009713999927043915
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.00023024961410555989,
+        0.0009420912829227746,
+        0.0009052730747498572
+      ],
+      "diagonal_inertia_viewer": [
+        0.00023024961410555989,
+        0.0009420912829227746,
+        0.0009052730747498572
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9836794137954712,
+        0.015406802296638489,
+        0.05045437067747116,
+        -0.17202283442020416
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9836794137954712,
+        0.015406802296638489,
+        0.05045437067747116,
+        -0.17202283442020416
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_hip_roll_link",
+      "link_path_viewer": "/h1_2/left_hip_roll_link",
+      "mass_truth": 4.961999893188477,
+      "mass_viewer": 4.961999893188477,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.004170999862253666,
+        -0.008576000109314919,
+        -0.19450899958610535
+      ],
+      "center_of_mass_local_viewer": [
+        0.004170999862253666,
+        -0.008576000109314919,
+        -0.19450899958610535
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.046278778463602066,
+        0.04802291467785835,
+        0.008874092251062393
+      ],
+      "diagonal_inertia_viewer": [
+        0.046278778463602066,
+        0.04802291467785835,
+        0.008874092251062393
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9951187372207642,
+        0.0050922962836921215,
+        0.015566396526992321,
+        0.09731721132993698
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9951187372207642,
+        0.0050922962836921215,
+        0.015566396526992321,
+        0.09731721132993698
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_hip_yaw_link",
+      "link_path_viewer": "/h1_2/left_hip_yaw_link",
+      "mass_truth": 2.8289999961853027,
+      "mass_viewer": 2.8289999961853027,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        -0.026196999475359917,
+        0.006647000089287758
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        -0.026196999475359917,
+        0.006647000089287758
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.004553604871034622,
+        0.005743027199059725,
+        0.0034946096129715443
+      ],
+      "diagonal_inertia_viewer": [
+        0.004553604871034622,
+        0.005743027199059725,
+        0.0034946096129715443
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9969582557678223,
+        -0.07793654501438141,
+        -0.00037626572884619236,
+        8.086540037766099e-05
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9969582557678223,
+        -0.07793654501438141,
+        -0.00037626572884619236,
+        8.086540037766099e-05
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_knee_link",
+      "link_path_viewer": "/h1_2/left_knee_link",
+      "mass_truth": 3.8389999866485596,
+      "mass_viewer": 3.8389999866485596,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00017899999511428177,
+        0.00012099999730708078,
+        -0.16893599927425385
+      ],
+      "center_of_mass_local_viewer": [
+        0.00017899999511428177,
+        0.00012099999730708078,
+        -0.16893599927425385
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.03895895555615425,
+        0.039104364812374115,
+        0.00501124607399106
+      ],
+      "diagonal_inertia_viewer": [
+        0.03895895555615425,
+        0.039104364812374115,
+        0.00501124607399106
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9373430013656616,
+        0.0037889250088483095,
+        0.011057919822633266,
+        0.34821176528930664
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9373430013656616,
+        0.0037889250088483095,
+        0.011057919822633266,
+        0.34821176528930664
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_shoulder_pitch_link",
+      "link_path_viewer": "/h1_2/left_shoulder_pitch_link",
+      "mass_truth": 1.3270000219345093,
+      "mass_viewer": 1.3270000219345093,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0030529999639838934,
+        0.060419999063014984,
+        -0.005900000222027302
+      ],
+      "center_of_mass_local_viewer": [
+        0.0030529999639838934,
+        0.060419999063014984,
+        -0.005900000222027302
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005887565203011036,
+        0.0003930234524887055,
+        0.0005330900312401354
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005887565203011036,
+        0.0003930234524887055,
+        0.0005330900312401354
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9952393174171448,
+        -0.08210790157318115,
+        -0.001029007020406425,
+        -0.05249766260385513
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9952393174171448,
+        -0.08210790157318115,
+        -0.001029007020406425,
+        -0.05249766260385513
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_shoulder_yaw_link",
+      "link_path_viewer": "/h1_2/left_shoulder_yaw_link",
+      "mass_truth": 1.5049999952316284,
+      "mass_viewer": 1.5049999952316284,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0045830002054572105,
+        0.0011279999744147062,
+        -0.0011279999744147062
+      ],
+      "center_of_mass_local_viewer": [
+        0.0045830002054572105,
+        0.0011279999744147062,
+        -0.0011279999744147062
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.004206968005746603,
+        0.004317824263125658,
+        0.0006456576520577073
+      ],
+      "diagonal_inertia_viewer": [
+        0.004206968005746603,
+        0.004317824263125658,
+        0.0006456576520577073
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9978237748146057,
+        0.011198386549949646,
+        -0.026594309136271477,
+        0.05928909033536911
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9978237748146057,
+        0.011198386549949646,
+        -0.026594309136271477,
+        0.05928909033536911
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_wrist_pitch_link",
+      "link_path_viewer": "/h1_2/left_wrist_pitch_link",
+      "mass_truth": 0.48399999737739563,
+      "mass_viewer": 0.48399999737739563,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.020394999533891678,
+        3.600000127335079e-05,
+        -0.0029730000533163548
+      ],
+      "center_of_mass_local_viewer": [
+        0.020394999533891678,
+        3.600000127335079e-05,
+        -0.0029730000533163548
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        7.256749086081982e-05,
+        7.003247446846217e-05,
+        6.93810434313491e-05
+      ],
+      "diagonal_inertia_viewer": [
+        7.256749086081982e-05,
+        7.003247446846217e-05,
+        6.93810434313491e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9158926606178284,
+        -0.2284059375524521,
+        -0.3272620737552643,
+        -0.043253131210803986
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9158926606178284,
+        -0.2284059375524521,
+        -0.3272620737552643,
+        -0.043253131210803986
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_wrist_roll_link",
+      "link_path_viewer": "/h1_2/left_wrist_roll_link",
+      "mass_truth": 0.6830000281333923,
+      "mass_viewer": 0.6830000281333923,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.035280998796224594,
+        -0.002319999970495701,
+        0.0003370000049471855
+      ],
+      "center_of_mass_local_viewer": [
+        0.035280998796224594,
+        -0.002319999970495701,
+        0.0003370000049471855
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.00032824763911776245,
+        0.0002946278254967183,
+        0.00034680962562561035
+      ],
+      "diagonal_inertia_viewer": [
+        0.00032824763911776245,
+        0.0002946278254967183,
+        0.00034680962562561035
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9314481616020203,
+        -0.0691196620464325,
+        0.025747105479240417,
+        0.3563198149204254
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9314481616020203,
+        -0.0691196620464325,
+        0.025747105479240417,
+        0.3563198149204254
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/pelvis",
+      "link_path_viewer": "/h1_2/pelvis",
+      "mass_truth": 5.982999801635742,
+      "mass_viewer": 5.982999801635742,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.00039999998989515007,
+        3.7000001611886546e-05,
+        -0.04686399921774864
+      ],
+      "center_of_mass_local_viewer": [
+        -0.00039999998989515007,
+        3.7000001611886546e-05,
+        -0.04686399921774864
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.04916783422231674,
+        0.009025833569467068,
+        0.053156476467847824
+      ],
+      "diagonal_inertia_viewer": [
+        0.04916783422231674,
+        0.009025833569467068,
+        0.053156476467847824
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999815225601196,
+        -4.01045945181977e-05,
+        -0.006075502373278141,
+        -0.0002471947227604687
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999815225601196,
+        -4.01045945181977e-05,
+        -0.006075502373278141,
+        -0.0002471947227604687
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_ankle_pitch_link",
+      "link_path_viewer": "/h1_2/right_ankle_pitch_link",
+      "mass_truth": 0.10199999809265137,
+      "mass_viewer": 0.10199999809265137,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.00029399999766610563,
+        0.0,
+        -0.010793999768793583
+      ],
+      "center_of_mass_local_viewer": [
+        -0.00029399999766610563,
+        0.0,
+        -0.010793999768793583
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        2.394538933003787e-05,
+        2.183700053137727e-05,
+        1.3412611224339344e-05
+      ],
+      "diagonal_inertia_viewer": [
+        2.394538933003787e-05,
+        2.183700053137727e-05,
+        1.3412611224339344e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999834895133972,
+        0.0,
+        -0.005744446534663439,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999834895133972,
+        0.0,
+        -0.005744446534663439,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_elbow_link",
+      "link_path_viewer": "/h1_2/right_elbow_link",
+      "mass_truth": 0.6909999847412109,
+      "mass_viewer": 0.6909999847412109,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0770919993519783,
+        0.02875100076198578,
+        -0.009713999927043915
+      ],
+      "center_of_mass_local_viewer": [
+        0.0770919993519783,
+        0.02875100076198578,
+        -0.009713999927043915
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.00023024961410555989,
+        0.0009420912829227746,
+        0.0009052730747498572
+      ],
+      "diagonal_inertia_viewer": [
+        0.00023024961410555989,
+        0.0009420912829227746,
+        0.0009052730747498572
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9836794137954712,
+        -0.015406802296638489,
+        0.05045437067747116,
+        0.17202283442020416
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9836794137954712,
+        -0.015406802296638489,
+        0.05045437067747116,
+        0.17202283442020416
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_hip_roll_link",
+      "link_path_viewer": "/h1_2/right_hip_roll_link",
+      "mass_truth": 4.961999893188477,
+      "mass_viewer": 4.961999893188477,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.004170999862253666,
+        0.008576000109314919,
+        -0.19450899958610535
+      ],
+      "center_of_mass_local_viewer": [
+        0.004170999862253666,
+        0.008576000109314919,
+        -0.19450899958610535
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.046278778463602066,
+        0.04802291467785835,
+        0.008874092251062393
+      ],
+      "diagonal_inertia_viewer": [
+        0.046278778463602066,
+        0.04802291467785835,
+        0.008874092251062393
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9951187372207642,
+        -0.0050922962836921215,
+        0.015566396526992321,
+        -0.09731721132993698
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9951187372207642,
+        -0.0050922962836921215,
+        0.015566396526992321,
+        -0.09731721132993698
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_hip_yaw_link",
+      "link_path_viewer": "/h1_2/right_hip_yaw_link",
+      "mass_truth": 2.8289999961853027,
+      "mass_viewer": 2.8289999961853027,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.026196999475359917,
+        0.006647000089287758
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.026196999475359917,
+        0.006647000089287758
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.004553604871034622,
+        0.005743027199059725,
+        0.0034946096129715443
+      ],
+      "diagonal_inertia_viewer": [
+        0.004553604871034622,
+        0.005743027199059725,
+        0.0034946096129715443
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9969582557678223,
+        0.07793654501438141,
+        -0.00037626572884619236,
+        -8.086540037766099e-05
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9969582557678223,
+        0.07793654501438141,
+        -0.00037626572884619236,
+        -8.086540037766099e-05
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_knee_link",
+      "link_path_viewer": "/h1_2/right_knee_link",
+      "mass_truth": 3.8389999866485596,
+      "mass_viewer": 3.8389999866485596,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00017899999511428177,
+        -0.00012099999730708078,
+        -0.16893599927425385
+      ],
+      "center_of_mass_local_viewer": [
+        0.00017899999511428177,
+        -0.00012099999730708078,
+        -0.16893599927425385
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.03895895555615425,
+        0.039104364812374115,
+        0.00501124607399106
+      ],
+      "diagonal_inertia_viewer": [
+        0.03895895555615425,
+        0.039104364812374115,
+        0.00501124607399106
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9373430013656616,
+        -0.0037889250088483095,
+        0.011057919822633266,
+        -0.34821176528930664
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9373430013656616,
+        -0.0037889250088483095,
+        0.011057919822633266,
+        -0.34821176528930664
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_shoulder_pitch_link",
+      "link_path_viewer": "/h1_2/right_shoulder_pitch_link",
+      "mass_truth": 1.3270000219345093,
+      "mass_viewer": 1.3270000219345093,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0030529999639838934,
+        -0.060419999063014984,
+        -0.005900000222027302
+      ],
+      "center_of_mass_local_viewer": [
+        0.0030529999639838934,
+        -0.060419999063014984,
+        -0.005900000222027302
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005887565203011036,
+        0.0003930234524887055,
+        0.0005330900312401354
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005887565203011036,
+        0.0003930234524887055,
+        0.0005330900312401354
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9952393174171448,
+        0.08210790157318115,
+        -0.001029007020406425,
+        0.05249766260385513
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9952393174171448,
+        0.08210790157318115,
+        -0.001029007020406425,
+        0.05249766260385513
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_shoulder_yaw_link",
+      "link_path_viewer": "/h1_2/right_shoulder_yaw_link",
+      "mass_truth": 1.5049999952316284,
+      "mass_viewer": 1.5049999952316284,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0045830002054572105,
+        -0.0011279999744147062,
+        -0.0011279999744147062
+      ],
+      "center_of_mass_local_viewer": [
+        0.0045830002054572105,
+        -0.0011279999744147062,
+        -0.0011279999744147062
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.004206968005746603,
+        0.004317824263125658,
+        0.0006456576520577073
+      ],
+      "diagonal_inertia_viewer": [
+        0.004206968005746603,
+        0.004317824263125658,
+        0.0006456576520577073
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9978237748146057,
+        -0.011198386549949646,
+        -0.026594309136271477,
+        -0.05928909033536911
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9978237748146057,
+        -0.011198386549949646,
+        -0.026594309136271477,
+        -0.05928909033536911
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_wrist_pitch_link",
+      "link_path_viewer": "/h1_2/right_wrist_pitch_link",
+      "mass_truth": 0.48399999737739563,
+      "mass_viewer": 0.48399999737739563,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.020394999533891678,
+        3.600000127335079e-05,
+        -0.0029730000533163548
+      ],
+      "center_of_mass_local_viewer": [
+        0.020394999533891678,
+        3.600000127335079e-05,
+        -0.0029730000533163548
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        7.256749086081982e-05,
+        7.003247446846217e-05,
+        6.93810434313491e-05
+      ],
+      "diagonal_inertia_viewer": [
+        7.256749086081982e-05,
+        7.003247446846217e-05,
+        6.93810434313491e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9158926606178284,
+        -0.2284059375524521,
+        -0.3272620737552643,
+        -0.043253131210803986
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9158926606178284,
+        -0.2284059375524521,
+        -0.3272620737552643,
+        -0.043253131210803986
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_wrist_roll_link",
+      "link_path_viewer": "/h1_2/right_wrist_roll_link",
+      "mass_truth": 0.6830000281333923,
+      "mass_viewer": 0.6830000281333923,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.035280998796224594,
+        -0.002319999970495701,
+        0.0003370000049471855
+      ],
+      "center_of_mass_local_viewer": [
+        0.035280998796224594,
+        -0.002319999970495701,
+        0.0003370000049471855
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.00032824763911776245,
+        0.0002946278254967183,
+        0.00034680962562561035
+      ],
+      "diagonal_inertia_viewer": [
+        0.00032824763911776245,
+        0.0002946278254967183,
+        0.00034680962562561035
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9314481616020203,
+        -0.0691196620464325,
+        0.025747105479240417,
+        0.3563198149204254
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9314481616020203,
+        -0.0691196620464325,
+        0.025747105479240417,
+        0.3563198149204254
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/torso_link",
+      "link_path_viewer": "/h1_2/torso_link",
+      "mass_truth": 17.788999557495117,
+      "mass_viewer": 17.788999557495117,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0004889999981969595,
+        0.0027970001101493835,
+        0.20484000444412231
+      ],
+      "center_of_mass_local_viewer": [
+        0.0004889999981969595,
+        0.0027970001101493835,
+        0.20484000444412231
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.48731523752212524,
+        0.4096281826496124,
+        0.12783659994602203
+      ],
+      "diagonal_inertia_viewer": [
+        0.48731523752212524,
+        0.4096281826496124,
+        0.12783659994602203
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999891519546509,
+        -0.0013081022771075368,
+        -0.002822886686772108,
+        -0.0034910470712929964
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999891519546509,
+        -0.0013081022771075368,
+        -0.002822886686772108,
+        -0.0034910470712929964
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    }
+  ],
+  "compared_entries": [
+    {
+      "link_path_truth": "/h1_2/left_ankle_roll_link",
+      "link_path_viewer": "/h1_2/left_ankle_roll_link",
+      "mass_truth": 0.746999979019165,
+      "mass_viewer": 0.746999979019165,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.02958899922668934,
+        0.0,
+        -0.01597299985587597
+      ],
+      "center_of_mass_local_viewer": [
+        0.02958899922668934,
+        0.0,
+        -0.01597299985587597
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0006403065053746104,
+        0.003435339080169797,
+        0.0035917824134230614
+      ],
+      "diagonal_inertia_viewer": [
+        0.0006403065053746104,
+        0.003435339080169797,
+        0.0035917824134230614
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9996387958526611,
+        0.0,
+        0.02687918394804001,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9996387958526611,
+        0.0,
+        0.02687918394804001,
+        0.0
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_hip_pitch_link",
+      "link_path_viewer": "/h1_2/left_hip_pitch_link",
+      "mass_truth": 2.9200000762939453,
+      "mass_viewer": 2.9200000762939453,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.007809999864548445,
+        -0.0047240001149475574,
+        -6.299999949987978e-05
+      ],
+      "center_of_mass_local_viewer": [
+        -0.007809999864548445,
+        -0.0047240001149475574,
+        -6.299999949987978e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.005606613587588072,
+        0.0038506812416017056,
+        0.004450548905879259
+      ],
+      "diagonal_inertia_viewer": [
+        0.005606613587588072,
+        0.0038506812416017056,
+        0.004450548905879259
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9991198182106018,
+        0.006943211890757084,
+        0.005736391060054302,
+        0.040970854461193085
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9991198182106018,
+        0.006943211890757084,
+        0.005736391060054302,
+        0.040970854461193085
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_shoulder_roll_link",
+      "link_path_viewer": "/h1_2/left_shoulder_roll_link",
+      "mass_truth": 1.3930000066757202,
+      "mass_viewer": 1.3930000066757202,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.030931999906897545,
+        -9.999999974752427e-07,
+        -0.1060900017619133
+      ],
+      "center_of_mass_local_viewer": [
+        -0.030931999906897545,
+        -9.999999974752427e-07,
+        -0.1060900017619133
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0020086870063096285,
+        0.001934636733494699,
+        0.0004498473135754466
+      ],
+      "diagonal_inertia_viewer": [
+        0.0020086870063096285,
+        0.001934636733494699,
+        0.0004498473135754466
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9860546588897705,
+        0.0004569375596474856,
+        0.16640739142894745,
+        0.0021355284843593836
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9860546588897705,
+        0.0004569375596474856,
+        0.16640739142894745,
+        0.0021355284843593836
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_wrist_yaw_link",
+      "link_path_viewer": "/h1_2/left_wrist_yaw_link",
+      "mass_truth": 0.12399999797344208,
+      "mass_viewer": 0.12399999797344208,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.027967000380158424,
+        9.600000339560211e-05,
+        0.0007389999809674919
+      ],
+      "center_of_mass_local_viewer": [
+        0.027967000380158424,
+        9.600000339560211e-05,
+        0.0007389999809674919
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0001374634593958035,
+        0.00016999892250169069,
+        8.464362326776609e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.0001374634593958035,
+        0.00016999892250169069,
+        8.464362326776609e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9996071457862854,
+        -0.00016411671822424978,
+        -0.027902578935027122,
+        0.0026417376939207315
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9996071457862854,
+        -0.00016411671822424978,
+        -0.027902578935027122,
+        0.0026417376939207315
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_ankle_roll_link",
+      "link_path_viewer": "/h1_2/right_ankle_roll_link",
+      "mass_truth": 0.746999979019165,
+      "mass_viewer": 0.746999979019165,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.02958899922668934,
+        0.0,
+        -0.01597299985587597
+      ],
+      "center_of_mass_local_viewer": [
+        0.02958899922668934,
+        0.0,
+        -0.01597299985587597
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0006403065053746104,
+        0.003435339080169797,
+        0.0035917824134230614
+      ],
+      "diagonal_inertia_viewer": [
+        0.0006403065053746104,
+        0.003435339080169797,
+        0.0035917824134230614
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9996387958526611,
+        0.0,
+        0.02687918394804001,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9996387958526611,
+        0.0,
+        0.02687918394804001,
+        0.0
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_hip_pitch_link",
+      "link_path_viewer": "/h1_2/right_hip_pitch_link",
+      "mass_truth": 2.9200000762939453,
+      "mass_viewer": 2.9200000762939453,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.007809999864548445,
+        0.0047240001149475574,
+        -6.299999949987978e-05
+      ],
+      "center_of_mass_local_viewer": [
+        -0.007809999864548445,
+        0.0047240001149475574,
+        -6.299999949987978e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.005606613587588072,
+        0.0038506812416017056,
+        0.004450548905879259
+      ],
+      "diagonal_inertia_viewer": [
+        0.005606613587588072,
+        0.0038506812416017056,
+        0.004450548905879259
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9991198182106018,
+        -0.006943211890757084,
+        0.005736391060054302,
+        -0.040970854461193085
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9991198182106018,
+        -0.006943211890757084,
+        0.005736391060054302,
+        -0.040970854461193085
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_shoulder_roll_link",
+      "link_path_viewer": "/h1_2/right_shoulder_roll_link",
+      "mass_truth": 1.3930000066757202,
+      "mass_viewer": 1.3930000066757202,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.030931999906897545,
+        9.999999974752427e-07,
+        -0.1060900017619133
+      ],
+      "center_of_mass_local_viewer": [
+        -0.030931999906897545,
+        9.999999974752427e-07,
+        -0.1060900017619133
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0020086870063096285,
+        0.001934636733494699,
+        0.0004498473135754466
+      ],
+      "diagonal_inertia_viewer": [
+        0.0020086870063096285,
+        0.001934636733494699,
+        0.0004498473135754466
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9860546588897705,
+        -0.0004569375596474856,
+        0.16640739142894745,
+        -0.0021355284843593836
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9860546588897705,
+        -0.0004569375596474856,
+        0.16640739142894745,
+        -0.0021355284843593836
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_wrist_yaw_link",
+      "link_path_viewer": "/h1_2/right_wrist_yaw_link",
+      "mass_truth": 0.12399999797344208,
+      "mass_viewer": 0.12399999797344208,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.027967000380158424,
+        -9.600000339560211e-05,
+        0.0007389999809674919
+      ],
+      "center_of_mass_local_viewer": [
+        0.027967000380158424,
+        -9.600000339560211e-05,
+        0.0007389999809674919
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0001374634593958035,
+        0.00016999892250169069,
+        8.464362326776609e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.0001374634593958035,
+        0.00016999892250169069,
+        8.464362326776609e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9996071457862854,
+        0.00016411671822424978,
+        -0.027902578935027122,
+        -0.0026417376939207315
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9996071457862854,
+        0.00016411671822424978,
+        -0.027902578935027122,
+        -0.0026417376939207315
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_ankle_pitch_link",
+      "link_path_viewer": "/h1_2/left_ankle_pitch_link",
+      "mass_truth": 0.10199999809265137,
+      "mass_viewer": 0.10199999809265137,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.00029399999766610563,
+        0.0,
+        -0.010793999768793583
+      ],
+      "center_of_mass_local_viewer": [
+        -0.00029399999766610563,
+        0.0,
+        -0.010793999768793583
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        2.394538933003787e-05,
+        2.183700053137727e-05,
+        1.3412611224339344e-05
+      ],
+      "diagonal_inertia_viewer": [
+        2.394538933003787e-05,
+        2.183700053137727e-05,
+        1.3412611224339344e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999834895133972,
+        0.0,
+        -0.005744446534663439,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999834895133972,
+        0.0,
+        -0.005744446534663439,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_elbow_link",
+      "link_path_viewer": "/h1_2/left_elbow_link",
+      "mass_truth": 0.6909999847412109,
+      "mass_viewer": 0.6909999847412109,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0770919993519783,
+        -0.02875100076198578,
+        -0.009713999927043915
+      ],
+      "center_of_mass_local_viewer": [
+        0.0770919993519783,
+        -0.02875100076198578,
+        -0.009713999927043915
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.00023024961410555989,
+        0.0009420912829227746,
+        0.0009052730747498572
+      ],
+      "diagonal_inertia_viewer": [
+        0.00023024961410555989,
+        0.0009420912829227746,
+        0.0009052730747498572
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9836794137954712,
+        0.015406802296638489,
+        0.05045437067747116,
+        -0.17202283442020416
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9836794137954712,
+        0.015406802296638489,
+        0.05045437067747116,
+        -0.17202283442020416
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_hip_roll_link",
+      "link_path_viewer": "/h1_2/left_hip_roll_link",
+      "mass_truth": 4.961999893188477,
+      "mass_viewer": 4.961999893188477,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.004170999862253666,
+        -0.008576000109314919,
+        -0.19450899958610535
+      ],
+      "center_of_mass_local_viewer": [
+        0.004170999862253666,
+        -0.008576000109314919,
+        -0.19450899958610535
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.046278778463602066,
+        0.04802291467785835,
+        0.008874092251062393
+      ],
+      "diagonal_inertia_viewer": [
+        0.046278778463602066,
+        0.04802291467785835,
+        0.008874092251062393
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9951187372207642,
+        0.0050922962836921215,
+        0.015566396526992321,
+        0.09731721132993698
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9951187372207642,
+        0.0050922962836921215,
+        0.015566396526992321,
+        0.09731721132993698
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_hip_yaw_link",
+      "link_path_viewer": "/h1_2/left_hip_yaw_link",
+      "mass_truth": 2.8289999961853027,
+      "mass_viewer": 2.8289999961853027,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        -0.026196999475359917,
+        0.006647000089287758
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        -0.026196999475359917,
+        0.006647000089287758
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.004553604871034622,
+        0.005743027199059725,
+        0.0034946096129715443
+      ],
+      "diagonal_inertia_viewer": [
+        0.004553604871034622,
+        0.005743027199059725,
+        0.0034946096129715443
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9969582557678223,
+        -0.07793654501438141,
+        -0.00037626572884619236,
+        8.086540037766099e-05
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9969582557678223,
+        -0.07793654501438141,
+        -0.00037626572884619236,
+        8.086540037766099e-05
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_knee_link",
+      "link_path_viewer": "/h1_2/left_knee_link",
+      "mass_truth": 3.8389999866485596,
+      "mass_viewer": 3.8389999866485596,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00017899999511428177,
+        0.00012099999730708078,
+        -0.16893599927425385
+      ],
+      "center_of_mass_local_viewer": [
+        0.00017899999511428177,
+        0.00012099999730708078,
+        -0.16893599927425385
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.03895895555615425,
+        0.039104364812374115,
+        0.00501124607399106
+      ],
+      "diagonal_inertia_viewer": [
+        0.03895895555615425,
+        0.039104364812374115,
+        0.00501124607399106
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9373430013656616,
+        0.0037889250088483095,
+        0.011057919822633266,
+        0.34821176528930664
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9373430013656616,
+        0.0037889250088483095,
+        0.011057919822633266,
+        0.34821176528930664
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_shoulder_pitch_link",
+      "link_path_viewer": "/h1_2/left_shoulder_pitch_link",
+      "mass_truth": 1.3270000219345093,
+      "mass_viewer": 1.3270000219345093,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0030529999639838934,
+        0.060419999063014984,
+        -0.005900000222027302
+      ],
+      "center_of_mass_local_viewer": [
+        0.0030529999639838934,
+        0.060419999063014984,
+        -0.005900000222027302
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005887565203011036,
+        0.0003930234524887055,
+        0.0005330900312401354
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005887565203011036,
+        0.0003930234524887055,
+        0.0005330900312401354
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9952393174171448,
+        -0.08210790157318115,
+        -0.001029007020406425,
+        -0.05249766260385513
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9952393174171448,
+        -0.08210790157318115,
+        -0.001029007020406425,
+        -0.05249766260385513
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_shoulder_yaw_link",
+      "link_path_viewer": "/h1_2/left_shoulder_yaw_link",
+      "mass_truth": 1.5049999952316284,
+      "mass_viewer": 1.5049999952316284,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0045830002054572105,
+        0.0011279999744147062,
+        -0.0011279999744147062
+      ],
+      "center_of_mass_local_viewer": [
+        0.0045830002054572105,
+        0.0011279999744147062,
+        -0.0011279999744147062
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.004206968005746603,
+        0.004317824263125658,
+        0.0006456576520577073
+      ],
+      "diagonal_inertia_viewer": [
+        0.004206968005746603,
+        0.004317824263125658,
+        0.0006456576520577073
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9978237748146057,
+        0.011198386549949646,
+        -0.026594309136271477,
+        0.05928909033536911
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9978237748146057,
+        0.011198386549949646,
+        -0.026594309136271477,
+        0.05928909033536911
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_wrist_pitch_link",
+      "link_path_viewer": "/h1_2/left_wrist_pitch_link",
+      "mass_truth": 0.48399999737739563,
+      "mass_viewer": 0.48399999737739563,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.020394999533891678,
+        3.600000127335079e-05,
+        -0.0029730000533163548
+      ],
+      "center_of_mass_local_viewer": [
+        0.020394999533891678,
+        3.600000127335079e-05,
+        -0.0029730000533163548
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        7.256749086081982e-05,
+        7.003247446846217e-05,
+        6.93810434313491e-05
+      ],
+      "diagonal_inertia_viewer": [
+        7.256749086081982e-05,
+        7.003247446846217e-05,
+        6.93810434313491e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9158926606178284,
+        -0.2284059375524521,
+        -0.3272620737552643,
+        -0.043253131210803986
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9158926606178284,
+        -0.2284059375524521,
+        -0.3272620737552643,
+        -0.043253131210803986
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/left_wrist_roll_link",
+      "link_path_viewer": "/h1_2/left_wrist_roll_link",
+      "mass_truth": 0.6830000281333923,
+      "mass_viewer": 0.6830000281333923,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.035280998796224594,
+        -0.002319999970495701,
+        0.0003370000049471855
+      ],
+      "center_of_mass_local_viewer": [
+        0.035280998796224594,
+        -0.002319999970495701,
+        0.0003370000049471855
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.00032824763911776245,
+        0.0002946278254967183,
+        0.00034680962562561035
+      ],
+      "diagonal_inertia_viewer": [
+        0.00032824763911776245,
+        0.0002946278254967183,
+        0.00034680962562561035
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9314481616020203,
+        -0.0691196620464325,
+        0.025747105479240417,
+        0.3563198149204254
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9314481616020203,
+        -0.0691196620464325,
+        0.025747105479240417,
+        0.3563198149204254
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/pelvis",
+      "link_path_viewer": "/h1_2/pelvis",
+      "mass_truth": 5.982999801635742,
+      "mass_viewer": 5.982999801635742,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.00039999998989515007,
+        3.7000001611886546e-05,
+        -0.04686399921774864
+      ],
+      "center_of_mass_local_viewer": [
+        -0.00039999998989515007,
+        3.7000001611886546e-05,
+        -0.04686399921774864
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.04916783422231674,
+        0.009025833569467068,
+        0.053156476467847824
+      ],
+      "diagonal_inertia_viewer": [
+        0.04916783422231674,
+        0.009025833569467068,
+        0.053156476467847824
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999815225601196,
+        -4.01045945181977e-05,
+        -0.006075502373278141,
+        -0.0002471947227604687
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999815225601196,
+        -4.01045945181977e-05,
+        -0.006075502373278141,
+        -0.0002471947227604687
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_ankle_pitch_link",
+      "link_path_viewer": "/h1_2/right_ankle_pitch_link",
+      "mass_truth": 0.10199999809265137,
+      "mass_viewer": 0.10199999809265137,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.00029399999766610563,
+        0.0,
+        -0.010793999768793583
+      ],
+      "center_of_mass_local_viewer": [
+        -0.00029399999766610563,
+        0.0,
+        -0.010793999768793583
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        2.394538933003787e-05,
+        2.183700053137727e-05,
+        1.3412611224339344e-05
+      ],
+      "diagonal_inertia_viewer": [
+        2.394538933003787e-05,
+        2.183700053137727e-05,
+        1.3412611224339344e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999834895133972,
+        0.0,
+        -0.005744446534663439,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999834895133972,
+        0.0,
+        -0.005744446534663439,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_elbow_link",
+      "link_path_viewer": "/h1_2/right_elbow_link",
+      "mass_truth": 0.6909999847412109,
+      "mass_viewer": 0.6909999847412109,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0770919993519783,
+        0.02875100076198578,
+        -0.009713999927043915
+      ],
+      "center_of_mass_local_viewer": [
+        0.0770919993519783,
+        0.02875100076198578,
+        -0.009713999927043915
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.00023024961410555989,
+        0.0009420912829227746,
+        0.0009052730747498572
+      ],
+      "diagonal_inertia_viewer": [
+        0.00023024961410555989,
+        0.0009420912829227746,
+        0.0009052730747498572
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9836794137954712,
+        -0.015406802296638489,
+        0.05045437067747116,
+        0.17202283442020416
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9836794137954712,
+        -0.015406802296638489,
+        0.05045437067747116,
+        0.17202283442020416
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_hip_roll_link",
+      "link_path_viewer": "/h1_2/right_hip_roll_link",
+      "mass_truth": 4.961999893188477,
+      "mass_viewer": 4.961999893188477,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.004170999862253666,
+        0.008576000109314919,
+        -0.19450899958610535
+      ],
+      "center_of_mass_local_viewer": [
+        0.004170999862253666,
+        0.008576000109314919,
+        -0.19450899958610535
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.046278778463602066,
+        0.04802291467785835,
+        0.008874092251062393
+      ],
+      "diagonal_inertia_viewer": [
+        0.046278778463602066,
+        0.04802291467785835,
+        0.008874092251062393
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9951187372207642,
+        -0.0050922962836921215,
+        0.015566396526992321,
+        -0.09731721132993698
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9951187372207642,
+        -0.0050922962836921215,
+        0.015566396526992321,
+        -0.09731721132993698
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_hip_yaw_link",
+      "link_path_viewer": "/h1_2/right_hip_yaw_link",
+      "mass_truth": 2.8289999961853027,
+      "mass_viewer": 2.8289999961853027,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.026196999475359917,
+        0.006647000089287758
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.026196999475359917,
+        0.006647000089287758
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.004553604871034622,
+        0.005743027199059725,
+        0.0034946096129715443
+      ],
+      "diagonal_inertia_viewer": [
+        0.004553604871034622,
+        0.005743027199059725,
+        0.0034946096129715443
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9969582557678223,
+        0.07793654501438141,
+        -0.00037626572884619236,
+        -8.086540037766099e-05
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9969582557678223,
+        0.07793654501438141,
+        -0.00037626572884619236,
+        -8.086540037766099e-05
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_knee_link",
+      "link_path_viewer": "/h1_2/right_knee_link",
+      "mass_truth": 3.8389999866485596,
+      "mass_viewer": 3.8389999866485596,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00017899999511428177,
+        -0.00012099999730708078,
+        -0.16893599927425385
+      ],
+      "center_of_mass_local_viewer": [
+        0.00017899999511428177,
+        -0.00012099999730708078,
+        -0.16893599927425385
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.03895895555615425,
+        0.039104364812374115,
+        0.00501124607399106
+      ],
+      "diagonal_inertia_viewer": [
+        0.03895895555615425,
+        0.039104364812374115,
+        0.00501124607399106
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9373430013656616,
+        -0.0037889250088483095,
+        0.011057919822633266,
+        -0.34821176528930664
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9373430013656616,
+        -0.0037889250088483095,
+        0.011057919822633266,
+        -0.34821176528930664
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_shoulder_pitch_link",
+      "link_path_viewer": "/h1_2/right_shoulder_pitch_link",
+      "mass_truth": 1.3270000219345093,
+      "mass_viewer": 1.3270000219345093,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0030529999639838934,
+        -0.060419999063014984,
+        -0.005900000222027302
+      ],
+      "center_of_mass_local_viewer": [
+        0.0030529999639838934,
+        -0.060419999063014984,
+        -0.005900000222027302
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005887565203011036,
+        0.0003930234524887055,
+        0.0005330900312401354
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005887565203011036,
+        0.0003930234524887055,
+        0.0005330900312401354
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9952393174171448,
+        0.08210790157318115,
+        -0.001029007020406425,
+        0.05249766260385513
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9952393174171448,
+        0.08210790157318115,
+        -0.001029007020406425,
+        0.05249766260385513
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_shoulder_yaw_link",
+      "link_path_viewer": "/h1_2/right_shoulder_yaw_link",
+      "mass_truth": 1.5049999952316284,
+      "mass_viewer": 1.5049999952316284,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0045830002054572105,
+        -0.0011279999744147062,
+        -0.0011279999744147062
+      ],
+      "center_of_mass_local_viewer": [
+        0.0045830002054572105,
+        -0.0011279999744147062,
+        -0.0011279999744147062
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.004206968005746603,
+        0.004317824263125658,
+        0.0006456576520577073
+      ],
+      "diagonal_inertia_viewer": [
+        0.004206968005746603,
+        0.004317824263125658,
+        0.0006456576520577073
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9978237748146057,
+        -0.011198386549949646,
+        -0.026594309136271477,
+        -0.05928909033536911
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9978237748146057,
+        -0.011198386549949646,
+        -0.026594309136271477,
+        -0.05928909033536911
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_wrist_pitch_link",
+      "link_path_viewer": "/h1_2/right_wrist_pitch_link",
+      "mass_truth": 0.48399999737739563,
+      "mass_viewer": 0.48399999737739563,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.020394999533891678,
+        3.600000127335079e-05,
+        -0.0029730000533163548
+      ],
+      "center_of_mass_local_viewer": [
+        0.020394999533891678,
+        3.600000127335079e-05,
+        -0.0029730000533163548
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        7.256749086081982e-05,
+        7.003247446846217e-05,
+        6.93810434313491e-05
+      ],
+      "diagonal_inertia_viewer": [
+        7.256749086081982e-05,
+        7.003247446846217e-05,
+        6.93810434313491e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9158926606178284,
+        -0.2284059375524521,
+        -0.3272620737552643,
+        -0.043253131210803986
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9158926606178284,
+        -0.2284059375524521,
+        -0.3272620737552643,
+        -0.043253131210803986
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/right_wrist_roll_link",
+      "link_path_viewer": "/h1_2/right_wrist_roll_link",
+      "mass_truth": 0.6830000281333923,
+      "mass_viewer": 0.6830000281333923,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.035280998796224594,
+        -0.002319999970495701,
+        0.0003370000049471855
+      ],
+      "center_of_mass_local_viewer": [
+        0.035280998796224594,
+        -0.002319999970495701,
+        0.0003370000049471855
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.00032824763911776245,
+        0.0002946278254967183,
+        0.00034680962562561035
+      ],
+      "diagonal_inertia_viewer": [
+        0.00032824763911776245,
+        0.0002946278254967183,
+        0.00034680962562561035
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9314481616020203,
+        -0.0691196620464325,
+        0.025747105479240417,
+        0.3563198149204254
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9314481616020203,
+        -0.0691196620464325,
+        0.025747105479240417,
+        0.3563198149204254
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/h1_2/torso_link",
+      "link_path_viewer": "/h1_2/torso_link",
+      "mass_truth": 17.788999557495117,
+      "mass_viewer": 17.788999557495117,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0004889999981969595,
+        0.0027970001101493835,
+        0.20484000444412231
+      ],
+      "center_of_mass_local_viewer": [
+        0.0004889999981969595,
+        0.0027970001101493835,
+        0.20484000444412231
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.48731523752212524,
+        0.4096281826496124,
+        0.12783659994602203
+      ],
+      "diagonal_inertia_viewer": [
+        0.48731523752212524,
+        0.4096281826496124,
+        0.12783659994602203
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999891519546509,
+        -0.0013081022771075368,
+        -0.002822886686772108,
+        -0.0034910470712929964
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999891519546509,
+        -0.0013081022771075368,
+        -0.002822886686772108,
+        -0.0034910470712929964
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    }
+  ]
+}

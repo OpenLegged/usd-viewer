@@ -953,6 +953,18 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
     };
   }
 
+  normalizeVisualProtoOverride(rawOverride) {
+    return this.normalizeCollisionProtoOverride(rawOverride);
+  }
+
+  cacheResolvedWorldTransformFromOverride(overridePayload) {
+    const resolvedPath = normalizeHydraPath(overridePayload?.resolvedPrimPath || '');
+    const worldTransform = overridePayload?.worldTransform;
+    if (!resolvedPath || !resolvedPath.startsWith('/')) return;
+    if (!worldTransform || typeof worldTransform.clone !== 'function') return;
+    this._worldXformCache?.set?.(resolvedPath, worldTransform.clone());
+  }
+
   normalizePrimOverrideData(rawData) {
     if (!rawData || typeof rawData !== 'object') return null;
     if (rawData.valid !== true) return null;
@@ -1042,6 +1054,146 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
     return { count: loaded, source: forceRefresh ? "batch-refresh" : "batch" };
   }
 
+  prefetchProtoMeshOverridesFromDriver(driver, options = {}) {
+    const forceRefresh = options?.force === true;
+    const resolvedDriver = driver || this.config?.driver?.();
+    if (!resolvedDriver) {
+      return {
+        count: 0,
+        collisionCount: 0,
+        visualCount: 0,
+        primOverrideCount: 0,
+        source: "none",
+      };
+    }
+
+    if (
+      this._collisionProtoOverrideBatchPrimed === true
+      && this._visualProtoOverrideBatchPrimed === true
+      && !forceRefresh
+    ) {
+      const cachedCollisionCount = Number(this._collisionProtoOverrideCache?.size || 0);
+      const cachedVisualCount = Number(this._visualProtoOverrideCache?.size || 0);
+      if (cachedCollisionCount > 0 || cachedVisualCount > 0) {
+        return {
+          count: cachedCollisionCount + cachedVisualCount,
+          collisionCount: cachedCollisionCount,
+          visualCount: cachedVisualCount,
+          primOverrideCount: 0,
+          source: "cache",
+        };
+      }
+    }
+
+    this._collisionProtoOverrideBatchPrimed = true;
+    this._visualProtoOverrideBatchPrimed = true;
+    this._collisionProtoOverrideCache?.clear?.();
+    this._visualProtoOverrideCache?.clear?.();
+    if (forceRefresh) {
+      this._primOverrideDataCache?.clear?.();
+      this._resolvedProtoPrimPathCache?.clear?.();
+      this._resolvedVisualPrimPathCache?.clear?.();
+    }
+
+    if (typeof resolvedDriver.GetProtoMeshOverrides !== 'function') {
+      return {
+        count: 0,
+        collisionCount: 0,
+        visualCount: 0,
+        primOverrideCount: 0,
+        source: "single-only",
+      };
+    }
+
+    let payload = null;
+    try {
+      payload = resolvedDriver.GetProtoMeshOverrides();
+    } catch {
+      return {
+        count: 0,
+        collisionCount: 0,
+        visualCount: 0,
+        primOverrideCount: 0,
+        source: "error",
+      };
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return {
+        count: 0,
+        collisionCount: 0,
+        visualCount: 0,
+        primOverrideCount: 0,
+        source: "empty",
+      };
+    }
+
+    const collisionPayload = (payload.collision && typeof payload.collision === 'object')
+      ? payload.collision
+      : {};
+    const visualPayload = (payload.visual && typeof payload.visual === 'object')
+      ? payload.visual
+      : {};
+    const primOverridePaths = new Set<string>();
+    let collisionCount = 0;
+    let visualCount = 0;
+
+    const ingestOverride = (rawMeshId, rawOverride, sectionName) => {
+      if (!rawMeshId || !String(rawMeshId).includes('.proto_')) return;
+      const normalizedOverride = sectionName === 'collisions'
+        ? this.normalizeCollisionProtoOverride(rawOverride)
+        : this.normalizeVisualProtoOverride(rawOverride);
+      if (!normalizedOverride) return;
+
+      const normalizedMeshId = normalizeHydraPath(normalizedOverride.meshId || rawMeshId);
+      if (!normalizedMeshId || !normalizedMeshId.includes('.proto_')) return;
+      normalizedOverride.meshId = normalizedMeshId;
+
+      if (sectionName === 'collisions') {
+        this._collisionProtoOverrideCache.set(normalizedMeshId, normalizedOverride);
+        collisionCount += 1;
+      } else if (sectionName === 'visuals') {
+        this._visualProtoOverrideCache.set(normalizedMeshId, normalizedOverride);
+        visualCount += 1;
+      } else {
+        return;
+      }
+
+      this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
+
+      const resolvedPrimPath = normalizeHydraPath(normalizedOverride.resolvedPrimPath || '');
+      if (resolvedPrimPath) {
+        if (sectionName === 'collisions') {
+          this._resolvedProtoPrimPathCache.set(normalizedMeshId, resolvedPrimPath);
+        } else {
+          this._resolvedVisualPrimPathCache.set(normalizedMeshId, resolvedPrimPath);
+        }
+      }
+
+      const normalizedPrimOverride = this.normalizePrimOverrideData(rawOverride);
+      if (!normalizedPrimOverride) return;
+      const normalizedPrimPath = normalizeHydraPath(normalizedPrimOverride.resolvedPrimPath || '');
+      if (!normalizedPrimPath) return;
+      this._primOverrideDataCache.set(normalizedPrimPath, normalizedPrimOverride);
+      primOverridePaths.add(normalizedPrimPath);
+    };
+
+    for (const [meshId, rawOverride] of Object.entries(collisionPayload)) {
+      ingestOverride(meshId, rawOverride, 'collisions');
+    }
+    for (const [meshId, rawOverride] of Object.entries(visualPayload)) {
+      ingestOverride(meshId, rawOverride, 'visuals');
+    }
+
+    return {
+      count: collisionCount + visualCount,
+      collisionCount,
+      visualCount,
+      primOverrideCount: primOverridePaths.size,
+      source: forceRefresh ? "batch-refresh" : "batch",
+    };
+  }
+
   prefetchCollisionProtoOverridesFromDriver(driver, options = {}) {
     const forceRefresh = options?.force === true;
     const resolvedDriver = driver || this.config?.driver?.();
@@ -1077,6 +1229,52 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       const normalizedOverride = this.normalizeCollisionProtoOverride(rawOverride);
       if (!normalizedOverride) continue;
       this._collisionProtoOverrideCache.set(meshId, normalizedOverride);
+      this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
+      loaded += 1;
+    }
+
+    return {
+      count: loaded,
+      source: forceRefresh ? "batch-refresh" : "batch",
+    };
+  }
+
+  prefetchVisualProtoOverridesFromDriver(driver, options = {}) {
+    const forceRefresh = options?.force === true;
+    const resolvedDriver = driver || this.config?.driver?.();
+    if (!resolvedDriver) return { count: 0, source: "none" };
+    if (this._visualProtoOverrideBatchPrimed === true && !forceRefresh) {
+      const cachedCount = Number(this._visualProtoOverrideCache?.size || 0);
+      if (cachedCount > 0) {
+        return { count: cachedCount, source: "cache" };
+      }
+    }
+
+    this._visualProtoOverrideBatchPrimed = true;
+    this._visualProtoOverrideCache?.clear?.();
+
+    if (typeof resolvedDriver.GetVisualProtoOverrides !== 'function') {
+      return { count: 0, source: "single-only" };
+    }
+
+    let payload = null;
+    try {
+      payload = resolvedDriver.GetVisualProtoOverrides();
+    } catch {
+      return { count: 0, source: "error" };
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return { count: 0, source: "empty" };
+    }
+
+    let loaded = 0;
+    for (const [meshId, rawOverride] of Object.entries(payload)) {
+      if (!meshId || !meshId.includes('.proto_')) continue;
+      const normalizedOverride = this.normalizeVisualProtoOverride(rawOverride);
+      if (!normalizedOverride) continue;
+      this._visualProtoOverrideCache.set(meshId, normalizedOverride);
+      this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
       loaded += 1;
     }
 
@@ -1223,6 +1421,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
     const includePrimTransforms = options?.includePrimTransforms !== false;
     const includeProtoDataBlobs = options?.includeProtoDataBlobs !== false;
     const includeCollisionProtoOverrides = options?.includeCollisionProtoOverrides !== false;
+    const includeVisualProtoOverrides = options?.includeVisualProtoOverrides !== false;
     const includeResolvedPrimPathIndex = options?.includeResolvedPrimPathIndex !== false;
     const includeRobotMetadata = options?.includeRobotMetadata === true;
     const summary = {
@@ -1233,6 +1432,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       protoBlobSource: "none",
       collisionOverrideCount: 0,
       collisionOverrideSource: "none",
+      visualOverrideCount: 0,
+      visualOverrideSource: "none",
       primOverrideCount: 0,
       primOverrideSource: "none",
       worldTransformCount: 0,
@@ -1247,6 +1448,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
     if (!resolvedDriver) return summary;
 
     const resolvedCollisionPrimPaths = [];
+    let usedCombinedProtoOverridePrefetch = false;
+    let combinedProtoOverrideSummary = null;
 
     if (includePrimPathSet) {
       try {
@@ -1274,11 +1477,36 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       } catch {}
     }
 
-    if (includeCollisionProtoOverrides) {
+    if (includeCollisionProtoOverrides && includeVisualProtoOverrides) {
+      try {
+        const combinedSummary = this.prefetchProtoMeshOverridesFromDriver(resolvedDriver, { force: forceRefresh }) || {};
+        const combinedSource = String(combinedSummary.source || "none");
+        if (combinedSource !== "single-only" && combinedSource !== "error") {
+          usedCombinedProtoOverridePrefetch = true;
+          combinedProtoOverrideSummary = combinedSummary;
+          summary.collisionOverrideCount = Number(combinedSummary.collisionCount || 0);
+          summary.collisionOverrideSource = combinedSource;
+          summary.visualOverrideCount = Number(combinedSummary.visualCount || 0);
+          summary.visualOverrideSource = combinedSource;
+          summary.primOverrideCount = Number(combinedSummary.primOverrideCount || 0);
+          summary.primOverrideSource = combinedSource;
+        }
+      } catch {}
+    }
+
+    if (includeCollisionProtoOverrides && !usedCombinedProtoOverridePrefetch) {
       try {
         const collisionSummary = this.prefetchCollisionProtoOverridesFromDriver(resolvedDriver, { force: forceRefresh }) || {};
         summary.collisionOverrideCount = Number(collisionSummary.count || 0);
         summary.collisionOverrideSource = String(collisionSummary.source || "batch");
+      } catch {}
+    }
+
+    if (includeVisualProtoOverrides && !usedCombinedProtoOverridePrefetch) {
+      try {
+        const visualSummary = this.prefetchVisualProtoOverridesFromDriver(resolvedDriver, { force: forceRefresh }) || {};
+        summary.visualOverrideCount = Number(visualSummary.count || 0);
+        summary.visualOverrideSource = String(visualSummary.source || "batch");
       } catch {}
     }
 
@@ -1289,18 +1517,22 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       summary.protoMeshCount += 1;
       if (!includeResolvedPrimPathIndex) continue;
       if (proto.sectionName === 'collisions') {
-        const resolvedCollisionPath = this.getResolvedPrimPathForMeshId(meshId);
+        const resolvedCollisionPath = usedCombinedProtoOverridePrefetch
+          ? normalizeHydraPath(this._collisionProtoOverrideCache.get(meshId)?.resolvedPrimPath || '')
+          : this.getResolvedPrimPathForMeshId(meshId);
         if (resolvedCollisionPath) {
           summary.resolvedCollisionPrimCount += 1;
           resolvedCollisionPrimPaths.push(resolvedCollisionPath);
         }
       } else if (proto.sectionName === 'visuals') {
-        const resolvedVisualPath = this.getResolvedVisualTransformPrimPathForMeshId(meshId);
+        const resolvedVisualPath = usedCombinedProtoOverridePrefetch
+          ? normalizeHydraPath(this._visualProtoOverrideCache.get(meshId)?.resolvedPrimPath || '')
+          : this.getResolvedVisualTransformPrimPathForMeshId(meshId);
         if (resolvedVisualPath) summary.resolvedVisualPrimCount += 1;
       }
     }
 
-    if (resolvedCollisionPrimPaths.length > 0) {
+    if (!usedCombinedProtoOverridePrefetch && resolvedCollisionPrimPaths.length > 0) {
       try {
         const primOverrideSummary = this.prefetchPrimOverrideDataFromDriver(
           resolvedDriver,
@@ -1310,13 +1542,13 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         summary.primOverrideCount = Number(primOverrideSummary.count || 0);
         summary.primOverrideSource = String(primOverrideSummary.source || "batch");
       } catch {}
+    } else if (usedCombinedProtoOverridePrefetch && combinedProtoOverrideSummary) {
+      summary.primOverrideCount = Number(combinedProtoOverrideSummary.primOverrideCount || summary.primOverrideCount || 0);
+      summary.primOverrideSource = String(combinedProtoOverrideSummary.source || summary.primOverrideSource || "batch");
     }
 
     const resolvedStageSourcePath = String(this.getStageSourcePath() || '').split('?')[0];
-    if (
-      resolvedStageSourcePath
-      && (summary.resolvedCollisionPrimCount > 0 || summary.collisionOverrideCount > 0 || summary.primOverrideCount > 0)
-    ) {
+    if (resolvedStageSourcePath) {
       this._runtimeBridgeCacheStageKey = resolvedStageSourcePath;
     }
 
@@ -1378,11 +1610,17 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
 
     if (this.autoBatchCollisionProtoOverridesOnFirstAccess === true && this._collisionProtoOverrideBatchPrimed !== true) {
       try {
-        this.prefetchCollisionProtoOverridesFromDriver(driver, { force: false });
+        this.prefetchProtoMeshOverridesFromDriver(driver, { force: false });
         const batchCached = this._collisionProtoOverrideCache.get(meshId);
         if (batchCached) return batchCached;
       } catch {
-        // Fall through to per-mesh fetch.
+        try {
+          this.prefetchCollisionProtoOverridesFromDriver(driver, { force: false });
+          const batchCached = this._collisionProtoOverrideCache.get(meshId);
+          if (batchCached) return batchCached;
+        } catch {
+          // Fall through to per-mesh fetch.
+        }
       }
     }
 
@@ -1392,6 +1630,48 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       const normalizedOverride = this.normalizeCollisionProtoOverride(rawOverride);
       if (!normalizedOverride) return null;
       this._collisionProtoOverrideCache.set(meshId, normalizedOverride);
+      this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
+      return normalizedOverride;
+    } catch {
+      return null;
+    }
+  }
+
+  getVisualProtoOverride(meshId) {
+    if (!meshId || !meshId.includes('.proto_')) return null;
+    if (!this.config?.driver || typeof this.config.driver !== 'function') return null;
+
+    if (this._visualProtoOverrideCache.has(meshId)) {
+      const cached = this._visualProtoOverrideCache.get(meshId);
+      return cached || null;
+    }
+
+    const driver = this.config.driver();
+    if (!driver) return null;
+
+    if (this.autoBatchVisualProtoOverridesOnFirstAccess === true && this._visualProtoOverrideBatchPrimed !== true) {
+      try {
+        this.prefetchProtoMeshOverridesFromDriver(driver, { force: false });
+        const batchCached = this._visualProtoOverrideCache.get(meshId);
+        if (batchCached) return batchCached;
+      } catch {
+        try {
+          this.prefetchVisualProtoOverridesFromDriver(driver, { force: false });
+          const batchCached = this._visualProtoOverrideCache.get(meshId);
+          if (batchCached) return batchCached;
+        } catch {
+          // Fall through to per-mesh fetch.
+        }
+      }
+    }
+
+    if (typeof driver.GetVisualProtoOverride !== 'function') return null;
+    try {
+      const rawOverride = driver.GetVisualProtoOverride(meshId);
+      const normalizedOverride = this.normalizeVisualProtoOverride(rawOverride);
+      if (!normalizedOverride) return null;
+      this._visualProtoOverrideCache.set(meshId, normalizedOverride);
+      this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
       return normalizedOverride;
     } catch {
       return null;

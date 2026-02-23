@@ -1091,6 +1091,23 @@ export class LinkRotationController {
     ingestJointCatalogFromRenderSnapshot(snapshot, runtimeLinkPathIndex) {
         if (!snapshot)
             return 0;
+        if (Array.isArray(snapshot.linkParentPairs) && snapshot.linkParentPairs.length > 0) {
+            for (const pair of snapshot.linkParentPairs) {
+                if (!Array.isArray(pair) || pair.length <= 0)
+                    continue;
+                const childCandidates = resolveRuntimeLinkPathsFromSourcePath(pair[0], runtimeLinkPathIndex);
+                if (childCandidates.length <= 0)
+                    continue;
+                for (const childLinkPath of childCandidates) {
+                    if (!childLinkPath)
+                        continue;
+                    const preferredRootPath = getRootPathFromLinkPath(childLinkPath);
+                    const parentCandidates = resolveRuntimeLinkPathsFromSourcePath(pair[1], runtimeLinkPathIndex, preferredRootPath);
+                    const parentLinkPath = pickRuntimeParentLinkPath(parentCandidates, preferredRootPath);
+                    this.linkParentPathByLinkPath.set(childLinkPath, parentLinkPath);
+                }
+            }
+        }
         if (!Array.isArray(snapshot.jointCatalogEntries) || snapshot.jointCatalogEntries.length <= 0)
             return 0;
         let imported = 0;

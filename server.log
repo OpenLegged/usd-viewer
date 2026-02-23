@@ -1,2 +1,1 @@
-[server] Unitree URDF root not found. /urdf/:fileName will return 404. Set UNITREE_ROS_ROOT or UNITREE_ROS_ROBOTS_ROOT to fix this. Probed: /home/xiangyk/Project/usd-viewer/unitree_ros/robots, /home/xiangyk/Project/unitree_ros/robots, /home/xiangyk/Project/usd-viewer/unitree_ros/robots, /home/xiangyk/Project/unitree_ros/robots, /home/xiangyk/Documents/unitree_ros/robots, /home/xiangyk/Documents/himloco_lab/unitree_ros/robots, /home/xiangyk/Desktop/unitree_ros/robots, /home/xiangyk/Desktop/URDF-Studio/test/unitree_ros/robots
 Your app is listening on http://127.0.0.1:3003

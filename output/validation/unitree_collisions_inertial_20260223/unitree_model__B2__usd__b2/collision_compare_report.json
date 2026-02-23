@@ -1,0 +1,2071 @@
+{
+  "generated_at_utc": "2026-02-23T06:57:30.014690+00:00",
+  "source_truth": "/home/xiangyk/Project/usd-viewer/output/validation/unitree_collisions_inertial_20260223/unitree_model__B2__usd__b2/truth_isaacsim.json",
+  "source_viewer": "/home/xiangyk/Project/usd-viewer/output/validation/unitree_collisions_inertial_20260223/unitree_model__B2__usd__b2/viewer_collision_dump.json",
+  "thresholds": {
+    "pos_threshold_m": 0.01,
+    "rot_threshold_deg": 1.0,
+    "size_abs_threshold_m": 0.01,
+    "size_rel_threshold": 0.15
+  },
+  "summary": {
+    "truth_collision_primitive_count": 44,
+    "viewer_collision_count": 44,
+    "compared_count": 44,
+    "unresolved_viewer_count": 0,
+    "resolved_without_truth_count": 0,
+    "missing_truth_paths_count": 0,
+    "failed_count": 0,
+    "max_pos_error_m": 0.0,
+    "max_rot_error_deg": 69.49650791048019,
+    "max_rot_error_checked_deg": 0.0,
+    "max_size_abs_error_m": 2.7755575615628914e-17,
+    "max_size_rel_error": 2.775557520203861e-16,
+    "pass": true
+  },
+  "unresolved_viewer_ids": [],
+  "resolved_without_truth": [],
+  "missing_truth_paths": [],
+  "top_errors": [
+    {
+      "id": "/b2_description/FL_calf/collisions.proto_box_id2",
+      "resolved_path": "/b2_description/FL_calf/collisions/mesh_2/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 69.49650791048019,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 1.8503716341814317e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.3645000010728836,
+        0.19164301455020905,
+        -0.574999988079071
+      ],
+      "truth_position": [
+        0.3645000010728836,
+        0.19164301455020905,
+        -0.574999988079071
+      ],
+      "viewer_rotation_wxyz": [
+        0.7213823624619791,
+        0.0,
+        0.692536993328713,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5077473626133768,
+        0.0,
+        0.08117359552216277,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.15000000596046445,
+        0.02449999935925007,
+        0.014999999664723871
+      ],
+      "truth_size_local": [
+        0.15000000596046448,
+        0.02449999935925007,
+        0.014999999664723873
+      ]
+    },
+    {
+      "id": "/b2_description/FR_calf/collisions.proto_box_id2",
+      "resolved_path": "/b2_description/FR_calf/collisions/mesh_2/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 69.49650791048019,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 1.8503716341814317e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.3645000010728836,
+        -0.19164299964904785,
+        -0.574999988079071
+      ],
+      "truth_position": [
+        0.3645000010728836,
+        -0.19164299964904785,
+        -0.574999988079071
+      ],
+      "viewer_rotation_wxyz": [
+        0.7213823624619791,
+        0.0,
+        0.692536993328713,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5077473626133768,
+        0.0,
+        0.08117359552216277,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.15000000596046445,
+        0.02449999935925007,
+        0.014999999664723871
+      ],
+      "truth_size_local": [
+        0.15000000596046448,
+        0.02449999935925007,
+        0.014999999664723873
+      ]
+    },
+    {
+      "id": "/b2_description/RL_calf/collisions.proto_box_id2",
+      "resolved_path": "/b2_description/RL_calf/collisions/mesh_2/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 69.49650791048019,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 1.8503716341814317e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.29250000417232513,
+        0.19164301455020905,
+        -0.574999988079071
+      ],
+      "truth_position": [
+        -0.29250000417232513,
+        0.19164301455020905,
+        -0.574999988079071
+      ],
+      "viewer_rotation_wxyz": [
+        0.7213823624619791,
+        0.0,
+        0.692536993328713,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5077473626133768,
+        0.0,
+        0.08117359552216277,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.15000000596046445,
+        0.02449999935925007,
+        0.014999999664723871
+      ],
+      "truth_size_local": [
+        0.15000000596046448,
+        0.02449999935925007,
+        0.014999999664723873
+      ]
+    },
+    {
+      "id": "/b2_description/RR_calf/collisions.proto_box_id2",
+      "resolved_path": "/b2_description/RR_calf/collisions/mesh_2/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 69.49650791048019,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 1.8503716341814317e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.29250000417232513,
+        -0.19164299964904785,
+        -0.574999988079071
+      ],
+      "truth_position": [
+        -0.29250000417232513,
+        -0.19164299964904785,
+        -0.574999988079071
+      ],
+      "viewer_rotation_wxyz": [
+        0.7213823624619791,
+        0.0,
+        0.692536993328713,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5077473626133768,
+        0.0,
+        0.08117359552216277,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.15000000596046445,
+        0.02449999935925007,
+        0.014999999664723871
+      ],
+      "truth_size_local": [
+        0.15000000596046448,
+        0.02449999935925007,
+        0.014999999664723873
+      ]
+    },
+    {
+      "id": "/b2_description/FL_calf/collisions.proto_box_id1",
+      "resolved_path": "/b2_description/FL_calf/collisions/mesh_1/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 64.83807755791217,
+      "size_abs_error_m": 0.0,
+      "size_rel_error": 0.0,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.3505000025033951,
+        0.19164301455020905,
+        -0.44999999552965164
+      ],
+      "truth_position": [
+        0.3505000025033951,
+        0.19164301455020905,
+        -0.44999999552965164
+      ],
+      "viewer_rotation_wxyz": [
+        0.7807069551748713,
+        0.0,
+        0.6248973116773519,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5124311625129858,
+        0.0,
+        0.056171133848213324,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ]
+    },
+    {
+      "id": "/b2_description/FR_calf/collisions.proto_box_id1",
+      "resolved_path": "/b2_description/FR_calf/collisions/mesh_1/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 64.83807755791217,
+      "size_abs_error_m": 0.0,
+      "size_rel_error": 0.0,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.3505000025033951,
+        -0.19164299964904785,
+        -0.44999999552965164
+      ],
+      "truth_position": [
+        0.3505000025033951,
+        -0.19164299964904785,
+        -0.44999999552965164
+      ],
+      "viewer_rotation_wxyz": [
+        0.7807069551748713,
+        0.0,
+        0.6248973116773519,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5124311625129858,
+        0.0,
+        0.056171133848213324,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ]
+    },
+    {
+      "id": "/b2_description/RL_calf/collisions.proto_box_id1",
+      "resolved_path": "/b2_description/RL_calf/collisions/mesh_1/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 64.83807755791217,
+      "size_abs_error_m": 0.0,
+      "size_rel_error": 0.0,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.30650000274181366,
+        0.19164301455020905,
+        -0.44999999552965164
+      ],
+      "truth_position": [
+        -0.30650000274181366,
+        0.19164301455020905,
+        -0.44999999552965164
+      ],
+      "viewer_rotation_wxyz": [
+        0.7807069551748713,
+        0.0,
+        0.6248973116773519,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5124311625129858,
+        0.0,
+        0.056171133848213324,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ]
+    },
+    {
+      "id": "/b2_description/RR_calf/collisions.proto_box_id1",
+      "resolved_path": "/b2_description/RR_calf/collisions/mesh_1/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 64.83807755791217,
+      "size_abs_error_m": 0.0,
+      "size_rel_error": 0.0,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.30650000274181366,
+        -0.19164299964904785,
+        -0.44999999552965164
+      ],
+      "truth_position": [
+        -0.30650000274181366,
+        -0.19164299964904785,
+        -0.44999999552965164
+      ],
+      "viewer_rotation_wxyz": [
+        0.7807069551748713,
+        0.0,
+        0.6248973116773519,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5124311625129858,
+        0.0,
+        0.056171133848213324,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ]
+    },
+    {
+      "id": "/b2_description/FR_thigh/collisions.proto_box_id0",
+      "resolved_path": "/b2_description/FR_thigh/collisions/mesh_0/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 58.453470194164616,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 1.1102230246251565e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.2985000032931566,
+        -0.19172999262809753,
+        -0.20000000298023224
+      ],
+      "truth_position": [
+        0.2985000032931566,
+        -0.19172999262809753,
+        -0.20000000298023224
+      ],
+      "viewer_rotation_wxyz": [
+        0.7073882378922518,
+        0.0,
+        0.7068252124052276,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5070086037445974,
+        0.0,
+        0.14299555522578702,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.24999999999999997,
+        0.02800000086426735,
+        0.03999999910593033
+      ],
+      "truth_size_local": [
+        0.25,
+        0.02800000086426735,
+        0.03999999910593033
+      ]
+    },
+    {
+      "id": "/b2_description/RL_thigh/collisions.proto_box_id0",
+      "resolved_path": "/b2_description/RL_thigh/collisions/mesh_0/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 58.453470194164616,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 1.1102230246251565e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.3585000019520521,
+        0.19172999262809753,
+        -0.20000000298023224
+      ],
+      "truth_position": [
+        -0.3585000019520521,
+        0.19172999262809753,
+        -0.20000000298023224
+      ],
+      "viewer_rotation_wxyz": [
+        0.7073882378922518,
+        0.0,
+        0.7068252124052276,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5070086037445974,
+        0.0,
+        0.14299555522578702,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.24999999999999997,
+        0.02800000086426735,
+        0.03999999910593033
+      ],
+      "truth_size_local": [
+        0.25,
+        0.02800000086426735,
+        0.03999999910593033
+      ]
+    },
+    {
+      "id": "/b2_description/RR_thigh/collisions.proto_box_id0",
+      "resolved_path": "/b2_description/RR_thigh/collisions/mesh_0/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 58.453470194164616,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 1.1102230246251565e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.3585000019520521,
+        -0.19172999262809753,
+        -0.20000000298023224
+      ],
+      "truth_position": [
+        -0.3585000019520521,
+        -0.19172999262809753,
+        -0.20000000298023224
+      ],
+      "viewer_rotation_wxyz": [
+        0.7073882378922518,
+        0.0,
+        0.7068252124052276,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5070086037445974,
+        0.0,
+        0.14299555522578702,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.24999999999999997,
+        0.02800000086426735,
+        0.03999999910593033
+      ],
+      "truth_size_local": [
+        0.25,
+        0.02800000086426735,
+        0.03999999910593033
+      ]
+    },
+    {
+      "id": "/b2_description/FL_calf/collisions.proto_box_id3",
+      "resolved_path": "/b2_description/FL_calf/collisions/mesh_3/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 57.09407572210843,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.35150000266730785,
+        0.19164301455020905,
+        -0.6599999964237213
+      ],
+      "truth_position": [
+        0.35150000266730785,
+        0.19164301455020905,
+        -0.6599999964237213
+      ],
+      "viewer_rotation_wxyz": [
+        0.5403022978848464,
+        0.0,
+        0.8414709899339101,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.03747590876713955,
+        0.0,
+        0.515599769132366,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.050000000745058046,
+        0.02800000086426735,
+        0.035000000149011605
+      ],
+      "truth_size_local": [
+        0.05000000074505806,
+        0.02800000086426735,
+        0.03500000014901161
+      ]
+    },
+    {
+      "id": "/b2_description/FR_calf/collisions.proto_box_id3",
+      "resolved_path": "/b2_description/FR_calf/collisions/mesh_3/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 57.09407572210843,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.35150000266730785,
+        -0.19164299964904785,
+        -0.6599999964237213
+      ],
+      "truth_position": [
+        0.35150000266730785,
+        -0.19164299964904785,
+        -0.6599999964237213
+      ],
+      "viewer_rotation_wxyz": [
+        0.5403022978848464,
+        0.0,
+        0.8414709899339101,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.03747590876713955,
+        0.0,
+        0.515599769132366,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.050000000745058046,
+        0.02800000086426735,
+        0.035000000149011605
+      ],
+      "truth_size_local": [
+        0.05000000074505806,
+        0.02800000086426735,
+        0.03500000014901161
+      ]
+    },
+    {
+      "id": "/b2_description/RL_calf/collisions.proto_box_id3",
+      "resolved_path": "/b2_description/RL_calf/collisions/mesh_3/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 57.09407572210843,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.3055000025779009,
+        0.19164301455020905,
+        -0.6599999964237213
+      ],
+      "truth_position": [
+        -0.3055000025779009,
+        0.19164301455020905,
+        -0.6599999964237213
+      ],
+      "viewer_rotation_wxyz": [
+        0.5403022978848464,
+        0.0,
+        0.8414709899339101,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.03747590876713955,
+        0.0,
+        0.515599769132366,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.050000000745058046,
+        0.02800000086426735,
+        0.035000000149011605
+      ],
+      "truth_size_local": [
+        0.05000000074505806,
+        0.02800000086426735,
+        0.03500000014901161
+      ]
+    },
+    {
+      "id": "/b2_description/RR_calf/collisions.proto_box_id3",
+      "resolved_path": "/b2_description/RR_calf/collisions/mesh_3/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 57.09407572210843,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.3055000025779009,
+        -0.19164299964904785,
+        -0.6599999964237213
+      ],
+      "truth_position": [
+        -0.3055000025779009,
+        -0.19164299964904785,
+        -0.6599999964237213
+      ],
+      "viewer_rotation_wxyz": [
+        0.5403022978848464,
+        0.0,
+        0.8414709899339101,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.03747590876713955,
+        0.0,
+        0.515599769132366,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.050000000745058046,
+        0.02800000086426735,
+        0.035000000149011605
+      ],
+      "truth_size_local": [
+        0.05000000074505806,
+        0.02800000086426735,
+        0.03500000014901161
+      ]
+    },
+    {
+      "id": "/b2_description/FL_calf/collisions.proto_box_id0",
+      "resolved_path": "/b2_description/FL_calf/collisions/mesh_0/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 56.98784878810148,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 1.3877787601019306e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.32650000252760947,
+        0.19164301455020905,
+        -0.37999999336898327
+      ],
+      "truth_position": [
+        0.32650000252760947,
+        0.19164301455020905,
+        -0.37999999336898327
+      ],
+      "viewer_rotation_wxyz": [
+        0.8253356098653111,
+        0.0,
+        0.5646424807683664,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5165409512671832,
+        0.0,
+        0.05322937682496362,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.1000000014901161,
+        0.02449999935925007,
+        0.017999999225139618
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ]
+    },
+    {
+      "id": "/b2_description/FR_calf/collisions.proto_box_id0",
+      "resolved_path": "/b2_description/FR_calf/collisions/mesh_0/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 56.98784878810148,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 1.3877787601019306e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.32650000252760947,
+        -0.19164299964904785,
+        -0.37999999336898327
+      ],
+      "truth_position": [
+        0.32650000252760947,
+        -0.19164299964904785,
+        -0.37999999336898327
+      ],
+      "viewer_rotation_wxyz": [
+        0.8253356098653111,
+        0.0,
+        0.5646424807683664,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5165409512671832,
+        0.0,
+        0.05322937682496362,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.1000000014901161,
+        0.02449999935925007,
+        0.017999999225139618
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ]
+    },
+    {
+      "id": "/b2_description/RL_calf/collisions.proto_box_id0",
+      "resolved_path": "/b2_description/RL_calf/collisions/mesh_0/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 56.98784878810148,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 1.3877787601019306e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.3305000027175993,
+        0.19164301455020905,
+        -0.37999999336898327
+      ],
+      "truth_position": [
+        -0.3305000027175993,
+        0.19164301455020905,
+        -0.37999999336898327
+      ],
+      "viewer_rotation_wxyz": [
+        0.8253356098653111,
+        0.0,
+        0.5646424807683664,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5165409512671832,
+        0.0,
+        0.05322937682496362,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.1000000014901161,
+        0.02449999935925007,
+        0.017999999225139618
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ]
+    },
+    {
+      "id": "/b2_description/RR_calf/collisions.proto_box_id0",
+      "resolved_path": "/b2_description/RR_calf/collisions/mesh_0/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 56.98784878810148,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 1.3877787601019306e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.3305000027175993,
+        -0.19164299964904785,
+        -0.37999999336898327
+      ],
+      "truth_position": [
+        -0.3305000027175993,
+        -0.19164299964904785,
+        -0.37999999336898327
+      ],
+      "viewer_rotation_wxyz": [
+        0.8253356098653111,
+        0.0,
+        0.5646424807683664,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5165409512671832,
+        0.0,
+        0.05322937682496362,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.1000000014901161,
+        0.02449999935925007,
+        0.017999999225139618
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.02449999935925007,
+        0.017999999225139618
+      ]
+    },
+    {
+      "id": "/b2_description/FL_thigh/collisions.proto_box_id0",
+      "resolved_path": "/b2_description/FL_thigh/collisions/mesh_0/box",
+      "prim_type": "box",
+      "rotation_checked": false,
+      "geometry_type": "BoxGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 50.56331207418798,
+      "size_abs_error_m": 0.0,
+      "size_rel_error": 0.0,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.30350000225007534,
+        0.19172999262809753,
+        -0.1599999964237213
+      ],
+      "truth_position": [
+        0.30350000225007534,
+        0.19172999262809753,
+        -0.1599999964237213
+      ],
+      "viewer_rotation_wxyz": [
+        0.7073882378922517,
+        0.0,
+        0.7068252124052276,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.5110767499298677,
+        0.0,
+        0.1829470210470069,
+        0.0
+      ],
+      "viewer_size_local": [
+        1,
+        1,
+        1
+      ],
+      "viewer_size_effective": [
+        0.3199999928474426,
+        0.04450000077486038,
+        0.05400000140070915
+      ],
+      "truth_size_local": [
+        0.3199999928474426,
+        0.04450000077486038,
+        0.05400000140070915
+      ]
+    },
+    {
+      "id": "/b2_description/base_link/collisions.proto_cylinder_id1",
+      "resolved_path": "/b2_description/base_link/collisions/mesh_1/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.20205000042915344,
+        0.07199999690055847,
+        0.0
+      ],
+      "truth_position": [
+        0.20205000042915344,
+        0.07199999690055847,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.0,
+        0.7071067811865476,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.0,
+        0.7071067932881644,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011615,
+        0.10000000149011612,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/base_link/collisions.proto_cylinder_id2",
+      "resolved_path": "/b2_description/base_link/collisions/mesh_2/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.20205000042915344,
+        -0.07199999690055847,
+        0.0
+      ],
+      "truth_position": [
+        0.20205000042915344,
+        -0.07199999690055847,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.0,
+        0.7071067811865476,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.0,
+        0.7071067932881644,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011615,
+        0.10000000149011612,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/base_link/collisions.proto_cylinder_id3",
+      "resolved_path": "/b2_description/base_link/collisions/mesh_3/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.20205000042915344,
+        0.07199999690055847,
+        0.0
+      ],
+      "truth_position": [
+        -0.20205000042915344,
+        0.07199999690055847,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.0,
+        0.7071067811865476,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.0,
+        0.7071067932881644,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011615,
+        0.10000000149011612,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/base_link/collisions.proto_cylinder_id4",
+      "resolved_path": "/b2_description/base_link/collisions/mesh_4/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.20205000042915344,
+        -0.07199999690055847,
+        0.0
+      ],
+      "truth_position": [
+        -0.20205000042915344,
+        -0.07199999690055847,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.0,
+        0.7071067811865476,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.0,
+        0.7071067932881644,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011615,
+        0.10000000149011612,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/FL_hip/collisions.proto_cylinder_id0",
+      "resolved_path": "/b2_description/FL_hip/collisions/mesh_0/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.32850000262260437,
+        0.19199999421834946,
+        0.0
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        0.19199999421834946,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.14000000059604645,
+        0.14000000059604645,
+        0.05000000074505806
+      ],
+      "viewer_size_effective": [
+        0.14000000059604645,
+        0.14000000059604648,
+        0.050000000745058074
+      ],
+      "truth_size_local": [
+        0.14000000059604645,
+        0.14000000059604645,
+        0.05000000074505806
+      ]
+    },
+    {
+      "id": "/b2_description/FL_hip/collisions.proto_cylinder_id1",
+      "resolved_path": "/b2_description/FL_hip/collisions/mesh_1/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.32850000262260437,
+        0.06401999667286873,
+        0.0
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        0.06401999667286873,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.10000000149011615,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/FL_thigh/collisions.proto_cylinder_id1",
+      "resolved_path": "/b2_description/FL_thigh/collisions/mesh_1/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.32850000262260437,
+        0.13384999334812164,
+        0.0
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        0.13384999334812164,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.10000000149011615,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/FR_hip/collisions.proto_cylinder_id0",
+      "resolved_path": "/b2_description/FR_hip/collisions/mesh_0/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.32850000262260437,
+        -0.19199999421834946,
+        0.0
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        -0.19199999421834946,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.14000000059604645,
+        0.14000000059604645,
+        0.05000000074505806
+      ],
+      "viewer_size_effective": [
+        0.14000000059604645,
+        0.14000000059604648,
+        0.050000000745058074
+      ],
+      "truth_size_local": [
+        0.14000000059604645,
+        0.14000000059604645,
+        0.05000000074505806
+      ]
+    },
+    {
+      "id": "/b2_description/FR_hip/collisions.proto_cylinder_id1",
+      "resolved_path": "/b2_description/FR_hip/collisions/mesh_1/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.32850000262260437,
+        -0.06401999667286873,
+        0.0
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        -0.06401999667286873,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.10000000149011615,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/FR_thigh/collisions.proto_cylinder_id1",
+      "resolved_path": "/b2_description/FR_thigh/collisions/mesh_1/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.32850000262260437,
+        -0.13384999334812164,
+        0.0
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        -0.13384999334812164,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.10000000149011615,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/RL_hip/collisions.proto_cylinder_id0",
+      "resolved_path": "/b2_description/RL_hip/collisions/mesh_0/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        0.19199999421834946,
+        0.0
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        0.19199999421834946,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.14000000059604645,
+        0.14000000059604645,
+        0.05000000074505806
+      ],
+      "viewer_size_effective": [
+        0.14000000059604645,
+        0.14000000059604648,
+        0.050000000745058074
+      ],
+      "truth_size_local": [
+        0.14000000059604645,
+        0.14000000059604645,
+        0.05000000074505806
+      ]
+    },
+    {
+      "id": "/b2_description/RL_hip/collisions.proto_cylinder_id1",
+      "resolved_path": "/b2_description/RL_hip/collisions/mesh_1/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        0.06401999667286873,
+        0.0
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        0.06401999667286873,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.10000000149011615,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/RL_thigh/collisions.proto_cylinder_id1",
+      "resolved_path": "/b2_description/RL_thigh/collisions/mesh_1/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        0.13384999334812164,
+        0.0
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        0.13384999334812164,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.10000000149011615,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/RR_hip/collisions.proto_cylinder_id0",
+      "resolved_path": "/b2_description/RR_hip/collisions/mesh_0/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        -0.19199999421834946,
+        0.0
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        -0.19199999421834946,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.14000000059604645,
+        0.14000000059604645,
+        0.05000000074505806
+      ],
+      "viewer_size_effective": [
+        0.14000000059604645,
+        0.14000000059604648,
+        0.050000000745058074
+      ],
+      "truth_size_local": [
+        0.14000000059604645,
+        0.14000000059604645,
+        0.05000000074505806
+      ]
+    },
+    {
+      "id": "/b2_description/RR_hip/collisions.proto_cylinder_id1",
+      "resolved_path": "/b2_description/RR_hip/collisions/mesh_1/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        -0.06401999667286873,
+        0.0
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        -0.06401999667286873,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.10000000149011615,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/RR_thigh/collisions.proto_cylinder_id1",
+      "resolved_path": "/b2_description/RR_thigh/collisions/mesh_1/cylinder",
+      "prim_type": "cylinder",
+      "rotation_checked": false,
+      "geometry_type": "CylinderGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 2.7755575615628914e-17,
+      "size_rel_error": 2.775557520203861e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        -0.13384999334812164,
+        0.0
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        -0.13384999334812164,
+        0.0
+      ],
+      "viewer_rotation_wxyz": [
+        0.7071067811865475,
+        0.7071067811865476,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7071067690849304,
+        0.7071067932881644,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "viewer_size_effective": [
+        0.10000000149011612,
+        0.10000000149011615,
+        0.019999999552965168
+      ],
+      "truth_size_local": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.019999999552965164
+      ]
+    },
+    {
+      "id": "/b2_description/FL_foot/collisions.proto_sphere_id0",
+      "resolved_path": "/b2_description/FL_foot/collisions/mesh_0/sphere",
+      "prim_type": "sphere",
+      "rotation_checked": false,
+      "geometry_type": "SphereGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 2.168404241977334e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.32850000262260437,
+        0.19164301455020905,
+        -0.699999988079071
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        0.19164301455020905,
+        -0.699999988079071
+      ],
+      "viewer_rotation_wxyz": [
+        0.7073882378922518,
+        0.7068252124052276,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7073882222175598,
+        0.7068252280924049,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.06400000303983688,
+        0.06400000303983688,
+        0.06400000303983688
+      ],
+      "viewer_size_effective": [
+        0.06400000303983688,
+        0.06400000303983687,
+        0.06400000303983687
+      ],
+      "truth_size_local": [
+        0.06400000303983688,
+        0.06400000303983688,
+        0.06400000303983688
+      ]
+    },
+    {
+      "id": "/b2_description/FR_foot/collisions.proto_sphere_id0",
+      "resolved_path": "/b2_description/FR_foot/collisions/mesh_0/sphere",
+      "prim_type": "sphere",
+      "rotation_checked": false,
+      "geometry_type": "SphereGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 2.168404241977334e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        0.32850000262260437,
+        -0.19164299964904785,
+        -0.699999988079071
+      ],
+      "truth_position": [
+        0.32850000262260437,
+        -0.19164299964904785,
+        -0.699999988079071
+      ],
+      "viewer_rotation_wxyz": [
+        0.7073882378922518,
+        0.7068252124052276,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7073882222175598,
+        0.7068252280924049,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.06400000303983688,
+        0.06400000303983688,
+        0.06400000303983688
+      ],
+      "viewer_size_effective": [
+        0.06400000303983688,
+        0.06400000303983687,
+        0.06400000303983687
+      ],
+      "truth_size_local": [
+        0.06400000303983688,
+        0.06400000303983688,
+        0.06400000303983688
+      ]
+    },
+    {
+      "id": "/b2_description/RL_foot/collisions.proto_sphere_id0",
+      "resolved_path": "/b2_description/RL_foot/collisions/mesh_0/sphere",
+      "prim_type": "sphere",
+      "rotation_checked": false,
+      "geometry_type": "SphereGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 2.168404241977334e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        0.19164301455020905,
+        -0.699999988079071
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        0.19164301455020905,
+        -0.699999988079071
+      ],
+      "viewer_rotation_wxyz": [
+        0.7073882378922518,
+        0.7068252124052276,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7073882222175598,
+        0.7068252280924049,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.06400000303983688,
+        0.06400000303983688,
+        0.06400000303983688
+      ],
+      "viewer_size_effective": [
+        0.06400000303983688,
+        0.06400000303983687,
+        0.06400000303983687
+      ],
+      "truth_size_local": [
+        0.06400000303983688,
+        0.06400000303983688,
+        0.06400000303983688
+      ]
+    },
+    {
+      "id": "/b2_description/RR_foot/collisions.proto_sphere_id0",
+      "resolved_path": "/b2_description/RR_foot/collisions/mesh_0/sphere",
+      "prim_type": "sphere",
+      "rotation_checked": false,
+      "geometry_type": "SphereGeometry",
+      "pos_error_m": 0.0,
+      "rot_error_deg": 2.4148365394514667e-06,
+      "size_abs_error_m": 1.3877787807814457e-17,
+      "size_rel_error": 2.168404241977334e-16,
+      "failed_position": false,
+      "failed_rotation": false,
+      "failed_size": false,
+      "viewer_position": [
+        -0.32850000262260437,
+        -0.19172997772693634,
+        -0.699999988079071
+      ],
+      "truth_position": [
+        -0.32850000262260437,
+        -0.19172997772693634,
+        -0.699999988079071
+      ],
+      "viewer_rotation_wxyz": [
+        0.7073882378922518,
+        0.7068252124052276,
+        0.0,
+        0.0
+      ],
+      "truth_rotation_wxyz": [
+        0.7073882222175598,
+        0.7068252280924049,
+        0.0,
+        0.0
+      ],
+      "viewer_size_local": [
+        0.06400000303983688,
+        0.06400000303983688,
+        0.06400000303983688
+      ],
+      "viewer_size_effective": [
+        0.06400000303983688,
+        0.06400000303983687,
+        0.06400000303983687
+      ],
+      "truth_size_local": [
+        0.06400000303983688,
+        0.06400000303983688,
+        0.06400000303983688
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1665 @@
+{
+  "inputs": {
+    "truth": "/home/xiangyk/Project/usd-viewer/output/validation/unitree_collisions_inertial_displayframe_20260223/unitree_model__Go2__usd__go2/truth_isaacsim.json",
+    "viewer": "/home/xiangyk/Project/usd-viewer/output/validation/unitree_collisions_inertial_displayframe_20260223/unitree_model__Go2__usd__go2/viewer_joint_dump.json"
+  },
+  "thresholds": {
+    "mass_threshold": 0.0001,
+    "com_threshold": 0.0001,
+    "inertia_threshold": 0.0001,
+    "principal_axes_threshold_deg": 1.0
+  },
+  "summary": {
+    "pass": true,
+    "truth_count": 19,
+    "viewer_count": 19,
+    "compared_count": 19,
+    "failed_count": 0,
+    "missing_truth_count": 0,
+    "extra_viewer_count": 0,
+    "max_mass_error": 0.0,
+    "max_com_error_m": 0.0,
+    "max_inertia_error": 0.0,
+    "max_principal_axes_error_deg": 2.4148365394514667e-06
+  },
+  "missing_truth_paths": [],
+  "extra_viewer_paths": [],
+  "top_errors": [
+    {
+      "link_path_truth": "/go2_description/FL_calf",
+      "link_path_viewer": "/go2_description/FL_calf",
+      "mass_truth": 0.15399999916553497,
+      "mass_viewer": 0.15399999916553497,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00547999981790781,
+        -0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "center_of_mass_local_viewer": [
+        0.00547999981790781,
+        -0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9998869895935059,
+        0.003973435144871473,
+        -0.00816112756729126,
+        -0.011986798606812954
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9998869895935059,
+        0.003973435144871473,
+        -0.00816112756729126,
+        -0.011986798606812954
+      ],
+      "principal_axes_error_deg": 2.4148365394514667e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FR_calf",
+      "link_path_viewer": "/go2_description/FR_calf",
+      "mass_truth": 0.15399999916553497,
+      "mass_viewer": 0.15399999916553497,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00547999981790781,
+        0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "center_of_mass_local_viewer": [
+        0.00547999981790781,
+        0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9998869895935059,
+        -0.003973435144871473,
+        -0.00816112756729126,
+        0.011986798606812954
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9998869895935059,
+        -0.003973435144871473,
+        -0.00816112756729126,
+        0.011986798606812954
+      ],
+      "principal_axes_error_deg": 2.4148365394514667e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RL_calf",
+      "link_path_viewer": "/go2_description/RL_calf",
+      "mass_truth": 0.15399999916553497,
+      "mass_viewer": 0.15399999916553497,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00547999981790781,
+        -0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "center_of_mass_local_viewer": [
+        0.00547999981790781,
+        -0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9998869895935059,
+        0.003973435144871473,
+        -0.00816112756729126,
+        -0.011986798606812954
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9998869895935059,
+        0.003973435144871473,
+        -0.00816112756729126,
+        -0.011986798606812954
+      ],
+      "principal_axes_error_deg": 2.4148365394514667e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RR_calf",
+      "link_path_viewer": "/go2_description/RR_calf",
+      "mass_truth": 0.15399999916553497,
+      "mass_viewer": 0.15399999916553497,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00547999981790781,
+        0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "center_of_mass_local_viewer": [
+        0.00547999981790781,
+        0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9998869895935059,
+        -0.003973435144871473,
+        -0.00816112756729126,
+        0.011986798606812954
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9998869895935059,
+        -0.003973435144871473,
+        -0.00816112756729126,
+        0.011986798606812954
+      ],
+      "principal_axes_error_deg": 2.4148365394514667e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FL_thigh",
+      "link_path_viewer": "/go2_description/FL_thigh",
+      "mass_truth": 1.2409999370574951,
+      "mass_viewer": 1.2409999370574951,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.003471780801191926,
+        -0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "center_of_mass_local_viewer": [
+        -0.003471780801191926,
+        -0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "diagonal_inertia_viewer": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9863007068634033,
+        0.0770055502653122,
+        0.0419282466173172,
+        -0.1397249549627304
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9863007068634033,
+        0.0770055502653122,
+        0.0419282466173172,
+        -0.1397249549627304
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FR_thigh",
+      "link_path_viewer": "/go2_description/FR_thigh",
+      "mass_truth": 1.2409999370574951,
+      "mass_viewer": 1.2409999370574951,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.003471780801191926,
+        0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "center_of_mass_local_viewer": [
+        -0.003471780801191926,
+        0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "diagonal_inertia_viewer": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9863007068634033,
+        -0.0770055502653122,
+        0.0419282466173172,
+        0.1397249549627304
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9863007068634033,
+        -0.0770055502653122,
+        0.0419282466173172,
+        0.1397249549627304
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RL_thigh",
+      "link_path_viewer": "/go2_description/RL_thigh",
+      "mass_truth": 1.2409999370574951,
+      "mass_viewer": 1.2409999370574951,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.003471780801191926,
+        -0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "center_of_mass_local_viewer": [
+        -0.003471780801191926,
+        -0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "diagonal_inertia_viewer": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9863007068634033,
+        0.0770055502653122,
+        0.0419282466173172,
+        -0.1397249549627304
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9863007068634033,
+        0.0770055502653122,
+        0.0419282466173172,
+        -0.1397249549627304
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RR_thigh",
+      "link_path_viewer": "/go2_description/RR_thigh",
+      "mass_truth": 1.2409999370574951,
+      "mass_viewer": 1.2409999370574951,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.003471780801191926,
+        0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "center_of_mass_local_viewer": [
+        -0.003471780801191926,
+        0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "diagonal_inertia_viewer": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9863007068634033,
+        -0.0770055502653122,
+        0.0419282466173172,
+        0.1397249549627304
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9863007068634033,
+        -0.0770055502653122,
+        0.0419282466173172,
+        0.1397249549627304
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FL_foot",
+      "link_path_viewer": "/go2_description/FL_foot",
+      "mass_truth": 0.03999999910593033,
+      "mass_viewer": 0.03999999910593033,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FL_hip",
+      "link_path_viewer": "/go2_description/FL_hip",
+      "mass_truth": 0.7669999599456787,
+      "mass_viewer": 0.7669999599456787,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.00477340305224061,
+        0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "center_of_mass_local_viewer": [
+        -0.00477340305224061,
+        0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999851584434509,
+        -0.002081245183944702,
+        0.004470182117074728,
+        0.0023113894276320934
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999851584434509,
+        -0.002081245183944702,
+        0.004470182117074728,
+        0.0023113894276320934
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FR_foot",
+      "link_path_viewer": "/go2_description/FR_foot",
+      "mass_truth": 0.03999999910593033,
+      "mass_viewer": 0.03999999910593033,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FR_hip",
+      "link_path_viewer": "/go2_description/FR_hip",
+      "mass_truth": 0.7669999599456787,
+      "mass_viewer": 0.7669999599456787,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.00477340305224061,
+        -0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "center_of_mass_local_viewer": [
+        -0.00477340305224061,
+        -0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999851584434509,
+        0.002081245183944702,
+        0.004470182117074728,
+        -0.0023113894276320934
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999851584434509,
+        0.002081245183944702,
+        0.004470182117074728,
+        -0.0023113894276320934
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/Head_lower",
+      "link_path_viewer": "/go2_description/Head_lower",
+      "mass_truth": 0.0010000000474974513,
+      "mass_viewer": 0.0010000000474974513,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/Head_upper",
+      "link_path_viewer": "/go2_description/Head_upper",
+      "mass_truth": 0.0010000000474974513,
+      "mass_viewer": 0.0010000000474974513,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RL_foot",
+      "link_path_viewer": "/go2_description/RL_foot",
+      "mass_truth": 0.03999999910593033,
+      "mass_viewer": 0.03999999910593033,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RL_hip",
+      "link_path_viewer": "/go2_description/RL_hip",
+      "mass_truth": 0.7669999599456787,
+      "mass_viewer": 0.7669999599456787,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00477340305224061,
+        0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "center_of_mass_local_viewer": [
+        0.00477340305224061,
+        0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999851584434509,
+        -0.002081245183944702,
+        -0.004470182117074728,
+        -0.0023113894276320934
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999851584434509,
+        -0.002081245183944702,
+        -0.004470182117074728,
+        -0.0023113894276320934
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RR_foot",
+      "link_path_viewer": "/go2_description/RR_foot",
+      "mass_truth": 0.03999999910593033,
+      "mass_viewer": 0.03999999910593033,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RR_hip",
+      "link_path_viewer": "/go2_description/RR_hip",
+      "mass_truth": 0.7669999599456787,
+      "mass_viewer": 0.7669999599456787,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00477340305224061,
+        -0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "center_of_mass_local_viewer": [
+        0.00477340305224061,
+        -0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999851584434509,
+        0.002081245183944702,
+        -0.004470182117074728,
+        0.0023113894276320934
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999851584434509,
+        0.002081245183944702,
+        -0.004470182117074728,
+        0.0023113894276320934
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/base",
+      "link_path_viewer": "/go2_description/base",
+      "mass_truth": 7.277000904083252,
+      "mass_viewer": 7.277000904083252,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.020079175010323524,
+        0.0,
+        -0.005103488452732563
+      ],
+      "center_of_mass_local_viewer": [
+        0.020079175010323524,
+        0.0,
+        -0.005103488452732563
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.025688298046588898,
+        0.10295398533344269,
+        0.11267197132110596
+      ],
+      "diagonal_inertia_viewer": [
+        0.025688298046588898,
+        0.10295398533344269,
+        0.11267197132110596
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999603033065796,
+        0.0014884163392707705,
+        0.008756770752370358,
+        -0.0008037646766752005
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999603033065796,
+        0.0014884163392707705,
+        0.008756770752370358,
+        -0.0008037646766752005
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    }
+  ],
+  "compared_entries": [
+    {
+      "link_path_truth": "/go2_description/FL_calf",
+      "link_path_viewer": "/go2_description/FL_calf",
+      "mass_truth": 0.15399999916553497,
+      "mass_viewer": 0.15399999916553497,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00547999981790781,
+        -0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "center_of_mass_local_viewer": [
+        0.00547999981790781,
+        -0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9998869895935059,
+        0.003973435144871473,
+        -0.00816112756729126,
+        -0.011986798606812954
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9998869895935059,
+        0.003973435144871473,
+        -0.00816112756729126,
+        -0.011986798606812954
+      ],
+      "principal_axes_error_deg": 2.4148365394514667e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FR_calf",
+      "link_path_viewer": "/go2_description/FR_calf",
+      "mass_truth": 0.15399999916553497,
+      "mass_viewer": 0.15399999916553497,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00547999981790781,
+        0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "center_of_mass_local_viewer": [
+        0.00547999981790781,
+        0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9998869895935059,
+        -0.003973435144871473,
+        -0.00816112756729126,
+        0.011986798606812954
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9998869895935059,
+        -0.003973435144871473,
+        -0.00816112756729126,
+        0.011986798606812954
+      ],
+      "principal_axes_error_deg": 2.4148365394514667e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RL_calf",
+      "link_path_viewer": "/go2_description/RL_calf",
+      "mass_truth": 0.15399999916553497,
+      "mass_viewer": 0.15399999916553497,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00547999981790781,
+        -0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "center_of_mass_local_viewer": [
+        0.00547999981790781,
+        -0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9998869895935059,
+        0.003973435144871473,
+        -0.00816112756729126,
+        -0.011986798606812954
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9998869895935059,
+        0.003973435144871473,
+        -0.00816112756729126,
+        -0.011986798606812954
+      ],
+      "principal_axes_error_deg": 2.4148365394514667e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RR_calf",
+      "link_path_viewer": "/go2_description/RR_calf",
+      "mass_truth": 0.15399999916553497,
+      "mass_viewer": 0.15399999916553497,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00547999981790781,
+        0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "center_of_mass_local_viewer": [
+        0.00547999981790781,
+        0.0009749999735504389,
+        -0.11500000208616257
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "diagonal_inertia_viewer": [
+        0.001080270973034203,
+        0.0011000754311680794,
+        3.2553423807257786e-05
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9998869895935059,
+        -0.003973435144871473,
+        -0.00816112756729126,
+        0.011986798606812954
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9998869895935059,
+        -0.003973435144871473,
+        -0.00816112756729126,
+        0.011986798606812954
+      ],
+      "principal_axes_error_deg": 2.4148365394514667e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FL_thigh",
+      "link_path_viewer": "/go2_description/FL_thigh",
+      "mass_truth": 1.2409999370574951,
+      "mass_viewer": 1.2409999370574951,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.003471780801191926,
+        -0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "center_of_mass_local_viewer": [
+        -0.003471780801191926,
+        -0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "diagonal_inertia_viewer": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9863007068634033,
+        0.0770055502653122,
+        0.0419282466173172,
+        -0.1397249549627304
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9863007068634033,
+        0.0770055502653122,
+        0.0419282466173172,
+        -0.1397249549627304
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FR_thigh",
+      "link_path_viewer": "/go2_description/FR_thigh",
+      "mass_truth": 1.2409999370574951,
+      "mass_viewer": 1.2409999370574951,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.003471780801191926,
+        0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "center_of_mass_local_viewer": [
+        -0.003471780801191926,
+        0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "diagonal_inertia_viewer": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9863007068634033,
+        -0.0770055502653122,
+        0.0419282466173172,
+        0.1397249549627304
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9863007068634033,
+        -0.0770055502653122,
+        0.0419282466173172,
+        0.1397249549627304
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RL_thigh",
+      "link_path_viewer": "/go2_description/RL_thigh",
+      "mass_truth": 1.2409999370574951,
+      "mass_viewer": 1.2409999370574951,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.003471780801191926,
+        -0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "center_of_mass_local_viewer": [
+        -0.003471780801191926,
+        -0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "diagonal_inertia_viewer": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9863007068634033,
+        0.0770055502653122,
+        0.0419282466173172,
+        -0.1397249549627304
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9863007068634033,
+        0.0770055502653122,
+        0.0419282466173172,
+        -0.1397249549627304
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RR_thigh",
+      "link_path_viewer": "/go2_description/RR_thigh",
+      "mass_truth": 1.2409999370574951,
+      "mass_viewer": 1.2409999370574951,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.003471780801191926,
+        0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "center_of_mass_local_viewer": [
+        -0.003471780801191926,
+        0.023020749911665916,
+        -0.030354874208569527
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "diagonal_inertia_viewer": [
+        0.006003506947308779,
+        0.006151533219963312,
+        0.0009417799883522093
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9863007068634033,
+        -0.0770055502653122,
+        0.0419282466173172,
+        0.1397249549627304
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9863007068634033,
+        -0.0770055502653122,
+        0.0419282466173172,
+        0.1397249549627304
+      ],
+      "principal_axes_error_deg": 1.7075472925031877e-06,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FL_foot",
+      "link_path_viewer": "/go2_description/FL_foot",
+      "mass_truth": 0.03999999910593033,
+      "mass_viewer": 0.03999999910593033,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FL_hip",
+      "link_path_viewer": "/go2_description/FL_hip",
+      "mass_truth": 0.7669999599456787,
+      "mass_viewer": 0.7669999599456787,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.00477340305224061,
+        0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "center_of_mass_local_viewer": [
+        -0.00477340305224061,
+        0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999851584434509,
+        -0.002081245183944702,
+        0.004470182117074728,
+        0.0023113894276320934
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999851584434509,
+        -0.002081245183944702,
+        0.004470182117074728,
+        0.0023113894276320934
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FR_foot",
+      "link_path_viewer": "/go2_description/FR_foot",
+      "mass_truth": 0.03999999910593033,
+      "mass_viewer": 0.03999999910593033,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/FR_hip",
+      "link_path_viewer": "/go2_description/FR_hip",
+      "mass_truth": 0.7669999599456787,
+      "mass_viewer": 0.7669999599456787,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        -0.00477340305224061,
+        -0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "center_of_mass_local_viewer": [
+        -0.00477340305224061,
+        -0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999851584434509,
+        0.002081245183944702,
+        0.004470182117074728,
+        -0.0023113894276320934
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999851584434509,
+        0.002081245183944702,
+        0.004470182117074728,
+        -0.0023113894276320934
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/Head_lower",
+      "link_path_viewer": "/go2_description/Head_lower",
+      "mass_truth": 0.0010000000474974513,
+      "mass_viewer": 0.0010000000474974513,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/Head_upper",
+      "link_path_viewer": "/go2_description/Head_upper",
+      "mass_truth": 0.0010000000474974513,
+      "mass_viewer": 0.0010000000474974513,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RL_foot",
+      "link_path_viewer": "/go2_description/RL_foot",
+      "mass_truth": 0.03999999910593033,
+      "mass_viewer": 0.03999999910593033,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RL_hip",
+      "link_path_viewer": "/go2_description/RL_hip",
+      "mass_truth": 0.7669999599456787,
+      "mass_viewer": 0.7669999599456787,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00477340305224061,
+        0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "center_of_mass_local_viewer": [
+        0.00477340305224061,
+        0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999851584434509,
+        -0.002081245183944702,
+        -0.004470182117074728,
+        -0.0023113894276320934
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999851584434509,
+        -0.002081245183944702,
+        -0.004470182117074728,
+        -0.0023113894276320934
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RR_foot",
+      "link_path_viewer": "/go2_description/RR_foot",
+      "mass_truth": 0.03999999910593033,
+      "mass_viewer": 0.03999999910593033,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "center_of_mass_local_viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "diagonal_inertia_viewer": [
+        9.60000033956021e-06,
+        9.60000033956021e-06,
+        9.60000033956021e-06
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/RR_hip",
+      "link_path_viewer": "/go2_description/RR_hip",
+      "mass_truth": 0.7669999599456787,
+      "mass_viewer": 0.7669999599456787,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.00477340305224061,
+        -0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "center_of_mass_local_viewer": [
+        0.00477340305224061,
+        -0.0016974835889413953,
+        -9.281616803491488e-05
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "diagonal_inertia_viewer": [
+        0.0005399722140282393,
+        0.0009981526527553797,
+        0.0006582884234376252
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999851584434509,
+        0.002081245183944702,
+        -0.004470182117074728,
+        0.0023113894276320934
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999851584434509,
+        0.002081245183944702,
+        -0.004470182117074728,
+        0.0023113894276320934
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    },
+    {
+      "link_path_truth": "/go2_description/base",
+      "link_path_viewer": "/go2_description/base",
+      "mass_truth": 7.277000904083252,
+      "mass_viewer": 7.277000904083252,
+      "mass_abs_error": 0.0,
+      "center_of_mass_local_truth": [
+        0.020079175010323524,
+        0.0,
+        -0.005103488452732563
+      ],
+      "center_of_mass_local_viewer": [
+        0.020079175010323524,
+        0.0,
+        -0.005103488452732563
+      ],
+      "com_error_m": 0.0,
+      "diagonal_inertia_truth": [
+        0.025688298046588898,
+        0.10295398533344269,
+        0.11267197132110596
+      ],
+      "diagonal_inertia_viewer": [
+        0.025688298046588898,
+        0.10295398533344269,
+        0.11267197132110596
+      ],
+      "inertia_error": 0.0,
+      "principal_axes_local_truth_wxyz": [
+        0.9999603033065796,
+        0.0014884163392707705,
+        0.008756770752370358,
+        -0.0008037646766752005
+      ],
+      "principal_axes_local_viewer_wxyz": [
+        0.9999603033065796,
+        0.0014884163392707705,
+        0.008756770752370358,
+        -0.0008037646766752005
+      ],
+      "principal_axes_error_deg": 0.0,
+      "failed": false
+    }
+  ]
+}

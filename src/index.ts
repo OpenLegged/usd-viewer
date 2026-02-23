@@ -29,7 +29,7 @@ type GetUsdModuleFn = (options: Record<string, unknown>) => Promise<UsdModule>;
 
 // Keep this cache key aligned with the bindings build generation so JS/WASM/data
 // are always fetched from the same build.
-const EMHD_BINDINGS_CACHE_KEY = "20260222g";
+const EMHD_BINDINGS_CACHE_KEY = "20260223c";
 const withEmHdBindingsCacheKey = (resourcePath: string): string => {
   if (!resourcePath) return resourcePath;
   return resourcePath.includes("?")
@@ -276,15 +276,22 @@ class ViewerApp {
       ? parseBooleanFlag(this.params.get("showDynamics"), false)
       : getSavedBooleanState(this.linkDynamicsStorageKey, false);
     const hasFileParam = this.params.get("file") !== null;
+    const hasShowVisualsParam = this.params.get("showVisuals") !== null;
     const hasShowCollisionsParam = this.params.get("showCollisions") !== null;
 
-    this.showVisualMeshes = this.params.get("showVisuals") !== null
+    this.showVisualMeshes = hasShowVisualsParam
       ? parseBooleanFlag(this.params.get("showVisuals"), true)
-      : getSavedBooleanState(this.visualMeshesStorageKey, true);
+      // For direct `?file=...` links, default to visuals-on unless explicitly requested.
+      : (hasFileParam ? true : getSavedBooleanState(this.visualMeshesStorageKey, true));
     this.showCollisionMeshes = hasShowCollisionsParam
       ? parseBooleanFlag(this.params.get("showCollisions"), false)
       // For direct `?file=...` links, default to visuals-only unless explicitly requested.
       : (hasFileParam ? false : getSavedBooleanState(this.collisionMeshesStorageKey, false));
+    const allowEmptyMeshSelection = parseBooleanFlag(this.params.get("allowEmptySelection"), false);
+    if (hasFileParam && !allowEmptyMeshSelection && !this.showVisualMeshes && !this.showCollisionMeshes) {
+      // Self-heal stale/shared URLs that disabled both layers and looked like a load failure.
+      this.showVisualMeshes = true;
+    }
     const loadPriorityParam = String(this.params.get("loadPriority") || "").trim().toLowerCase();
     if (loadPriorityParam === "collision") {
       this.preferredPrimaryLoadKind = "collision";
@@ -864,9 +871,16 @@ class ViewerApp {
       requestJointInfos: async () => this.linkRotationController.getAllJointInfos(),
       setJointAngle: (linkPath, angleDeg) => this.linkRotationController.setJointAngleForLink(linkPath, angleDeg),
       onJointChanged: (jointInfo) => {
-        if (!this.messageLog) return;
-        const linkName = jointInfo.linkPath.split("/").pop() || jointInfo.linkPath;
-        this.messageLog.textContent = `${linkName}: ${jointInfo.angleDeg.toFixed(1)}° (limit ${jointInfo.lowerLimitDeg.toFixed(1)}° ~ ${jointInfo.upperLimitDeg.toFixed(1)}°)`;
+        this.markUserInteraction();
+        if (this.messageLog) {
+          const linkName = jointInfo.linkPath.split("/").pop() || jointInfo.linkPath;
+          this.messageLog.textContent = `${linkName}: ${jointInfo.angleDeg.toFixed(1)}° (limit ${jointInfo.lowerLimitDeg.toFixed(1)}° ~ ${jointInfo.upperLimitDeg.toFixed(1)}°)`;
+        }
+        if (!this.showLinkDynamics || !window.renderInterface) return;
+        const changed = this.linkDynamicsController.syncLinkDynamicsTransforms(window.renderInterface);
+        if (changed) {
+          this.render();
+        }
       },
     });
     this.jointPanelController.initialize();
@@ -977,6 +991,10 @@ class ViewerApp {
   private async rebuildLinkDynamics(): Promise<void> {
     if (!window.usdRoot) return;
     await this.linkDynamicsController.rebuild(window.usdRoot, window.renderInterface, this.showLinkDynamics);
+    if (this.showLinkDynamics && window.renderInterface) {
+      void this.linkDynamicsController.syncLinkDynamicsTransforms(window.renderInterface);
+    }
+    this.render();
   }
 
   private clearLinkDynamics(): void {
@@ -1429,6 +1447,12 @@ class ViewerApp {
     renderScene();
   }
 
+  private applyPostDrawSceneUpdates(): boolean {
+    if (!this.showLinkDynamics) return false;
+    if (!window.renderInterface) return false;
+    return this.linkDynamicsController.syncLinkDynamicsTransforms(window.renderInterface);
+  }
+
   private async animate(): Promise<void> {
     if (this.stopped) {
       requestAnimationFrame(() => this.animate());
@@ -1455,7 +1479,7 @@ class ViewerApp {
       drawBurstCount: this.drawBurstCount,
       drawBurstBudgetMs: this.drawBurstBudgetMs,
       frameDelayMs: this.frameDelayMs,
-      applyPostDrawTransforms: () => false,
+      applyPostDrawTransforms: () => this.applyPostDrawSceneUpdates(),
       applyMeshFilters: () => this.applyMeshFilters(),
       shouldApplyMeshFilters: () => {
         if (this.meshFilterRefreshFrames <= 0) return false;

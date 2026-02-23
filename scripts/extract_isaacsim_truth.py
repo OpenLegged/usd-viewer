@@ -42,6 +42,37 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _quat_wxyz_norm(value: list[float] | None) -> list[float] | None:
+    if value is None or len(value) < 4:
+        return None
+    try:
+        w, x, y, z = float(value[0]), float(value[1]), float(value[2]), float(value[3])
+        length = (w * w + x * x + y * y + z * z) ** 0.5
+        if length <= 1e-12:
+            return None
+        return [w / length, x / length, y / length, z / length]
+    except Exception:
+        return None
+
+
+def _quat_multiply_wxyz(lhs: list[float] | None, rhs: list[float] | None) -> list[float] | None:
+    lhs_norm = _quat_wxyz_norm(lhs)
+    rhs_norm = _quat_wxyz_norm(rhs)
+    if lhs_norm is None or rhs_norm is None:
+        return None
+
+    lw, lx, ly, lz = lhs_norm
+    rw, rx, ry, rz = rhs_norm
+    return _quat_wxyz_norm(
+        [
+            lw * rw - lx * rx - ly * ry - lz * rz,
+            lw * rx + lx * rw + ly * rz - lz * ry,
+            lw * ry - lx * rz + ly * rw + lz * rx,
+            lw * rz + lx * ry - ly * rx + lz * rw,
+        ]
+    )
+
+
 def _extent_to_bounds(extent_value: Any) -> list[list[float]] | None:
     try:
         if not extent_value or len(extent_value) != 2:
@@ -172,7 +203,6 @@ def main() -> None:
 
     app = SimulationApp({"headless": True})
     try:
-        import omni.usd
         from pxr import Gf, Usd, UsdGeom, UsdPhysics
 
         try:
@@ -180,14 +210,10 @@ def main() -> None:
         except Exception:
             UsdSkel = None
 
-        context = omni.usd.get_context()
-        opened = context.open_stage(str(usd_path))
-        if not opened:
-            raise RuntimeError(f"Failed to open USD stage: {usd_path}")
-
-        stage = context.get_stage()
+        # Prefer direct Stage.Open because some assets can crash via omni.usd context.open_stage.
+        stage = Usd.Stage.Open(str(usd_path))
         if stage is None:
-            raise RuntimeError("omni.usd context returned an empty stage.")
+            raise RuntimeError(f"Failed to open USD stage: {usd_path}")
 
         default_prim = stage.GetDefaultPrim()
         if not default_prim or not default_prim.IsValid():
@@ -215,6 +241,63 @@ def main() -> None:
                 }
             )
         links.sort(key=lambda item: item["name"])
+
+        # Link inertial extraction from PhysicsMassAPI on link prims.
+        inertials: list[dict[str, Any]] = []
+        inertial_by_link_name: dict[str, dict[str, Any]] = {}
+        for child in default_prim.GetChildren():
+            if child.GetName() in {"Looks", "joints"}:
+                continue
+            if child.GetTypeName() != "Xform":
+                continue
+
+            mass_api = UsdPhysics.MassAPI(child)
+            mass = _safe_float(mass_api.GetMassAttr().Get())
+            center_of_mass_local = _vec3_to_list(mass_api.GetCenterOfMassAttr().Get())
+            diagonal_inertia = _vec3_to_list(mass_api.GetDiagonalInertiaAttr().Get())
+            principal_axes_local_wxyz = _quat_to_wxyz(mass_api.GetPrincipalAxesAttr().Get())
+
+            has_center = bool(center_of_mass_local and any(abs(component) > 1e-12 for component in center_of_mass_local))
+            has_diagonal = bool(diagonal_inertia and any(abs(component) > 1e-12 for component in diagonal_inertia))
+            principal_axes_normalized = _quat_wxyz_norm(principal_axes_local_wxyz)
+            has_principal_axes = bool(
+                principal_axes_normalized
+                and (
+                    abs(principal_axes_normalized[0] - 1.0) > 1e-6
+                    or abs(principal_axes_normalized[1]) > 1e-6
+                    or abs(principal_axes_normalized[2]) > 1e-6
+                    or abs(principal_axes_normalized[3]) > 1e-6
+                )
+            )
+            if mass is None and not has_center and not has_diagonal and not has_principal_axes:
+                continue
+
+            link_path = child.GetPath().pathString
+            world_pose = _matrix_to_pose(_safe_get_local_to_world(xform_cache, child))
+            center_of_mass_world = _transform_local_point(xform_cache, stage, Gf, link_path, center_of_mass_local)
+            principal_axes_world_wxyz = _quat_multiply_wxyz(world_pose.get("rotation_wxyz"), principal_axes_local_wxyz)
+
+            entry = {
+                "name": child.GetName(),
+                "path": link_path,
+                "mass": mass,
+                "center_of_mass_local": center_of_mass_local if center_of_mass_local is not None else [0.0, 0.0, 0.0],
+                "center_of_mass_world": center_of_mass_world,
+                "diagonal_inertia": diagonal_inertia if diagonal_inertia is not None else [0.0, 0.0, 0.0],
+                "principal_axes_local_wxyz": principal_axes_local_wxyz if principal_axes_local_wxyz is not None else [1.0, 0.0, 0.0, 0.0],
+                "principal_axes_world_wxyz": principal_axes_world_wxyz if principal_axes_world_wxyz is not None else [1.0, 0.0, 0.0, 0.0],
+            }
+            inertials.append(entry)
+            inertial_by_link_name[child.GetName()] = {
+                "path": link_path,
+                "mass": entry["mass"],
+                "center_of_mass_local": entry["center_of_mass_local"],
+                "center_of_mass_world": entry["center_of_mass_world"],
+                "diagonal_inertia": entry["diagonal_inertia"],
+                "principal_axes_local_wxyz": entry["principal_axes_local_wxyz"],
+                "principal_axes_world_wxyz": entry["principal_axes_world_wxyz"],
+            }
+        inertials.sort(key=lambda item: item["name"])
 
         # Joint extraction from physics articulation joints.
         joints: list[dict[str, Any]] = []
@@ -424,6 +507,11 @@ def main() -> None:
                 "joint_count": len(joints),
                 "links": links,
                 "joints": joints,
+            },
+            "inertial": {
+                "link_inertial_count": len(inertials),
+                "links": inertials,
+                "inertial_by_link_name": inertial_by_link_name,
             },
             "meshes": {
                 "mesh_count": len(meshes),

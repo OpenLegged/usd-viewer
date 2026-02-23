@@ -311,8 +311,8 @@ function diagonalizeSymmetricMatrix3(matrix3x3) {
     };
 }
 function multiplyQuaternionWxyz(leftWxyz, rightWxyz) {
-    const left = new Quaternion(Number(leftWxyz?.[1] || 0), Number(leftWxyz?.[2] || 0), Number(leftWxyz?.[3] || 0), Number(leftWxyz?.[0] || 1)).normalize();
-    const right = new Quaternion(Number(rightWxyz?.[1] || 0), Number(rightWxyz?.[2] || 0), Number(rightWxyz?.[3] || 0), Number(rightWxyz?.[0] || 1)).normalize();
+    const left = new Quaternion(Number(leftWxyz?.[1] ?? 0), Number(leftWxyz?.[2] ?? 0), Number(leftWxyz?.[3] ?? 0), Number(leftWxyz?.[0] ?? 1)).normalize();
+    const right = new Quaternion(Number(rightWxyz?.[1] ?? 0), Number(rightWxyz?.[2] ?? 0), Number(rightWxyz?.[3] ?? 0), Number(rightWxyz?.[0] ?? 1)).normalize();
     const combined = left.multiply(right).normalize();
     return [combined.w, combined.x, combined.y, combined.z];
 }

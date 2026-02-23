@@ -4,7 +4,8 @@
   <title>USD Viewer</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, user-scalable=no, viewport-fit=cover" />
-  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="alternate icon" type="image/x-icon" href="favicon.ico">
   <meta name="twitter:card" content="summary"/>
   <meta name="twitter:creator" content="https://autodesk-forks.github.io/USD/ and @hybridherbst"/>
   <meta property="og:url" content="https://usd-viewer.glitch.me/" />
@@ -33,12 +34,9 @@
     });
   </script>
 
-  <div id="container" style="position:absolute;margin:5px;">
+  <div id="container" class="viewer-toolbar">
     <div class="buttons">
-      <label
-        for="file-input"
-        style="background:rgba(0,0,0,0.5);color:white;padding:5px 10px;cursor:pointer;border-radius:5px;"
-      >Upload File</label>
+      <label class="toolbar-btn" for="file-input">Upload File</label>
       <input
         type="file"
         id="file-input"
@@ -47,10 +45,7 @@
         accept=".usd,.usda,.usdc,.usdz,.png,.jpg,.jpeg,.tga,.exr,.mtl,.obj"
       />
 
-      <label
-        for="folder-input"
-        style="background:rgba(0,0,0,0.5);color:white;padding:5px 10px;cursor:pointer;border-radius:5px;margin-left:6px;"
-      >Upload Folder</label>
+      <label class="toolbar-btn" for="folder-input">Upload Folder</label>
       <input
         type="file"
         id="folder-input"
@@ -60,21 +55,9 @@
         directory
       />
 
-      <a
-        class="file"
-        href="?file=/unitree_model/Go2/usd/go2.usd"
-        style="color:white;margin-left:10px;text-decoration:none;background:rgba(0,0,0,0.5);padding:5px 10px;border-radius:5px;"
-      >Load Go2 Model</a>
-      <a
-        class="file"
-        href="?file=/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd"
-        style="color:white;margin-left:6px;text-decoration:none;background:rgba(0,0,0,0.5);padding:5px 10px;border-radius:5px;"
-      >Load G1 29DoF</a>
-      <a
-        class="file"
-        href="?file=/unitree_model/H1/h1/usd/h1.usd"
-        style="color:white;margin-left:6px;text-decoration:none;background:rgba(0,0,0,0.5);padding:5px 10px;border-radius:5px;"
-      >Load H1</a>
+      <a class="file toolbar-btn" href="?file=/unitree_model/Go2/usd/go2.usd">Load Go2 Model</a>
+      <a class="file toolbar-btn" href="?file=/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd">Load G1 29DoF</a>
+      <a class="file toolbar-btn" href="?file=/unitree_model/H1/h1/usd/h1.usd">Load H1</a>
 
       <label class="toggle-option" for="toggle-visuals">
         <input type="checkbox" id="toggle-visuals" />
@@ -91,7 +74,7 @@
         Show COM &amp; Inertia
       </label>
 
-      <span class="filename" style="margin-left:10px;color:#ccc"></span>
+      <span class="filename"></span>
     </div>
 
     <p id="message-log">Waiting for initialization to start...</p>
