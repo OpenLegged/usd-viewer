@@ -7,6 +7,7 @@ function formatAngle(value) {
 }
 export class JointPanelController {
     constructor(options) {
+        this.sliderInputCleanupHandlers = [];
         this.dragging = false;
         this.dragOffsetX = 0;
         this.dragOffsetY = 0;
@@ -61,6 +62,7 @@ export class JointPanelController {
     }
     clear() {
         this.setVisible(false);
+        this.clearSliderInputHandlers();
         this.renderStatus("No joint data loaded.");
     }
     async refresh() {
@@ -94,6 +96,7 @@ export class JointPanelController {
     renderStatus(message) {
         if (!this.list)
             return;
+        this.clearSliderInputHandlers();
         this.list.innerHTML = "";
         const status = document.createElement("div");
         status.className = "joint-panel-status";
@@ -103,8 +106,12 @@ export class JointPanelController {
     renderJointRows(joints) {
         if (!this.list)
             return;
+        this.clearSliderInputHandlers();
         this.list.innerHTML = "";
         for (const joint of joints) {
+            let rowJoint = {
+                ...joint,
+            };
             const row = document.createElement("div");
             row.className = "joint-row";
             const title = document.createElement("div");
@@ -120,24 +127,70 @@ export class JointPanelController {
             slider.min = String(joint.lowerLimitDeg);
             slider.max = String(joint.upperLimitDeg);
             slider.step = "0.1";
-            slider.value = String(joint.angleDeg);
+            slider.value = String(rowJoint.angleDeg);
             slider.title = `${joint.lowerLimitDeg.toFixed(1)}° ~ ${joint.upperLimitDeg.toFixed(1)}°`;
-            slider.addEventListener("input", () => {
-                const targetAngle = Number(slider.value);
-                const updated = this.setJointAngle(joint.linkPath, targetAngle);
+            let pendingApplyFrameHandle = null;
+            let hasQueuedAngle = false;
+            let queuedAngleDeg = rowJoint.angleDeg;
+            const flushQueuedAngle = () => {
+                if (!hasQueuedAngle)
+                    return;
+                hasQueuedAngle = false;
+                const updated = this.setJointAngle(rowJoint.linkPath, queuedAngleDeg);
                 const nextInfo = updated || {
-                    ...joint,
-                    angleDeg: targetAngle,
+                    ...rowJoint,
+                    angleDeg: queuedAngleDeg,
                 };
+                rowJoint = nextInfo;
+                slider.value = String(nextInfo.angleDeg);
                 value.textContent = formatAngle(nextInfo.angleDeg);
                 if (updated && this.onJointChanged) {
                     this.onJointChanged(updated);
                 }
+            };
+            const cancelPendingApplyFrame = () => {
+                if (pendingApplyFrameHandle === null)
+                    return;
+                window.cancelAnimationFrame(pendingApplyFrameHandle);
+                pendingApplyFrameHandle = null;
+            };
+            const scheduleQueuedAngleApply = () => {
+                if (pendingApplyFrameHandle !== null)
+                    return;
+                pendingApplyFrameHandle = window.requestAnimationFrame(() => {
+                    pendingApplyFrameHandle = null;
+                    flushQueuedAngle();
+                });
+            };
+            this.sliderInputCleanupHandlers.push(cancelPendingApplyFrame);
+            slider.addEventListener("input", () => {
+                const targetAngle = Number(slider.value);
+                if (!Number.isFinite(targetAngle))
+                    return;
+                queuedAngleDeg = targetAngle;
+                hasQueuedAngle = true;
+                value.textContent = formatAngle(targetAngle);
+                scheduleQueuedAngleApply();
+            });
+            slider.addEventListener("change", () => {
+                cancelPendingApplyFrame();
+                flushQueuedAngle();
             });
             row.appendChild(title);
             row.appendChild(value);
             row.appendChild(slider);
             this.list.appendChild(row);
         }
+    }
+    clearSliderInputHandlers() {
+        if (this.sliderInputCleanupHandlers.length <= 0)
+            return;
+        for (const cleanup of this.sliderInputCleanupHandlers) {
+            try {
+                cleanup();
+            }
+            catch { }
+        }
+        this.sliderInputCleanupHandlers.length = 0;
     }
 }

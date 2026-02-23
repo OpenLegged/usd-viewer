@@ -12,7 +12,7 @@ import { JointPanelController } from "./viewer/joint-panel.js";
 import { LinkDynamicsController } from "./viewer/link-dynamics.js";
 // Keep this cache key aligned with the bindings build generation so JS/WASM/data
 // are always fetched from the same build.
-const EMHD_BINDINGS_CACHE_KEY = "20260223c";
+const EMHD_BINDINGS_CACHE_KEY = "20260223e";
 const withEmHdBindingsCacheKey = (resourcePath) => {
     if (!resourcePath)
         return resourcePath;
@@ -1191,6 +1191,13 @@ class ViewerApp {
                 if (this.isJointPanelMissingRows()) {
                     await this.refreshJointPanelWithRetries(loadToken);
                 }
+                if (!this.isLoadTokenActive(loadToken))
+                    return;
+                window.setTimeout(() => {
+                    if (!this.isLoadTokenActive(loadToken))
+                        return;
+                    this.linkRotationController.prewarmJointPosePipeline();
+                }, 0);
             }
             catch (error) {
                 console.warn("Failed to refresh joint panel immediately after load.", error);

@@ -39,6 +39,7 @@ export class ThreeRenderDelegateCore {
         this.enableXformOpFallbackFromLayerText = safeConfig.enableXformOpFallbackFromLayerText === true;
         this.enableProtoBlobFastPath = safeConfig.enableProtoBlobFastPath !== false;
         this.preferProtoBlobOverHydraPayload = safeConfig.preferProtoBlobOverHydraPayload !== false;
+        this.preferFinalStageOverrideBatchInProtoSync = safeConfig.preferFinalStageOverrideBatchInProtoSync !== false;
         // Reduce JS<->WASM bridge chatter by default: prime batch payloads once,
         // then resolve per-mesh reads from JS cache.
         this.autoBatchProtoBlobsOnFirstAccess = safeConfig.autoBatchProtoBlobsOnFirstAccess !== false;
@@ -94,6 +95,8 @@ export class ThreeRenderDelegateCore {
         this._collisionProtoOverrideBatchPrimed = false;
         this._visualProtoOverrideCache = new Map();
         this._visualProtoOverrideBatchPrimed = false;
+        this._finalStageOverrideBatchCache = new Map();
+        this._finalStageOverrideBatchPrimed = false;
         this._primOverrideDataCache = new Map();
         this._urdfTruthByStageSource = new Map();
         this._urdfTruthLoadPromisesByStageSource = new Map();

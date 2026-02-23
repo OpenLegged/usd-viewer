@@ -453,6 +453,79 @@ class HydraMesh {
     return true;
   }
 
+  applyFinalStageOverrideFromDriver(overridePayload, options = {}) {
+    if (!overridePayload || overridePayload.valid !== true) return false;
+    const normalizedMeshId = normalizeHydraPath(overridePayload.meshId || this._id) || this._id;
+    const sectionNameRaw = String(overridePayload.sectionName || '').toLowerCase();
+    const sectionName = sectionNameRaw
+      || (normalizedMeshId.includes('/visuals.proto_') ? 'visuals' : '')
+      || (normalizedMeshId.includes('/collisions.proto_') ? 'collisions' : '');
+
+    const isCollisionSection = sectionName === 'collisions' || this.isCollisionProtoMesh();
+    const isVisualSection = !isCollisionSection && (sectionName === 'visuals' || this.isVisualProtoMesh());
+
+    if (isCollisionSection) {
+      const geometryApplied = this.applyCollisionGeometryFromDriverOverride(overridePayload) === true;
+      if (!geometryApplied) return false;
+
+      if (options?.skipTransformFallback !== true) {
+        this.syncProtoTransformFromFallback();
+      }
+      if (options?.skipCollisionRotationFallback !== true) {
+        this.syncCollisionRotationFromVisualLink();
+      }
+      this._hasCompletedProtoSync = true;
+      return true;
+    }
+
+    if (isVisualSection) {
+      const existingPosition = this._geometry?.getAttribute?.('position');
+      let geometryReady = !!existingPosition && Number(existingPosition.count || 0) > 0;
+      if (!geometryReady) {
+        try {
+          geometryReady = this.tryApplyProtoDataBlobFastPath() === true;
+        } catch {
+          geometryReady = false;
+        }
+      }
+      if (!geometryReady && this._hasHydraGeometryPayload === true) {
+        geometryReady = true;
+      }
+      if (!geometryReady) {
+        // Keep proto sync pending so applyProtoStageSync() can continue with fallback chains.
+        return false;
+      }
+
+      let transformApplied = false;
+      const worldTransform = overridePayload?.worldTransform || null;
+      if (worldTransform && worldTransform.isMatrix4 === true) {
+        this._mesh.matrix.copy(worldTransform);
+        transformApplied = true;
+      } else {
+        const worldElements = overridePayload?.worldTransformElements || worldTransform;
+        transformApplied = this._setMatrixFromRowMajorSource(worldElements);
+      }
+
+      if (!transformApplied) {
+        const resolvedPrimPath = normalizeHydraPath(overridePayload?.resolvedPrimPath || '');
+        if (resolvedPrimPath) {
+          const resolvedTransform = this._interface.getWorldTransformForPrimPath(resolvedPrimPath);
+          if (resolvedTransform) {
+            this._mesh.matrix.copy(resolvedTransform);
+            transformApplied = true;
+          }
+        }
+      }
+
+      if (!transformApplied) return false;
+      this._mesh.matrixAutoUpdate = false;
+      this._hasCompletedProtoSync = true;
+      return true;
+    }
+
+    return false;
+  }
+
   hasAppliedCollisionOverrideForPrimPath(primPath) {
     const normalizedPath = normalizeHydraPath(primPath);
     if (!normalizedPath || !normalizedPath.startsWith('/')) return false;
@@ -1018,6 +1091,32 @@ class HydraMesh {
     return !!(view && ArrayBuffer.isView(view) && heapView && view.buffer === heapView.buffer);
   }
 
+  _resolveWasmHeapViews() {
+    const candidates = [
+      globalThis?.Module,
+      globalThis?.USD,
+      globalThis?.USD_WASM_MODULE,
+    ];
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      const heapF32 = candidate.HEAPF32;
+      const heapU32 = candidate.HEAPU32;
+      if ((heapF32 && Number(heapF32.length || 0) > 0) || (heapU32 && Number(heapU32.length || 0) > 0)) {
+        return {
+          moduleRef: candidate,
+          heapF32: heapF32 || null,
+          heapU32: heapU32 || null,
+        };
+      }
+    }
+    const fallback = candidates.find((candidate) => candidate && typeof candidate === 'object') || null;
+    return {
+      moduleRef: fallback,
+      heapF32: fallback?.HEAPF32 || null,
+      heapU32: fallback?.HEAPU32 || null,
+    };
+  }
+
   _toStableFloat32Array(data, expectedLength = null) {
     if (!data || typeof data.length !== 'number') return null;
     const rawLength = Number(data.length);
@@ -1027,7 +1126,7 @@ class HydraMesh {
       : Math.floor(rawLength);
     if (normalizedLength <= 0) return null;
 
-    const heapF32 = globalThis?.Module?.HEAPF32;
+    const heapF32 = this._resolveWasmHeapViews().heapF32;
     if (data instanceof Float32Array) {
       const view = normalizedLength === data.length ? data : data.subarray(0, normalizedLength);
       if (!this._isHeapBackedView(view, heapF32)) return view;
@@ -1059,7 +1158,7 @@ class HydraMesh {
       : Math.floor(rawLength);
     if (normalizedLength <= 0) return null;
 
-    const heapU32 = globalThis?.Module?.HEAPU32;
+    const heapU32 = this._resolveWasmHeapViews().heapU32;
     if (data instanceof Uint32Array) {
       const view = normalizedLength === data.length ? data : data.subarray(0, normalizedLength);
       if (!this._isHeapBackedView(view, heapU32)) return view;
@@ -1257,7 +1356,7 @@ class HydraMesh {
     const totalStart = this._nowMs();
     if (profile) {
       profile.indicesForLoopUsed = true;
-      const heapU32 = globalThis?.Module?.HEAPU32;
+      const heapU32 = this._resolveWasmHeapViews().heapU32;
       profile.indicesFromHeapU32 = !!(ArrayBuffer.isView(indices) && heapU32 && indices.buffer === heapU32.buffer);
     }
 
@@ -1617,7 +1716,7 @@ class HydraMesh {
     const deferReorder = options?.deferReorder === true;
     const totalStart = this._nowMs();
     if (profile) {
-      const heapF32 = globalThis?.Module?.HEAPF32;
+      const heapF32 = this._resolveWasmHeapViews().heapF32;
       profile.pointsFromHeapF32 = !!(ArrayBuffer.isView(points) && heapF32 && points.buffer === heapF32.buffer);
       // We currently do no explicit Y-up/Z-up conversion here; keep this metric to verify.
       profile.pointsAxisTransformMs = (Number(profile.pointsAxisTransformMs) || 0);
@@ -1853,8 +1952,10 @@ class HydraMesh {
     trackStep('meshCount', 1);
   }
 
-  tryApplyProtoDataBlobFastPath() {
+  tryApplyProtoDataBlobFastPath(options = {}) {
     const phaseInstrumentationEnabled = this._interface?.isHydraPhaseInstrumentationEnabled?.() === true;
+    const forceRefresh = options?.forceRefresh === true;
+    const allowForceRefreshRetry = options?.allowForceRefreshRetry !== false;
     let wasmFetchMs = 0;
     let threeBuildMs = 0;
     const measureWasmStage = (fn) => {
@@ -1873,12 +1974,19 @@ class HydraMesh {
     };
 
     try {
-    const blob = this._interface?.getProtoDataBlob?.(this._id);
+    const blob = this._interface?.getProtoDataBlob?.(this._id, { forceRefresh });
+    if ((!blob || blob.valid !== true) && allowForceRefreshRetry && !forceRefresh) {
+      return this.tryApplyProtoDataBlobFastPath({
+        forceRefresh: true,
+        allowForceRefreshRetry: false,
+      });
+    }
     if (!blob || blob.valid !== true) return false;
 
-    const moduleRef = globalThis?.Module;
-    const heapF32 = moduleRef?.HEAPF32;
-    const heapU32 = moduleRef?.HEAPU32;
+    const heapViews = this._resolveWasmHeapViews();
+    const moduleRef = heapViews?.moduleRef || null;
+    const heapF32 = heapViews?.heapF32 || null;
+    const heapU32 = heapViews?.heapU32 || null;
     const normalizeLength = (value) => {
       const parsed = Number(value);
       if (!Number.isFinite(parsed) || parsed <= 0) return 0;
@@ -2083,6 +2191,24 @@ class HydraMesh {
       this.ensureFallbackNormalsIfMissing();
     }
 
+    const finalPositionCount = Number(this._geometry.getAttribute('position')?.count || 0);
+    const finalIndexCount = Number(this._geometry.getIndex()?.count || 0);
+    const expectsPositionPayload = pointValueCount > 0;
+    const expectsIndexPayload = numIndices > 0;
+    const positionReady = !expectsPositionPayload || finalPositionCount > 0;
+    const indexReady = !expectsIndexPayload || finalIndexCount > 0;
+    const geometryReady = positionReady && indexReady;
+
+    if (!geometryReady) {
+      if (allowForceRefreshRetry && !forceRefresh) {
+        return this.tryApplyProtoDataBlobFastPath({
+          forceRefresh: true,
+          allowForceRefreshRetry: false,
+        });
+      }
+      return false;
+    }
+
     return true;
     } finally {
       if (phaseInstrumentationEnabled) {
@@ -2101,6 +2227,24 @@ class HydraMesh {
       }
       this._hasCompletedProtoSync = true;
     };
+    const finalStageOverride = this._interface?._finalStageOverrideBatchCache?.get?.(this._id) || null;
+    if (finalStageOverride?.valid === true) {
+      const applied = this.applyFinalStageOverrideFromDriver(finalStageOverride, {
+        skipTransformFallback: true,
+        skipCollisionRotationFallback: true,
+      }) === true;
+      if (applied) {
+        finalizeProtoSync();
+        return;
+      }
+    }
+    const preferFinalBatchSync = this._interface?.preferFinalStageOverrideBatchInProtoSync === true;
+    const finalBatchPrimed = this._interface?._finalStageOverrideBatchPrimed === true;
+    if (preferFinalBatchSync && !finalBatchPrimed) {
+      // Defer expensive per-mesh fallback sync until a final-stage override batch
+      // is primed. This avoids duplicating heavy sync work in the first draw burst.
+      return;
+    }
     const useProtoBlobFastPath = this._interface?.enableProtoBlobFastPath === true;
     // If Hydra has already streamed geometry payloads for this mesh, the proto blob
     // path is redundant and may trigger expensive driver batch fetches on the hot path.

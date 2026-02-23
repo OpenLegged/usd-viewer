@@ -25,6 +25,7 @@ export class JointPanelController {
   private readonly requestJointInfos: () => Promise<JointInfoSnapshot[]>;
   private readonly setJointAngle: (linkPath: string, angleDeg: number) => JointInfoSnapshot | null;
   private readonly onJointChanged: ((jointInfo: JointInfoSnapshot) => void) | null;
+  private readonly sliderInputCleanupHandlers: Array<() => void> = [];
 
   private dragging = false;
   private dragOffsetX = 0;
@@ -52,6 +53,7 @@ export class JointPanelController {
 
   clear(): void {
     this.setVisible(false);
+    this.clearSliderInputHandlers();
     this.renderStatus("No joint data loaded.");
   }
 
@@ -88,6 +90,7 @@ export class JointPanelController {
 
   private renderStatus(message: string): void {
     if (!this.list) return;
+    this.clearSliderInputHandlers();
     this.list.innerHTML = "";
     const status = document.createElement("div");
     status.className = "joint-panel-status";
@@ -97,9 +100,13 @@ export class JointPanelController {
 
   private renderJointRows(joints: JointInfoSnapshot[]): void {
     if (!this.list) return;
+    this.clearSliderInputHandlers();
     this.list.innerHTML = "";
 
     for (const joint of joints) {
+      let rowJoint = {
+        ...joint,
+      };
       const row = document.createElement("div");
       row.className = "joint-row";
 
@@ -118,20 +125,53 @@ export class JointPanelController {
       slider.min = String(joint.lowerLimitDeg);
       slider.max = String(joint.upperLimitDeg);
       slider.step = "0.1";
-      slider.value = String(joint.angleDeg);
+      slider.value = String(rowJoint.angleDeg);
       slider.title = `${joint.lowerLimitDeg.toFixed(1)}° ~ ${joint.upperLimitDeg.toFixed(1)}°`;
 
-      slider.addEventListener("input", () => {
-        const targetAngle = Number(slider.value);
-        const updated = this.setJointAngle(joint.linkPath, targetAngle);
+      let pendingApplyFrameHandle: number | null = null;
+      let hasQueuedAngle = false;
+      let queuedAngleDeg = rowJoint.angleDeg;
+      const flushQueuedAngle = (): void => {
+        if (!hasQueuedAngle) return;
+        hasQueuedAngle = false;
+        const updated = this.setJointAngle(rowJoint.linkPath, queuedAngleDeg);
         const nextInfo = updated || {
-          ...joint,
-          angleDeg: targetAngle,
+          ...rowJoint,
+          angleDeg: queuedAngleDeg,
         };
+        rowJoint = nextInfo;
+        slider.value = String(nextInfo.angleDeg);
         value.textContent = formatAngle(nextInfo.angleDeg);
         if (updated && this.onJointChanged) {
           this.onJointChanged(updated);
         }
+      };
+      const cancelPendingApplyFrame = (): void => {
+        if (pendingApplyFrameHandle === null) return;
+        window.cancelAnimationFrame(pendingApplyFrameHandle);
+        pendingApplyFrameHandle = null;
+      };
+      const scheduleQueuedAngleApply = (): void => {
+        if (pendingApplyFrameHandle !== null) return;
+        pendingApplyFrameHandle = window.requestAnimationFrame(() => {
+          pendingApplyFrameHandle = null;
+          flushQueuedAngle();
+        });
+      };
+      this.sliderInputCleanupHandlers.push(cancelPendingApplyFrame);
+
+      slider.addEventListener("input", () => {
+        const targetAngle = Number(slider.value);
+        if (!Number.isFinite(targetAngle)) return;
+        queuedAngleDeg = targetAngle;
+        hasQueuedAngle = true;
+        value.textContent = formatAngle(targetAngle);
+        scheduleQueuedAngleApply();
+      });
+
+      slider.addEventListener("change", () => {
+        cancelPendingApplyFrame();
+        flushQueuedAngle();
       });
 
       row.appendChild(title);
@@ -139,6 +179,16 @@ export class JointPanelController {
       row.appendChild(slider);
       this.list.appendChild(row);
     }
+  }
+
+  private clearSliderInputHandlers(): void {
+    if (this.sliderInputCleanupHandlers.length <= 0) return;
+    for (const cleanup of this.sliderInputCleanupHandlers) {
+      try {
+        cleanup();
+      } catch {}
+    }
+    this.sliderInputCleanupHandlers.length = 0;
   }
 
   private readonly handlePointerDown = (event: PointerEvent): void => {

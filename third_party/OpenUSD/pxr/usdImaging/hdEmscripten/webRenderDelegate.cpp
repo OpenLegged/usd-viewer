@@ -88,28 +88,16 @@ public:
 
     virtual ~Emscripten_Rprim() {
         if (!_ownerDelegate) return;
-        _ownerDelegate->RemoveProtoDataBlob(GetId().GetAsString());
+        const std::string rprimPath = GetId().GetAsString();
+        _ownerDelegate->ClearRprimDelta(rprimPath);
+        _ownerDelegate->RemoveProtoDataBlob(rprimPath);
     }
 
-    struct Section {
-        int start;
-        int length;
-        std::string materialId;
-    };
-
-    emscripten::val sectionsToJSArray(const std::vector<Section>& sections) {
-        emscripten::val jsArray = emscripten::val::array();
-        for (const auto& section : sections) {
-            emscripten::val jsObj = emscripten::val::object();
-            jsObj.set("start", section.start);
-            jsObj.set("length", section.length);
-            jsObj.set("materialId", section.materialId);
-            jsArray.call<void>("push", jsObj);
-        }
-        return jsArray;
-    }
-
-    void findContiguousSections(const VtArray<int>& faces, std::string& materialId, std::vector<Section>& sections, const VtArray<int>& faceVertexCounts) {
+    void findContiguousSections(
+        const VtArray<int>& faces,
+        std::string const& materialId,
+        std::vector<WebRenderDelegate::GeomSubsetSection>& sections,
+        const VtArray<int>& faceVertexCounts) {
         if (faces.empty()) return; // Return early if the input vector is empty
 
         int currentStart = 0;
@@ -141,6 +129,7 @@ public:
     {
         // Get the id of this mesh. This is used to get various resources associated with it.
         SdfPath const& id = GetId();
+        const std::string idPath = id.GetAsString();
 
         // Materials need to be synced before primvars, to allow the JS side to apply primvar information like
         // displayColor if no other material is set.
@@ -157,24 +146,19 @@ public:
                 auto faceVertexCounts = _topology.GetFaceVertexCounts();
                 auto geomSubsets = _topology.GetGeomSubsets();
                 if (!geomSubsets.empty()){
-                    std::vector<Section> sections;
+                    std::vector<WebRenderDelegate::GeomSubsetSection> sections;
                     for (const auto& geomSubset : geomSubsets) {
-                        auto materialID = geomSubset.materialId.GetAsString();
+                        const std::string materialID = geomSubset.materialId.GetAsString();
                         findContiguousSections(geomSubset.indices, materialID, sections, faceVertexCounts);
                     }
 
-                    if (sections.size() > 0 ) {
-                        runInMainThread([&]() {
-                            emscripten::val jsSections = sectionsToJSArray(sections);
-                            _rPrim.call<void>("setGeomSubsetMaterial", jsSections);
-                        });
+                    if (!sections.empty()) {
+                        _ownerDelegate->QueueRprimGeomSubsetMaterial(idPath, sections);
                     }
                 }
             }
             else {
-                runInMainThread([&]() {
-                    _rPrim.call<void>("setMaterial", materialId.GetAsString());
-                });
+                _ownerDelegate->QueueRprimMaterial(idPath, materialId.GetAsString());
             }
         }
 
@@ -183,9 +167,12 @@ public:
             VtValue value = delegate->Get(id, HdTokens->points);
             _points = value.Get<VtVec3fArray>();
             _normalsValid = false;
-            runInMainThread([&]() {
-                _rPrim.call<void>("updatePoints", val(typed_memory_view(3 * _points.size(), reinterpret_cast<float*>(_points.data()))));
-            });
+            if (!_points.empty()) {
+                _ownerDelegate->QueueRprimPoints(
+                    idPath,
+                    reinterpret_cast<float const*>(_points.cdata()),
+                    static_cast<int>(_points.size() * 3));
+            }
         }
 
         if (HdChangeTracker::IsTopologyDirty(*dirtyBits, id)) {
@@ -206,9 +193,12 @@ public:
             _meshUtil = new HdMeshUtil(&_topology, GetId());
             _meshUtil->ComputeTriangleIndices(&_triangulatedIndices, &_trianglePrimitiveParams);
 
-            runInMainThread([&]() {
-                _rPrim.call<void>("updateIndices", val(typed_memory_view(3 * _triangulatedIndices.size(), reinterpret_cast<int32_t*>(_triangulatedIndices.data()))));
-            });
+            if (!_triangulatedIndices.empty()) {
+                _ownerDelegate->QueueRprimIndices(
+                    idPath,
+                    reinterpret_cast<int32_t const*>(_triangulatedIndices.cdata()),
+                    static_cast<int>(_triangulatedIndices.size() * 3));
+            }
 
             _normalsValid = false;
             _adjacencyValid = false;
@@ -216,7 +206,7 @@ public:
 
         // Sync primvars
         if (HdChangeTracker::IsAnyPrimvarDirty(*dirtyBits, id)) {
-            _SyncPrimvars(delegate, *dirtyBits);
+            _SyncPrimvars(delegate, *dirtyBits, idPath);
         }
 
         // TODO: Various sources, such as surface representation description, the topology scheme, or the availablity
@@ -239,16 +229,20 @@ public:
             _computedNormals = Hd_SmoothNormals::ComputeSmoothNormals(
                 &_adjacency, _points.size(), _points.cdata());
             _normalsValid = true;
-            runInMainThread([&]() {
-                _rPrim.call<void>("updateNormals", val(typed_memory_view(3 * _computedNormals.size(), reinterpret_cast<float*>(_computedNormals.data()))));
-            });
+            if (!_computedNormals.empty()) {
+                _ownerDelegate->QueueRprimNormals(
+                    idPath,
+                    reinterpret_cast<float const*>(_computedNormals.cdata()),
+                    static_cast<int>(_computedNormals.size() * 3));
+            }
         }
 
         if (HdChangeTracker::IsTransformDirty(*dirtyBits, id)) {
             _transform = GfMatrix4f(delegate->GetTransform(id));
-            runInMainThread([&]() {
-                _rPrim.call<void>("setTransform", val(typed_memory_view(16, reinterpret_cast<float*>(_transform.data()))));
-            });
+            _ownerDelegate->QueueRprimTransform(
+                idPath,
+                reinterpret_cast<float const*>(_transform.data()),
+                16);
         }
 
         _UpdateProtoDataBlobCache();
@@ -297,6 +291,13 @@ private:
     VtVec3fArray _points;
     VtVec2fArray _uvPrimvar;
     Hd_VertexAdjacency _adjacency;
+    struct PrimvarPayload {
+        std::string name;
+        std::string interpolation;
+        int dimension = 0;
+        std::vector<float> values;
+    };
+    std::unordered_map<std::string, PrimvarPayload> _primvarPayloadByKey;
 
     bool _adjacencyValid;
     bool _normalsValid;
@@ -371,8 +372,33 @@ private:
         _ownerDelegate->UpsertProtoDataBlob(GetId().GetAsString(), record);
     }
 
+    void _StorePrimvarPayload(std::string const& key,
+                              std::string const& name,
+                              std::string const& interpolation,
+                              int dimension,
+                              std::vector<float>&& values,
+                              std::string const& rprimPath)
+    {
+        if (!_ownerDelegate || values.empty() || dimension <= 0 || rprimPath.empty()) return;
+        PrimvarPayload &payload = _primvarPayloadByKey[key];
+        payload.name = name;
+        payload.interpolation = interpolation;
+        payload.dimension = dimension;
+        payload.values = std::move(values);
+        _ownerDelegate->QueueRprimPrimvar(
+            rprimPath,
+            payload.name,
+            payload.interpolation,
+            payload.dimension,
+            payload.values.data(),
+            static_cast<int>(payload.values.size()));
+    }
+
     // Send primvar data to JS
-    void _SendPrimvar(const VtValue &value, const std::string &name, const HdInterpolation &interpolation)
+    void _SendPrimvar(const VtValue &value,
+                      const std::string &name,
+                      const HdInterpolation &interpolation,
+                      std::string const& rprimPath)
     {
         const std::string &ip = InterpolationStrings.at(interpolation);
         if (value.CanCast<VtVec2fArray>()) {
@@ -380,71 +406,91 @@ private:
             if (_ShouldCapturePrimvarForProtoBlob(name)) {
                 _uvPrimvar = primvarData;
             }
-            _rPrim.call<void>("updatePrimvar", name, val(typed_memory_view(2 * primvarData.size(), reinterpret_cast<float*>(primvarData.data()))), 2, ip);
+            std::vector<float> flattened;
+            flattened.reserve(primvarData.size() * 2);
+            for (auto const& item : primvarData) {
+                flattened.push_back(item[0]);
+                flattened.push_back(item[1]);
+            }
+            _StorePrimvarPayload(name + "|2|" + ip, name, ip, 2, std::move(flattened), rprimPath);
         }
         if (value.CanCast<VtVec3fArray>()) {
             VtVec3fArray primvarData = value.Get<VtVec3fArray>();
-            _rPrim.call<void>("updatePrimvar", name, val(typed_memory_view(3 * primvarData.size(), reinterpret_cast<float*>(primvarData.data()))), 3, ip);
+            std::vector<float> flattened;
+            flattened.reserve(primvarData.size() * 3);
+            for (auto const& item : primvarData) {
+                flattened.push_back(item[0]);
+                flattened.push_back(item[1]);
+                flattened.push_back(item[2]);
+            }
+            _StorePrimvarPayload(name + "|3|" + ip, name, ip, 3, std::move(flattened), rprimPath);
         }
         if (value.CanCast<VtVec4fArray>()) {
             VtVec4fArray primvarData = value.Get<VtVec4fArray>();
-            _rPrim.call<void>("updatePrimvar", name, val(typed_memory_view(4 * primvarData.size(), reinterpret_cast<float*>(primvarData.data()))), 4, ip);
+            std::vector<float> flattened;
+            flattened.reserve(primvarData.size() * 4);
+            for (auto const& item : primvarData) {
+                flattened.push_back(item[0]);
+                flattened.push_back(item[1]);
+                flattened.push_back(item[2]);
+                flattened.push_back(item[3]);
+            }
+            _StorePrimvarPayload(name + "|4|" + ip, name, ip, 4, std::move(flattened), rprimPath);
         }
     }
 
     void _SyncPrimvars(HdSceneDelegate *delegate,
-                       HdDirtyBits      dirtyBits)
+                       HdDirtyBits      dirtyBits,
+                       std::string const& rprimPath)
     {
-        runInMainThread([&]() {
-            SdfPath const &id = GetId();
-            for (size_t interpolation = HdInterpolationConstant;
-                        interpolation < HdInterpolationCount;
-                        ++interpolation) {
-                HdInterpolation ip = static_cast<HdInterpolation>(interpolation);
-                HdPrimvarDescriptorVector primvars = GetPrimvarDescriptors(delegate, ip);
+        SdfPath const &id = GetId();
+        for (size_t interpolation = HdInterpolationConstant;
+                    interpolation < HdInterpolationCount;
+                    ++interpolation) {
+            HdInterpolation ip = static_cast<HdInterpolation>(interpolation);
+            HdPrimvarDescriptorVector primvars = GetPrimvarDescriptors(delegate, ip);
 
-                size_t numPrimVars = primvars.size();
-                for (size_t primVarNum = 0;
-                            primVarNum < numPrimVars;
-                        ++primVarNum) {
-                    HdPrimvarDescriptor const &primvar = primvars[primVarNum];
-                    if (HdChangeTracker::IsPrimvarDirty(dirtyBits,
-                                                        id,
-                                                        primvar.name)) {
-                        VtValue value = GetPrimvar(delegate, primvar.name);
+            size_t numPrimVars = primvars.size();
+            for (size_t primVarNum = 0;
+                        primVarNum < numPrimVars;
+                    ++primVarNum) {
+                HdPrimvarDescriptor const &primvar = primvars[primVarNum];
+                if (HdChangeTracker::IsPrimvarDirty(dirtyBits,
+                                                    id,
+                                                    primvar.name)) {
+                    VtValue value = GetPrimvar(delegate, primvar.name);
 
-                        switch(ip) {
-                            case HdInterpolationFaceVarying: {
-                                HdVtBufferSource buffer(primvar.name, value);
+                    switch(ip) {
+                        case HdInterpolationFaceVarying: {
+                            HdVtBufferSource buffer(primvar.name, value);
 
-                                VtValue triangulated;
-                                if (!_meshUtil->ComputeTriangulatedFaceVaryingPrimvar(
-                                        buffer.GetData(),
-                                        buffer.GetNumElements(),
-                                        buffer.GetTupleType().type,
-                                        &triangulated)) {
-                                    TF_CODING_ERROR("[%s] Could not triangulate face-varying data.",
-                                        primvar.name.GetText());
-                                    continue;
-                                }
-
-                                _SendPrimvar(triangulated, primvar.name.GetString(), ip);
-                                break;
-                            }
-                            case HdInterpolationConstant:
-                            case HdInterpolationVertex: {
-                                _SendPrimvar(value, primvar.name.GetString(), ip);
-                                break;
-                            }
-                            default:
-                                TF_WARN("Unsupported interpolation type '%s' for primvar %s",
-                                    InterpolationStrings.at(ip).c_str(),
+                            VtValue triangulated;
+                            if (!_meshUtil->ComputeTriangulatedFaceVaryingPrimvar(
+                                    buffer.GetData(),
+                                    buffer.GetNumElements(),
+                                    buffer.GetTupleType().type,
+                                    &triangulated)) {
+                                TF_CODING_ERROR("[%s] Could not triangulate face-varying data.",
                                     primvar.name.GetText());
+                                continue;
+                            }
+
+                            _SendPrimvar(triangulated, primvar.name.GetString(), ip, rprimPath);
+                            break;
                         }
+                        case HdInterpolationConstant:
+                        case HdInterpolationVertex: {
+                            _SendPrimvar(value, primvar.name.GetString(), ip, rprimPath);
+                            break;
+                        }
+                        default:
+                            TF_WARN("Unsupported interpolation type '%s' for primvar %s",
+                                InterpolationStrings.at(ip).c_str(),
+                                primvar.name.GetText());
                     }
                 }
             }
-        });
+        }
     }
 
     Emscripten_Rprim()                                 = delete;
@@ -704,6 +750,246 @@ WebRenderDelegate::RemoveProtoDataBlob(std::string const& rprimPath)
     if (rprimPath.empty()) return;
     std::lock_guard<std::mutex> lock(_protoDataBlobMutex);
     _protoDataBlobByRprimPath.erase(rprimPath);
+}
+
+void
+WebRenderDelegate::QueueRprimMaterial(std::string const& rprimPath,
+                                      std::string const& materialId)
+{
+    if (rprimPath.empty()) return;
+    std::lock_guard<std::mutex> lock(_rprimDeltaMutex);
+    auto found = _rprimDeltaByPath.find(rprimPath);
+    if (found == _rprimDeltaByPath.end()) {
+        _rprimDeltaOrder.push_back(rprimPath);
+        found = _rprimDeltaByPath.emplace(rprimPath, RprimDeltaRecord()).first;
+    }
+    RprimDeltaRecord &record = found->second;
+    record.hasMaterialId = true;
+    record.materialId = materialId;
+    record.dirtyMask |= kRprimDeltaDirtyMaterial;
+}
+
+void
+WebRenderDelegate::QueueRprimGeomSubsetMaterial(
+    std::string const& rprimPath,
+    std::vector<GeomSubsetSection> const& sections)
+{
+    if (rprimPath.empty() || sections.empty()) return;
+    std::lock_guard<std::mutex> lock(_rprimDeltaMutex);
+    auto found = _rprimDeltaByPath.find(rprimPath);
+    if (found == _rprimDeltaByPath.end()) {
+        _rprimDeltaOrder.push_back(rprimPath);
+        found = _rprimDeltaByPath.emplace(rprimPath, RprimDeltaRecord()).first;
+    }
+    RprimDeltaRecord &record = found->second;
+    record.geomSubsetSections = sections;
+    record.dirtyMask |= kRprimDeltaDirtyGeomSubsetMaterial;
+}
+
+void
+WebRenderDelegate::QueueRprimPoints(std::string const& rprimPath,
+                                    float const* points,
+                                    int pointsCount)
+{
+    if (rprimPath.empty() || !points || pointsCount <= 0) return;
+    std::lock_guard<std::mutex> lock(_rprimDeltaMutex);
+    auto found = _rprimDeltaByPath.find(rprimPath);
+    if (found == _rprimDeltaByPath.end()) {
+        _rprimDeltaOrder.push_back(rprimPath);
+        found = _rprimDeltaByPath.emplace(rprimPath, RprimDeltaRecord()).first;
+    }
+    RprimDeltaRecord &record = found->second;
+    record.pointsPtr = reinterpret_cast<uintptr_t>(points);
+    record.pointsCount = pointsCount;
+    record.dirtyMask |= kRprimDeltaDirtyPoints;
+}
+
+void
+WebRenderDelegate::QueueRprimIndices(std::string const& rprimPath,
+                                     int32_t const* indices,
+                                     int indicesCount)
+{
+    if (rprimPath.empty() || !indices || indicesCount <= 0) return;
+    std::lock_guard<std::mutex> lock(_rprimDeltaMutex);
+    auto found = _rprimDeltaByPath.find(rprimPath);
+    if (found == _rprimDeltaByPath.end()) {
+        _rprimDeltaOrder.push_back(rprimPath);
+        found = _rprimDeltaByPath.emplace(rprimPath, RprimDeltaRecord()).first;
+    }
+    RprimDeltaRecord &record = found->second;
+    record.indicesPtr = reinterpret_cast<uintptr_t>(indices);
+    record.indicesCount = indicesCount;
+    record.dirtyMask |= kRprimDeltaDirtyIndices;
+}
+
+void
+WebRenderDelegate::QueueRprimNormals(std::string const& rprimPath,
+                                     float const* normals,
+                                     int normalsCount)
+{
+    if (rprimPath.empty() || !normals || normalsCount <= 0) return;
+    std::lock_guard<std::mutex> lock(_rprimDeltaMutex);
+    auto found = _rprimDeltaByPath.find(rprimPath);
+    if (found == _rprimDeltaByPath.end()) {
+        _rprimDeltaOrder.push_back(rprimPath);
+        found = _rprimDeltaByPath.emplace(rprimPath, RprimDeltaRecord()).first;
+    }
+    RprimDeltaRecord &record = found->second;
+    record.normalsPtr = reinterpret_cast<uintptr_t>(normals);
+    record.normalsCount = normalsCount;
+    record.dirtyMask |= kRprimDeltaDirtyNormals;
+}
+
+void
+WebRenderDelegate::QueueRprimTransform(std::string const& rprimPath,
+                                       float const* transform,
+                                       int transformCount)
+{
+    if (rprimPath.empty() || !transform || transformCount <= 0) return;
+    std::lock_guard<std::mutex> lock(_rprimDeltaMutex);
+    auto found = _rprimDeltaByPath.find(rprimPath);
+    if (found == _rprimDeltaByPath.end()) {
+        _rprimDeltaOrder.push_back(rprimPath);
+        found = _rprimDeltaByPath.emplace(rprimPath, RprimDeltaRecord()).first;
+    }
+    RprimDeltaRecord &record = found->second;
+    record.transformPtr = reinterpret_cast<uintptr_t>(transform);
+    record.transformCount = transformCount;
+    record.dirtyMask |= kRprimDeltaDirtyTransform;
+}
+
+void
+WebRenderDelegate::QueueRprimPrimvar(std::string const& rprimPath,
+                                     std::string const& name,
+                                     std::string const& interpolation,
+                                     int dimension,
+                                     float const* data,
+                                     int dataCount)
+{
+    if (rprimPath.empty() || name.empty() || interpolation.empty() || dimension <= 0 || !data || dataCount <= 0) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(_rprimDeltaMutex);
+    auto found = _rprimDeltaByPath.find(rprimPath);
+    if (found == _rprimDeltaByPath.end()) {
+        _rprimDeltaOrder.push_back(rprimPath);
+        found = _rprimDeltaByPath.emplace(rprimPath, RprimDeltaRecord()).first;
+    }
+    RprimDeltaRecord &record = found->second;
+    auto existing = std::find_if(
+        record.primvars.begin(),
+        record.primvars.end(),
+        [&](RprimPrimvarDeltaRecord const& primvar) {
+            return primvar.name == name
+                && primvar.interpolation == interpolation
+                && primvar.dimension == dimension;
+        });
+    if (existing == record.primvars.end()) {
+        record.primvars.push_back(RprimPrimvarDeltaRecord{
+            name,
+            interpolation,
+            dimension,
+            reinterpret_cast<uintptr_t>(data),
+            dataCount,
+        });
+    } else {
+        existing->dataPtr = reinterpret_cast<uintptr_t>(data);
+        existing->dataCount = dataCount;
+    }
+    record.dirtyMask |= kRprimDeltaDirtyPrimvars;
+}
+
+void
+WebRenderDelegate::ClearRprimDelta(std::string const& rprimPath)
+{
+    if (rprimPath.empty()) return;
+    std::lock_guard<std::mutex> lock(_rprimDeltaMutex);
+    _rprimDeltaByPath.erase(rprimPath);
+}
+
+emscripten::val
+WebRenderDelegate::TakeRprimDeltaBatch()
+{
+    emscripten::val batch = emscripten::val::object();
+    emscripten::val entries = emscripten::val::object();
+    batch.set("entries", entries);
+    batch.set("count", 0.0);
+
+    std::lock_guard<std::mutex> lock(_rprimDeltaMutex);
+    int emitted = 0;
+    for (std::string const& rprimPath : _rprimDeltaOrder) {
+        const auto found = _rprimDeltaByPath.find(rprimPath);
+        if (found == _rprimDeltaByPath.end()) continue;
+        RprimDeltaRecord const& record = found->second;
+        if (record.dirtyMask == 0) continue;
+
+        emscripten::val delta = emscripten::val::object();
+        delta.set("dirtyMask", static_cast<double>(record.dirtyMask));
+
+        if (record.hasMaterialId) {
+            delta.set("materialId", record.materialId);
+        }
+
+        if (!record.geomSubsetSections.empty()) {
+            emscripten::val sectionArray = emscripten::val::array();
+            int sectionIndex = 0;
+            for (GeomSubsetSection const& section : record.geomSubsetSections) {
+                emscripten::val sectionObject = emscripten::val::object();
+                sectionObject.set("start", section.start);
+                sectionObject.set("length", section.length);
+                sectionObject.set("materialId", section.materialId);
+                sectionArray.set(sectionIndex++, sectionObject);
+            }
+            delta.set("geomSubsetSections", sectionArray);
+        }
+
+        if (record.pointsPtr != 0 && record.pointsCount > 0) {
+            delta.set("pointsPtr", static_cast<double>(record.pointsPtr));
+            delta.set("pointsCount", static_cast<double>(record.pointsCount));
+        }
+
+        if (record.indicesPtr != 0 && record.indicesCount > 0) {
+            delta.set("indicesPtr", static_cast<double>(record.indicesPtr));
+            delta.set("indicesCount", static_cast<double>(record.indicesCount));
+        }
+
+        if (record.normalsPtr != 0 && record.normalsCount > 0) {
+            delta.set("normalsPtr", static_cast<double>(record.normalsPtr));
+            delta.set("normalsCount", static_cast<double>(record.normalsCount));
+        }
+
+        if (record.transformPtr != 0 && record.transformCount > 0) {
+            delta.set("transformPtr", static_cast<double>(record.transformPtr));
+            delta.set("transformCount", static_cast<double>(record.transformCount));
+        }
+
+        if (!record.primvars.empty()) {
+            emscripten::val primvarArray = emscripten::val::array();
+            int primvarIndex = 0;
+            for (RprimPrimvarDeltaRecord const& primvar : record.primvars) {
+                if (primvar.dataPtr == 0 || primvar.dataCount <= 0 || primvar.dimension <= 0) continue;
+                emscripten::val primvarObject = emscripten::val::object();
+                primvarObject.set("name", primvar.name);
+                primvarObject.set("interpolation", primvar.interpolation);
+                primvarObject.set("dimension", primvar.dimension);
+                primvarObject.set("dataPtr", static_cast<double>(primvar.dataPtr));
+                primvarObject.set("dataCount", static_cast<double>(primvar.dataCount));
+                primvarArray.set(primvarIndex++, primvarObject);
+            }
+            if (primvarIndex > 0) {
+                delta.set("primvars", primvarArray);
+            }
+        }
+
+        entries.set(rprimPath, delta);
+        emitted += 1;
+    }
+
+    _rprimDeltaByPath.clear();
+    _rprimDeltaOrder.clear();
+    batch.set("count", static_cast<double>(emitted));
+    return batch;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

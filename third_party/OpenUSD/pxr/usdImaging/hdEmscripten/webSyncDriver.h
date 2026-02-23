@@ -548,6 +548,92 @@ public:
         return bundle;
     }
 
+    // Pull and clear the per-frame dirty RPrim delta batch prepared by WebRenderDelegate::Sync.
+    emscripten::val GetRprimDeltaBatch() {
+        return _renderDelegate.TakeRprimDeltaBatch();
+    }
+
+    // One-shot final stage override batch for all proto meshes.
+    // Each entry includes final geometry descriptor + world matrix + dirty mask.
+    emscripten::val GetFinalStageOverrideBatch() {
+        emscripten::val bundle = emscripten::val::object();
+        emscripten::val entries = emscripten::val::object();
+        bundle.set("entries", entries);
+        bundle.set("count", 0.0);
+        bundle.set("collisionCount", 0.0);
+        bundle.set("visualCount", 0.0);
+        if (!_stage) return bundle;
+
+        const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+        UsdGeomXformCache xformCache(timeCode);
+        const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
+        CollisionCandidateMap collisionCandidateMap = _BuildCollisionCandidateMap(acceptableTypes);
+        VisualCandidateMap visualCandidateMap = _BuildVisualCandidateMap(acceptableTypes);
+
+        size_t totalCount = 0;
+        size_t collisionCount = 0;
+        size_t visualCount = 0;
+        _renderDelegate.ReadAllProtoDataBlobs(
+            [&](std::string const& rprimPath, WebRenderDelegate::ProtoDataBlobRecord const&) {
+                if (rprimPath.find(".proto_") == std::string::npos) return;
+                const ProtoMeshIdentifier proto = _ParseProtoMeshIdentifier(rprimPath);
+                if (!proto.valid) return;
+
+                emscripten::val overrideData = emscripten::val::object();
+                if (proto.sectionName == "collisions") {
+                    overrideData = _BuildCollisionProtoOverride(
+                        rprimPath,
+                        timeCode,
+                        &xformCache,
+                        &collisionCandidateMap);
+                } else if (proto.sectionName == "visuals") {
+                    overrideData = _BuildVisualProtoOverride(
+                        rprimPath,
+                        timeCode,
+                        &xformCache,
+                        &visualCandidateMap);
+                } else {
+                    return;
+                }
+
+                bool valid = false;
+                try {
+                    valid = overrideData["valid"].as<bool>();
+                } catch (...) {
+                    valid = false;
+                }
+                if (!valid) return;
+
+                uint32_t dirtyMask = 0;
+                try {
+                    dirtyMask = static_cast<uint32_t>(overrideData["dirtyMask"].as<double>());
+                } catch (...) {
+                    dirtyMask = 0;
+                }
+
+                if (proto.sectionName == "collisions") {
+                    dirtyMask |= kFinalStageDirtySectionCollision;
+                    dirtyMask |= kFinalStageDirtyApplyGeometry;
+                    overrideData.set("applyGeometry", true);
+                    ++collisionCount;
+                } else {
+                    dirtyMask |= kFinalStageDirtySectionVisual;
+                    overrideData.set("applyGeometry", false);
+                    ++visualCount;
+                }
+
+                overrideData.set("sectionName", proto.sectionName);
+                overrideData.set("dirtyMask", static_cast<double>(dirtyMask));
+                entries.set(rprimPath, overrideData);
+                ++totalCount;
+            });
+
+        bundle.set("count", static_cast<double>(totalCount));
+        bundle.set("collisionCount", static_cast<double>(collisionCount));
+        bundle.set("visualCount", static_cast<double>(visualCount));
+        return bundle;
+    }
+
     emscripten::val GetPrimOverrideData(std::string const& primPath) {
         emscripten::val result = emscripten::val::object();
         result.set("valid", false);
@@ -633,6 +719,15 @@ private:
     using ProtoCandidateMap = std::unordered_map<std::string, std::vector<PrimCandidate>>;
     using CollisionCandidateMap = ProtoCandidateMap;
     using VisualCandidateMap = ProtoCandidateMap;
+
+    static constexpr uint32_t kFinalStageDirtyGeometryDescriptor = 1u << 0;
+    static constexpr uint32_t kFinalStageDirtyWorldTransform = 1u << 1;
+    static constexpr uint32_t kFinalStageDirtyResolvedPrimPath = 1u << 2;
+    static constexpr uint32_t kFinalStageDirtyExtent = 1u << 3;
+    static constexpr uint32_t kFinalStageDirtyPrimitiveParams = 1u << 4;
+    static constexpr uint32_t kFinalStageDirtySectionCollision = 1u << 8;
+    static constexpr uint32_t kFinalStageDirtySectionVisual = 1u << 9;
+    static constexpr uint32_t kFinalStageDirtyApplyGeometry = 1u << 10;
 
     static emscripten::val _Matrix4dToJsArray(GfMatrix4d const& matrix) {
         emscripten::val values = emscripten::val::array();
@@ -1331,6 +1426,10 @@ private:
         const std::string primType = _GetSupportedPrimTypeName(prim);
         if (primType.empty()) return out;
 
+        uint32_t dirtyMask = (
+            kFinalStageDirtyGeometryDescriptor
+            | kFinalStageDirtyWorldTransform
+            | kFinalStageDirtyResolvedPrimPath);
         out.set("valid", true);
         out.set("resolvedPrimPath", primPath);
         out.set("primType", primType);
@@ -1339,27 +1438,33 @@ private:
         std::array<double, 3> extentSize = {0.0, 0.0, 0.0};
         if (_TryReadExtentSize(prim, timeCode, &extentSize)) {
             out.set("extentSize", _Vec3ToJsArray(extentSize));
+            dirtyMask |= kFinalStageDirtyExtent;
         }
 
         if (primType == "cube") {
             double size = 0.0;
             if (_TryReadDoubleAttr(prim, "size", timeCode, &size)) {
                 out.set("size", size);
+                dirtyMask |= kFinalStageDirtyPrimitiveParams;
             }
         } else if (primType == "sphere" || primType == "cylinder" || primType == "capsule") {
             double radius = 0.0;
             if (_TryReadDoubleAttr(prim, "radius", timeCode, &radius)) {
                 out.set("radius", radius);
+                dirtyMask |= kFinalStageDirtyPrimitiveParams;
             }
             if (primType == "cylinder" || primType == "capsule") {
                 double height = 0.0;
                 if (_TryReadDoubleAttr(prim, "height", timeCode, &height)) {
                     out.set("height", height);
+                    dirtyMask |= kFinalStageDirtyPrimitiveParams;
                 }
                 out.set("axis", _ReadAxisToken(prim, timeCode));
+                dirtyMask |= kFinalStageDirtyPrimitiveParams;
             }
         }
 
+        out.set("dirtyMask", static_cast<double>(dirtyMask));
         return out;
     }
 

@@ -1,11 +1,11 @@
 // @ts-nocheck
 import { Color, LinearSRGBColorSpace, Matrix4, SRGBColorSpace, Vector2, } from 'three';
-import * as Shared from './shared.js?v=20260222h';
-import { ThreeRenderDelegateMaterialOps } from './ThreeRenderDelegateMaterialOps.js?v=20260222h';
-import { HydraInstancer } from './HydraInstancer.js?v=20260222h';
-import { HydraMaterial } from './HydraMaterial.js?v=20260222h';
-import { HydraMesh } from './HydraMesh.js?v=20260222h';
-import { getDefaultMaterial } from './default-material-state.js?v=20260222h';
+import * as Shared from './shared.js?v=20260223i';
+import { ThreeRenderDelegateMaterialOps } from './ThreeRenderDelegateMaterialOps.js?v=20260223i';
+import { HydraInstancer } from './HydraInstancer.js?v=20260223i';
+import { HydraMaterial } from './HydraMaterial.js?v=20260223i';
+import { HydraMesh } from './HydraMesh.js?v=20260223i';
+import { getDefaultMaterial } from './default-material-state.js?v=20260223i';
 const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfTruthFromText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
 export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps {
     applyStageFallbackMaterialParameters(material, shaderPrim) {
@@ -1126,6 +1126,337 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             source: forceRefresh ? "batch-refresh" : "batch",
         };
     }
+    prefetchFinalStageOverrideBatchFromDriver(driver, options = {}) {
+        const forceRefresh = options?.force === true;
+        const resolvedDriver = driver || this.config?.driver?.();
+        if (!resolvedDriver) {
+            return {
+                count: 0,
+                collisionCount: 0,
+                visualCount: 0,
+                source: "none",
+                entries: this._finalStageOverrideBatchCache,
+            };
+        }
+        if (this._finalStageOverrideBatchPrimed === true && !forceRefresh) {
+            const cachedCount = Number(this._finalStageOverrideBatchCache?.size || 0);
+            if (cachedCount > 0) {
+                return {
+                    count: cachedCount,
+                    collisionCount: Number(this._collisionProtoOverrideCache?.size || 0),
+                    visualCount: Number(this._visualProtoOverrideCache?.size || 0),
+                    source: "cache",
+                    entries: this._finalStageOverrideBatchCache,
+                };
+            }
+        }
+        if (forceRefresh) {
+            this._collisionProtoOverrideCache?.clear?.();
+            this._visualProtoOverrideCache?.clear?.();
+            this._primOverrideDataCache?.clear?.();
+            this._resolvedProtoPrimPathCache?.clear?.();
+            this._resolvedVisualPrimPathCache?.clear?.();
+        }
+        this._finalStageOverrideBatchPrimed = true;
+        this._finalStageOverrideBatchCache?.clear?.();
+        if (typeof resolvedDriver.GetFinalStageOverrideBatch !== 'function') {
+            return {
+                count: 0,
+                collisionCount: 0,
+                visualCount: 0,
+                source: "single-only",
+                entries: this._finalStageOverrideBatchCache,
+            };
+        }
+        let payload = null;
+        try {
+            payload = resolvedDriver.GetFinalStageOverrideBatch();
+        }
+        catch {
+            return {
+                count: 0,
+                collisionCount: 0,
+                visualCount: 0,
+                source: "error",
+                entries: this._finalStageOverrideBatchCache,
+            };
+        }
+        if (!payload || typeof payload !== 'object') {
+            return {
+                count: 0,
+                collisionCount: 0,
+                visualCount: 0,
+                source: "empty",
+                entries: this._finalStageOverrideBatchCache,
+            };
+        }
+        const rawEntries = (payload.entries && typeof payload.entries === 'object')
+            ? payload.entries
+            : {};
+        let collisionCount = 0;
+        let visualCount = 0;
+        const primOverridePaths = new Set();
+        for (const [meshId, rawOverride] of Object.entries(rawEntries)) {
+            const normalizedMeshId = normalizeHydraPath(meshId);
+            if (!normalizedMeshId || !normalizedMeshId.includes('.proto_'))
+                continue;
+            const sectionName = String(rawOverride?.sectionName || '').toLowerCase();
+            const normalizedOverride = sectionName === 'visuals'
+                ? this.normalizeVisualProtoOverride(rawOverride)
+                : this.normalizeCollisionProtoOverride(rawOverride);
+            if (!normalizedOverride)
+                continue;
+            normalizedOverride.meshId = normalizeHydraPath(normalizedOverride.meshId || normalizedMeshId);
+            normalizedOverride.sectionName = sectionName || (normalizedOverride?.meshId?.includes('/visuals.proto_') ? 'visuals' : 'collisions');
+            normalizedOverride.applyGeometry = rawOverride?.applyGeometry === true || normalizedOverride.sectionName === 'collisions';
+            const dirtyMaskValue = Number(rawOverride?.dirtyMask);
+            normalizedOverride.dirtyMask = Number.isFinite(dirtyMaskValue) ? Math.max(0, Math.floor(dirtyMaskValue)) : 0;
+            if (!normalizedOverride.worldTransformElements) {
+                normalizedOverride.worldTransformElements = rawOverride?.worldTransform;
+            }
+            const cacheMeshId = normalizeHydraPath(normalizedOverride.meshId || normalizedMeshId) || normalizedMeshId;
+            this._finalStageOverrideBatchCache.set(cacheMeshId, normalizedOverride);
+            this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
+            const resolvedPrimPath = normalizeHydraPath(normalizedOverride.resolvedPrimPath || '');
+            if (resolvedPrimPath) {
+                const normalizedPrimOverride = this.normalizePrimOverrideData(rawOverride);
+                if (normalizedPrimOverride) {
+                    this._primOverrideDataCache.set(resolvedPrimPath, normalizedPrimOverride);
+                    primOverridePaths.add(resolvedPrimPath);
+                }
+            }
+            if (normalizedOverride.sectionName === 'visuals') {
+                this._visualProtoOverrideCache.set(cacheMeshId, normalizedOverride);
+                if (resolvedPrimPath)
+                    this._resolvedVisualPrimPathCache.set(cacheMeshId, resolvedPrimPath);
+                visualCount += 1;
+            }
+            else {
+                this._collisionProtoOverrideCache.set(cacheMeshId, normalizedOverride);
+                if (resolvedPrimPath)
+                    this._resolvedProtoPrimPathCache.set(cacheMeshId, resolvedPrimPath);
+                collisionCount += 1;
+            }
+        }
+        this._collisionProtoOverrideBatchPrimed = true;
+        this._visualProtoOverrideBatchPrimed = true;
+        return {
+            count: Number(this._finalStageOverrideBatchCache?.size || (collisionCount + visualCount)),
+            collisionCount,
+            visualCount,
+            primOverrideCount: primOverridePaths.size,
+            source: forceRefresh ? "batch-refresh" : "batch",
+            entries: this._finalStageOverrideBatchCache,
+        };
+    }
+    _resolveWasmHeaps() {
+        const candidates = [
+            globalThis?.Module,
+            globalThis?.USD,
+            globalThis?.USD_WASM_MODULE,
+        ];
+        for (const candidate of candidates) {
+            if (!candidate || typeof candidate !== 'object')
+                continue;
+            const heapF32 = candidate.HEAPF32;
+            const heapU32 = candidate.HEAPU32;
+            if ((heapF32 && Number(heapF32.length || 0) > 0) || (heapU32 && Number(heapU32.length || 0) > 0)) {
+                return {
+                    heapF32: heapF32 || null,
+                    heapU32: heapU32 || null,
+                };
+            }
+        }
+        const fallback = candidates.find((candidate) => candidate && typeof candidate === 'object') || null;
+        return {
+            heapF32: fallback?.HEAPF32 || null,
+            heapU32: fallback?.HEAPU32 || null,
+        };
+    }
+    _readHeapFloat32View(ptrValue, countValue) {
+        const heap = this._resolveWasmHeaps().heapF32;
+        if (!heap || !heap.buffer)
+            return null;
+        const ptr = Number(ptrValue);
+        const count = Number(countValue);
+        if (!Number.isFinite(ptr) || !Number.isFinite(count))
+            return null;
+        if (ptr <= 0 || count <= 0)
+            return null;
+        const ptrInt = Math.floor(ptr);
+        const countInt = Math.floor(count);
+        if ((ptrInt % 4) !== 0)
+            return null;
+        const start = ptrInt >>> 2;
+        const end = start + countInt;
+        if (start < 0 || end > heap.length)
+            return null;
+        return heap.subarray(start, end);
+    }
+    _readHeapUint32View(ptrValue, countValue) {
+        const heap = this._resolveWasmHeaps().heapU32;
+        if (!heap || !heap.buffer)
+            return null;
+        const ptr = Number(ptrValue);
+        const count = Number(countValue);
+        if (!Number.isFinite(ptr) || !Number.isFinite(count))
+            return null;
+        if (ptr <= 0 || count <= 0)
+            return null;
+        const ptrInt = Math.floor(ptr);
+        const countInt = Math.floor(count);
+        if ((ptrInt % 4) !== 0)
+            return null;
+        const start = ptrInt >>> 2;
+        const end = start + countInt;
+        if (start < 0 || end > heap.length)
+            return null;
+        return heap.subarray(start, end);
+    }
+    pullRprimDeltaBatchFromDriver(driver = null) {
+        const resolvedDriver = driver || this.config?.driver?.();
+        const summary = {
+            ok: false,
+            source: "none",
+            count: 0,
+            applied: 0,
+            meshIds: new Set(),
+        };
+        if (!resolvedDriver || typeof resolvedDriver.GetRprimDeltaBatch !== 'function') {
+            return summary;
+        }
+        let payload = null;
+        try {
+            payload = resolvedDriver.GetRprimDeltaBatch();
+        }
+        catch {
+            summary.source = "error";
+            return summary;
+        }
+        summary.ok = true;
+        if (!payload || typeof payload !== 'object') {
+            summary.source = "empty";
+            return summary;
+        }
+        const rawEntries = (payload.entries && typeof payload.entries === 'object')
+            ? payload.entries
+            : {};
+        summary.source = "batch";
+        summary.count = Number(payload.count || Object.keys(rawEntries).length || 0);
+        const toObjectArray = (value) => {
+            if (Array.isArray(value))
+                return value;
+            if (!value || typeof value !== 'object')
+                return [];
+            if (typeof value.length === 'number') {
+                const length = Number(value.length);
+                const safeLength = Number.isFinite(length) && length > 0 ? Math.floor(length) : 0;
+                const out = [];
+                for (let index = 0; index < safeLength; index++) {
+                    out.push(value[index]);
+                }
+                return out;
+            }
+            const fallback = toArrayLike(value);
+            if (!fallback || typeof fallback.length !== 'number')
+                return [];
+            const out = [];
+            const length = Number(fallback.length);
+            const safeLength = Number.isFinite(length) && length > 0 ? Math.floor(length) : 0;
+            for (let index = 0; index < safeLength; index++) {
+                out.push(fallback[index]);
+            }
+            return out;
+        };
+        for (const [rawMeshId, rawDelta] of Object.entries(rawEntries)) {
+            const meshId = normalizeHydraPath(rawMeshId);
+            if (!meshId)
+                continue;
+            const hydraMesh = this.meshes[meshId];
+            if (!hydraMesh || typeof hydraMesh.applyUpdates !== 'function')
+                continue;
+            if (!rawDelta || typeof rawDelta !== 'object')
+                continue;
+            const updates = {};
+            let hasUpdates = false;
+            const materialId = normalizeHydraPath(rawDelta.materialId);
+            if (materialId) {
+                updates.materialId = materialId;
+                hasUpdates = true;
+            }
+            const rawSections = toObjectArray(rawDelta.geomSubsetSections);
+            if (rawSections.length > 0) {
+                const normalizedSections = [];
+                for (const rawSection of rawSections) {
+                    const start = Number(rawSection?.start);
+                    const length = Number(rawSection?.length);
+                    if (!Number.isFinite(start) || !Number.isFinite(length) || length <= 0)
+                        continue;
+                    normalizedSections.push({
+                        start: Math.max(0, Math.floor(start)),
+                        length: Math.max(0, Math.floor(length)),
+                        materialId: normalizeHydraPath(rawSection?.materialId || ''),
+                    });
+                }
+                if (normalizedSections.length > 0) {
+                    updates.geomSubsetSections = normalizedSections;
+                    hasUpdates = true;
+                }
+            }
+            const points = this._readHeapFloat32View(rawDelta.pointsPtr, rawDelta.pointsCount);
+            if (points && points.length > 0) {
+                updates.points = points;
+                hasUpdates = true;
+            }
+            const indices = this._readHeapUint32View(rawDelta.indicesPtr, rawDelta.indicesCount);
+            if (indices && indices.length > 0) {
+                updates.indices = indices;
+                hasUpdates = true;
+            }
+            const normals = this._readHeapFloat32View(rawDelta.normalsPtr, rawDelta.normalsCount);
+            if (normals && normals.length > 0) {
+                updates.normals = normals;
+                hasUpdates = true;
+            }
+            const transform = this._readHeapFloat32View(rawDelta.transformPtr, rawDelta.transformCount);
+            if (transform && transform.length >= 16) {
+                updates.transform = transform.subarray(0, 16);
+                hasUpdates = true;
+            }
+            const rawPrimvars = toObjectArray(rawDelta.primvars);
+            if (rawPrimvars.length > 0) {
+                const primvars = [];
+                for (const rawPrimvar of rawPrimvars) {
+                    const name = String(rawPrimvar?.name || '').trim();
+                    if (!name)
+                        continue;
+                    const dimension = Number(rawPrimvar?.dimension);
+                    if (!Number.isFinite(dimension) || dimension <= 0)
+                        continue;
+                    const data = this._readHeapFloat32View(rawPrimvar?.dataPtr, rawPrimvar?.dataCount);
+                    if (!data || data.length <= 0)
+                        continue;
+                    const interpolation = String(rawPrimvar?.interpolation || 'vertex').trim().toLowerCase() || 'vertex';
+                    primvars.push({
+                        name,
+                        data,
+                        dimension: Math.max(1, Math.floor(dimension)),
+                        interpolation,
+                    });
+                }
+                if (primvars.length > 0) {
+                    updates.primvars = primvars;
+                    hasUpdates = true;
+                }
+            }
+            if (!hasUpdates)
+                continue;
+            hydraMesh.applyUpdates(updates);
+            summary.meshIds.add(meshId);
+            summary.applied += 1;
+        }
+        return summary;
+    }
     prefetchCollisionProtoOverridesFromDriver(driver, options = {}) {
         const forceRefresh = options?.force === true;
         const resolvedDriver = driver || this.config?.driver?.();
@@ -1487,20 +1818,21 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         }
         return summary;
     }
-    getProtoDataBlob(protoPath) {
+    getProtoDataBlob(protoPath, options = {}) {
         if (!protoPath || !protoPath.startsWith('/'))
             return null;
         if (!this.config?.driver || typeof this.config.driver !== 'function')
             return null;
+        const forceRefresh = options?.forceRefresh === true || options?.force === true;
         const driver = this.config.driver();
         if (!driver || typeof driver.GetProtoDataBlob !== 'function')
             return null;
         // Hot path: prefer cache hit or single-proto fetch. Avoid forcing
         // GetAllProtoDataBlobs() here, which can create large first-sync stalls.
-        const cached = this._protoDataBlobBatchCache.get(protoPath);
+        const cached = forceRefresh ? null : this._protoDataBlobBatchCache.get(protoPath);
         if (cached)
             return cached;
-        if (this.autoBatchProtoBlobsOnFirstAccess === true && this._protoDataBlobBatchPrimed !== true) {
+        if (!forceRefresh && this.autoBatchProtoBlobsOnFirstAccess === true && this._protoDataBlobBatchPrimed !== true) {
             try {
                 this.prefetchProtoDataBlobsFromDriver(driver, { force: false });
                 const batchCached = this._protoDataBlobBatchCache.get(protoPath);
@@ -1514,8 +1846,12 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         try {
             const blob = driver.GetProtoDataBlob(protoPath);
             const normalizedBlob = this.normalizeProtoDataBlob(blob);
-            if (!normalizedBlob)
+            if (!normalizedBlob) {
+                if (forceRefresh) {
+                    this._protoDataBlobBatchCache.delete(protoPath);
+                }
                 return null;
+            }
             this._protoDataBlobBatchCache.set(protoPath, normalizedBlob);
             return normalizedBlob;
         }
@@ -1990,13 +2326,44 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         }
         const hasSyncHotPathGuard = typeof this.enterHydraSyncHotPath === 'function'
             && typeof this.leaveHydraSyncHotPath === 'function';
+        const resolvedDriver = typeof this.config?.driver === 'function'
+            ? this.config.driver()
+            : null;
+        const deltaBatchSummary = this.pullRprimDeltaBatchFromDriver?.(resolvedDriver) || null;
+        const shouldUseDirtyMeshCommit = deltaBatchSummary?.ok === true;
+        const dirtyMeshIds = shouldUseDirtyMeshCommit
+            ? new Set(deltaBatchSummary?.meshIds || [])
+            : null;
+        if (dirtyMeshIds) {
+            for (const [meshId, hydraMesh] of Object.entries(this.meshes || {})) {
+                if (!hydraMesh)
+                    continue;
+                if (hydraMesh?._pendingMaterialId) {
+                    dirtyMeshIds.add(meshId);
+                    continue;
+                }
+                if (meshId.includes(".proto_") && hydraMesh?._hasCompletedProtoSync !== true) {
+                    dirtyMeshIds.add(meshId);
+                }
+            }
+        }
         if (hasSyncHotPathGuard) {
             this.enterHydraSyncHotPath();
         }
         try {
-            for (const id in this.meshes) {
-                const hydraMesh = this.meshes[id];
-                hydraMesh.commit(commitProfile);
+            if (dirtyMeshIds) {
+                for (const meshId of dirtyMeshIds) {
+                    const hydraMesh = this.meshes[meshId];
+                    if (!hydraMesh)
+                        continue;
+                    hydraMesh.commit(commitProfile);
+                }
+            }
+            else {
+                for (const id in this.meshes) {
+                    const hydraMesh = this.meshes[id];
+                    hydraMesh.commit(commitProfile);
+                }
             }
             for (const id in this.instancers) {
                 const instancer = this.instancers[id];

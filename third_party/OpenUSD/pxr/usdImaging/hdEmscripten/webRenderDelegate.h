@@ -34,6 +34,13 @@ PXR_NAMESPACE_OPEN_SCOPE
 class WebRenderDelegate final : public HdRenderDelegate
 {
 public:
+    struct GeomSubsetSection
+    {
+        int start = 0;
+        int length = 0;
+        std::string materialId;
+    };
+
     struct ProtoDataBlobRecord
     {
         bool valid = false;
@@ -49,6 +56,43 @@ public:
         std::vector<float> normals;
         std::array<float, 16> transform = {0.0f};
         std::string materialId;
+    };
+
+    struct RprimPrimvarDeltaRecord
+    {
+        std::string name;
+        std::string interpolation;
+        int dimension = 0;
+        uintptr_t dataPtr = 0;
+        int dataCount = 0;
+    };
+
+    struct RprimDeltaRecord
+    {
+        uint32_t dirtyMask = 0;
+        bool hasMaterialId = false;
+        std::string materialId;
+        std::vector<GeomSubsetSection> geomSubsetSections;
+        uintptr_t pointsPtr = 0;
+        int pointsCount = 0;
+        uintptr_t indicesPtr = 0;
+        int indicesCount = 0;
+        uintptr_t normalsPtr = 0;
+        int normalsCount = 0;
+        uintptr_t transformPtr = 0;
+        int transformCount = 0;
+        std::vector<RprimPrimvarDeltaRecord> primvars;
+    };
+
+    enum RprimDeltaDirtyMask : uint32_t
+    {
+        kRprimDeltaDirtyMaterial = 1u << 0,
+        kRprimDeltaDirtyGeomSubsetMaterial = 1u << 1,
+        kRprimDeltaDirtyPoints = 1u << 2,
+        kRprimDeltaDirtyIndices = 1u << 3,
+        kRprimDeltaDirtyPrimvars = 1u << 4,
+        kRprimDeltaDirtyNormals = 1u << 5,
+        kRprimDeltaDirtyTransform = 1u << 6,
     };
 
     WebRenderDelegate(emscripten::val renderDelegateInterface) :
@@ -125,6 +169,31 @@ public:
         std::function<void(std::string const&, ProtoDataBlobRecord const&)> const& reader) const;
     void RemoveProtoDataBlob(std::string const& rprimPath);
 
+    void QueueRprimMaterial(std::string const& rprimPath,
+                            std::string const& materialId);
+    void QueueRprimGeomSubsetMaterial(std::string const& rprimPath,
+                                      std::vector<GeomSubsetSection> const& sections);
+    void QueueRprimPoints(std::string const& rprimPath,
+                          float const* points,
+                          int pointsCount);
+    void QueueRprimIndices(std::string const& rprimPath,
+                           int32_t const* indices,
+                           int indicesCount);
+    void QueueRprimNormals(std::string const& rprimPath,
+                           float const* normals,
+                           int normalsCount);
+    void QueueRprimTransform(std::string const& rprimPath,
+                             float const* transform,
+                             int transformCount);
+    void QueueRprimPrimvar(std::string const& rprimPath,
+                           std::string const& name,
+                           std::string const& interpolation,
+                           int dimension,
+                           float const* data,
+                           int dataCount);
+    void ClearRprimDelta(std::string const& rprimPath);
+    emscripten::val TakeRprimDeltaBatch();
+
 private:
     static const TfTokenVector SUPPORTED_RPRIM_TYPES;
     static const TfTokenVector SUPPORTED_SPRIM_TYPES;
@@ -138,6 +207,9 @@ private:
     emscripten::val _renderDelegateInterface;
     mutable std::mutex _protoDataBlobMutex;
     std::unordered_map<std::string, ProtoDataBlobRecord> _protoDataBlobByRprimPath;
+    mutable std::mutex _rprimDeltaMutex;
+    std::unordered_map<std::string, RprimDeltaRecord> _rprimDeltaByPath;
+    std::vector<std::string> _rprimDeltaOrder;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

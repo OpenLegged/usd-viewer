@@ -1,5 +1,5 @@
 // @ts-ignore runtime cache-busting query suffix is resolved by browser ESM loader.
-import { ThreeRenderDelegateInterface } from "/usd/hydra/ThreeJsRenderDelegate.js?v=20260222h";
+import { ThreeRenderDelegateInterface } from "/usd/hydra/ThreeJsRenderDelegate.js?v=20260223i";
 import { fitCameraToSelection, scheduleCameraRefit } from "./camera.js";
 import { getDirectoryFromVirtualPath, isLikelyNonRenderableUsdConfig, normalizeUsdPath, parseBooleanFlag } from "./path-utils.js";
 import { UsdFsHelper } from "./usd-fs.js";
@@ -589,6 +589,11 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     enableXformOpFallbackFromLayerText: parseBooleanFlag(params.get("enableXformOpFallbackFromLayerText"), false),
     // Proto stage sync is force-enabled to avoid slow per-mesh bridge calls.
     enableProtoBlobFastPath,
+    // Prefer one-shot final stage override batches over per-mesh fallback chains.
+    preferFinalStageOverrideBatchInProtoSync: parseBooleanFlag(
+      params.get("preferFinalStageOverrideBatchInProtoSync"),
+      true,
+    ),
     // Skip heavy per-callback geometry copies when proto blob fast-path is enabled.
     preferProtoBlobOverHydraPayload: parseBooleanFlag(params.get("preferProtoBlobOverHydraPayload"), true),
     // Bridge optimization: when first proto/blob or transform query arrives,
@@ -853,6 +858,26 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
       }
     }
   };
+  let earlyFinalStageOverrideBatchPrimed = false;
+  const tryPrimeEarlyFinalStageOverrideBatch = (): void => {
+    if (earlyFinalStageOverrideBatchPrimed) return;
+    const renderInterface = window.renderInterface as any;
+    if (!renderInterface || typeof renderInterface.prefetchFinalStageOverrideBatchFromDriver !== "function") return;
+    const resolvedDriver = state.driver || null;
+    if (!resolvedDriver) return;
+    try {
+      const summary = renderInterface.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
+        force: false,
+      });
+      const count = Number(summary?.count || 0);
+      if (Number.isFinite(count) && count > 0) {
+        markLoadPhase("stage-overrides-batch-primed-pre-burst");
+      }
+      earlyFinalStageOverrideBatchPrimed = true;
+    } catch {
+      // Keep pre-initial override priming best-effort and non-blocking.
+    }
+  };
 
   if (fastLoad) {
     // Fast path: draw once for first visual feedback, then run a bounded
@@ -870,6 +895,7 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
 
     let stats = { total: 0, ready: 0, collisions: 0, visuals: 0 };
     if (safeDraw(drawBurstRenderEveryDraw)) {
+      tryPrimeEarlyFinalStageOverrideBatch();
       stats = updateStreamingStatus();
     }
 
@@ -906,6 +932,9 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     for (let round = 0; round < 24; round++) {
       if (!isLoadStillActive()) return state;
       if (!runInstrumentedDriverDraw("load-slow")) break;
+      if (round === 0) {
+        tryPrimeEarlyFinalStageOverrideBatch();
+      }
 
       const stats = getMeshLoadStats(window.renderInterface);
       setMessage(`Loading meshes... ${stats.ready}/${Math.max(stats.total, 1)} ready`);

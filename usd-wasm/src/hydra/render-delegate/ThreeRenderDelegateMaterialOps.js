@@ -747,6 +747,8 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
             this._collisionProtoOverrideBatchPrimed = false;
             this._visualProtoOverrideCache.clear();
             this._visualProtoOverrideBatchPrimed = false;
+            this._finalStageOverrideBatchCache.clear();
+            this._finalStageOverrideBatchPrimed = false;
             this._primOverrideDataCache.clear();
         }
         this._urdfLinkWorldTransformCacheByStageSource.clear();
@@ -763,8 +765,6 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
     }
     refreshMeshStageOverrides(options = {}) {
         const stage = this.getStage();
-        if (!stage)
-            return;
         const includeCollision = options?.includeCollision !== false;
         const includeVisual = options?.includeVisual !== false;
         const startIndexRaw = Number(options?.startIndex);
@@ -781,11 +781,35 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
                 preserveResolvedPrimCaches: canPreserveRuntimeBridgeCaches,
                 preserveDriverCaches: canPreserveRuntimeBridgeCaches,
             });
-            if (!this.suppressMaterialBindingApiWarnings) {
+            if (!this.suppressMaterialBindingApiWarnings && stage) {
                 this.tryRepairMaterialBindingApiSchemas();
             }
         }
         const protoMeshes = Object.values(this.meshes).filter((mesh) => !!mesh && typeof mesh._id === 'string' && mesh._id.includes('.proto_'));
+        const resolvedDriver = typeof this.config?.driver === 'function'
+            ? this.config.driver()
+            : null;
+        let finalStageBatchEntries = null;
+        let finalStageBatchEnabled = false;
+        if (resolvedDriver && typeof this.prefetchFinalStageOverrideBatchFromDriver === 'function') {
+            try {
+                const batchSummary = this.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
+                    force: startIndex === 0,
+                }) || {};
+                const batchSource = String(batchSummary?.source || '');
+                const batchEntries = batchSummary?.entries;
+                if (batchEntries instanceof Map
+                    && batchEntries.size > 0
+                    && batchSource !== 'single-only'
+                    && batchSource !== 'error') {
+                    finalStageBatchEntries = batchEntries;
+                    finalStageBatchEnabled = true;
+                }
+            }
+            catch { }
+        }
+        if (!stage && !finalStageBatchEnabled)
+            return;
         let nextIndex = startIndex;
         let processed = 0;
         for (let meshIndex = startIndex; meshIndex < protoMeshes.length; meshIndex++) {
@@ -800,33 +824,50 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
                     continue;
                 if (!isCollisionProto && !includeVisual)
                     continue;
-                const collisionOverride = isCollisionProto
-                    ? this.getCollisionProtoOverride?.(mesh._id)
-                    : null;
-                const primPath = isCollisionProto
-                    ? normalizeHydraPath(collisionOverride?.resolvedPrimPath || this.getResolvedPrimPathForMeshId(mesh._id))
-                    : null;
-                const shouldSkipCollisionReapply = (isCollisionProto
-                    && primPath
-                    && typeof mesh.hasAppliedCollisionOverrideForPrimPath === 'function'
-                    && mesh.hasAppliedCollisionOverrideForPrimPath(primPath) === true);
-                if (isCollisionProto
-                    && collisionOverride?.valid === true
-                    && !shouldSkipCollisionReapply
-                    && typeof mesh.applyCollisionGeometryFromDriverOverride === 'function') {
-                    mesh.applyCollisionGeometryFromDriverOverride(collisionOverride);
+                if (finalStageBatchEnabled && finalStageBatchEntries) {
+                    const finalOverride = finalStageBatchEntries.get(mesh._id) || null;
+                    if (finalOverride?.valid === true) {
+                        if (typeof mesh.applyFinalStageOverrideFromDriver === 'function') {
+                            mesh.applyFinalStageOverrideFromDriver(finalOverride, {
+                                skipTransformFallback: true,
+                                skipCollisionRotationFallback: true,
+                            });
+                        }
+                        else if (isCollisionProto
+                            && typeof mesh.applyCollisionGeometryFromDriverOverride === 'function') {
+                            mesh.applyCollisionGeometryFromDriverOverride(finalOverride);
+                        }
+                    }
                 }
-                else if (isCollisionProto
-                    && primPath
-                    && !shouldSkipCollisionReapply
-                    && typeof mesh.applyResolvedPrimGeometryAndTransform === 'function') {
-                    mesh.applyResolvedPrimGeometryAndTransform(primPath);
-                }
-                if (typeof mesh.syncProtoTransformFromFallback === 'function') {
-                    mesh.syncProtoTransformFromFallback();
-                }
-                if (isCollisionProto && typeof mesh.syncCollisionRotationFromVisualLink === 'function') {
-                    mesh.syncCollisionRotationFromVisualLink();
+                else {
+                    const collisionOverride = isCollisionProto
+                        ? this.getCollisionProtoOverride?.(mesh._id)
+                        : null;
+                    const primPath = isCollisionProto
+                        ? normalizeHydraPath(collisionOverride?.resolvedPrimPath || this.getResolvedPrimPathForMeshId(mesh._id))
+                        : null;
+                    const shouldSkipCollisionReapply = (isCollisionProto
+                        && primPath
+                        && typeof mesh.hasAppliedCollisionOverrideForPrimPath === 'function'
+                        && mesh.hasAppliedCollisionOverrideForPrimPath(primPath) === true);
+                    if (isCollisionProto
+                        && collisionOverride?.valid === true
+                        && !shouldSkipCollisionReapply
+                        && typeof mesh.applyCollisionGeometryFromDriverOverride === 'function') {
+                        mesh.applyCollisionGeometryFromDriverOverride(collisionOverride);
+                    }
+                    else if (isCollisionProto
+                        && primPath
+                        && !shouldSkipCollisionReapply
+                        && typeof mesh.applyResolvedPrimGeometryAndTransform === 'function') {
+                        mesh.applyResolvedPrimGeometryAndTransform(primPath);
+                    }
+                    if (typeof mesh.syncProtoTransformFromFallback === 'function') {
+                        mesh.syncProtoTransformFromFallback();
+                    }
+                    if (isCollisionProto && typeof mesh.syncCollisionRotationFromVisualLink === 'function') {
+                        mesh.syncCollisionRotationFromVisualLink();
+                    }
                 }
             }
             catch { }

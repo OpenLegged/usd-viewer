@@ -29,6 +29,8 @@ EMSCRIPTEN_BINDINGS(test_usd_imaging_emscripten) {
     .function("GetVisualProtoOverride", &pxr::HdWebSyncDriver::GetVisualProtoOverride)
     .function("GetVisualProtoOverrides", &pxr::HdWebSyncDriver::GetVisualProtoOverrides)
     .function("GetProtoMeshOverrides", &pxr::HdWebSyncDriver::GetProtoMeshOverrides)
+    .function("GetRprimDeltaBatch", &pxr::HdWebSyncDriver::GetRprimDeltaBatch)
+    .function("GetFinalStageOverrideBatch", &pxr::HdWebSyncDriver::GetFinalStageOverrideBatch)
     .function("GetPrimOverrideData", &pxr::HdWebSyncDriver::GetPrimOverrideData)
     .function("GetPrimOverrideDataMap", &pxr::HdWebSyncDriver::GetPrimOverrideDataMap)
     .function("SetTime", &pxr::HdWebSyncDriver::SetTime)

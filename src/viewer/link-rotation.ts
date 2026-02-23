@@ -260,6 +260,21 @@ export class LinkRotationController {
     this.updateCursor();
   }
 
+  prewarmJointPosePipeline(): void {
+    if (!this.enabled || !this.renderInterface?.meshes) return;
+    if (Object.keys(this.renderInterface.meshes).length <= 0) return;
+    if (!this.basePoseDirty && this.baseMatrixByMeshId.size > 0 && this.posedLinkFrameMatrixByLinkPath.size > 0) {
+      return;
+    }
+
+    try {
+      this.apply(this.renderInterface, {
+        force: true,
+        suppressIdleRefresh: true,
+      });
+    } catch {}
+  }
+
   setOnSelectionChanged(handler: ((linkPath: string | null, jointInfo: JointInfoSnapshot | null) => void) | null): void {
     this.onSelectionChanged = handler;
   }
