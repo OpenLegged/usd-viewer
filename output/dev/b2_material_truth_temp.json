@@ -1,0 +1,67 @@
+{
+  "default_prim": "/b2_description",
+  "visual_mesh_count": 13,
+  "material_by_mesh": [
+    {
+      "mesh_path": "/b2_description/FL_calf/visuals/FL_calf/mesh",
+      "material_path": null
+    },
+    {
+      "mesh_path": "/b2_description/FL_hip/visuals/FL_hip/mesh",
+      "material_path": "/b2_description/Looks/material________________008"
+    },
+    {
+      "mesh_path": "/b2_description/FL_thigh/visuals/FL_thigh/mesh",
+      "material_path": null
+    },
+    {
+      "mesh_path": "/b2_description/FR_calf/visuals/FR_calf/mesh",
+      "material_path": null
+    },
+    {
+      "mesh_path": "/b2_description/FR_hip/visuals/FR_hip/mesh",
+      "material_path": "/b2_description/Looks/material________________008"
+    },
+    {
+      "mesh_path": "/b2_description/FR_thigh/visuals/FR_thigh/mesh",
+      "material_path": null
+    },
+    {
+      "mesh_path": "/b2_description/RL_calf/visuals/RL_calf/mesh",
+      "material_path": null
+    },
+    {
+      "mesh_path": "/b2_description/RL_hip/visuals/RL_hip/mesh",
+      "material_path": "/b2_description/Looks/material________________008"
+    },
+    {
+      "mesh_path": "/b2_description/RL_thigh/visuals/RL_thigh/mesh",
+      "material_path": null
+    },
+    {
+      "mesh_path": "/b2_description/RR_calf/visuals/RR_calf/mesh",
+      "material_path": null
+    },
+    {
+      "mesh_path": "/b2_description/RR_hip/visuals/RR_hip/mesh",
+      "material_path": "/b2_description/Looks/material________________008"
+    },
+    {
+      "mesh_path": "/b2_description/RR_thigh/visuals/RR_thigh/mesh",
+      "material_path": null
+    },
+    {
+      "mesh_path": "/b2_description/base_link/visuals/base_link/mesh",
+      "material_path": null
+    }
+  ],
+  "materials": [
+    {
+      "material_path": "/b2_description/Looks/material________________008",
+      "surface_shader_path": null,
+      "surface_shader_id": null,
+      "inputs": {},
+      "connected_inputs": {}
+    }
+  ]
+}

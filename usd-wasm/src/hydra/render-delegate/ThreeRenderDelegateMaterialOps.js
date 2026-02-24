@@ -727,6 +727,10 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         const preserveDriverCaches = options?.preserveDriverCaches === true;
         this._localXformCache.clear();
         this._worldXformCache.clear();
+        // Transform caches were cleared, so batch-prime state must be reset.
+        // Otherwise future prefetchPrimTransformsFromDriver(force=false) calls may
+        // incorrectly short-circuit with empty caches and trigger slow per-prim fallback.
+        this._primTransformBatchPrimed = false;
         this._primPathExistenceCache.clear();
         this._knownPrimPathSet = null;
         this._knownPrimPathSetPrimed = false;
@@ -743,6 +747,8 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         this._visualSemanticChildMapByStageSource.clear();
         this._openedGuideStages.clear();
         if (!preserveDriverCaches) {
+            this._protoDataBlobBatchCache.clear();
+            this._protoDataBlobBatchPrimed = false;
             this._collisionProtoOverrideCache.clear();
             this._collisionProtoOverrideBatchPrimed = false;
             this._visualProtoOverrideCache.clear();
@@ -830,22 +836,26 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
                     continue;
                 if (!isCollisionProto && !includeVisual)
                     continue;
+                let appliedByFinalStageBatch = false;
                 if (finalStageBatchEnabled && finalStageBatchEntries) {
                     const finalOverride = finalStageBatchEntries.get(mesh._id) || null;
                     if (finalOverride?.valid === true) {
                         if (typeof mesh.applyFinalStageOverrideFromDriver === 'function') {
-                            mesh.applyFinalStageOverrideFromDriver(finalOverride, {
+                            appliedByFinalStageBatch = mesh.applyFinalStageOverrideFromDriver(finalOverride, {
                                 skipTransformFallback: true,
                                 skipCollisionRotationFallback: true,
-                            });
+                            }) === true;
                         }
                         else if (isCollisionProto
                             && typeof mesh.applyCollisionGeometryFromDriverOverride === 'function') {
-                            mesh.applyCollisionGeometryFromDriverOverride(finalOverride);
+                            appliedByFinalStageBatch = mesh.applyCollisionGeometryFromDriverOverride(finalOverride) === true;
                         }
                     }
                 }
-                else {
+                // Missing/failed final-batch entries must still fall back per-mesh.
+                // Otherwise models that lack full batch coverage (e.g. analytic collision
+                // primitives or deferred visual sync) can end up with empty placeholders.
+                if (!appliedByFinalStageBatch) {
                     const collisionOverride = isCollisionProto
                         ? this.getCollisionProtoOverride?.(mesh._id)
                         : null;

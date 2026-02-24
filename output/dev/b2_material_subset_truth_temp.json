@@ -1,0 +1,192 @@
+{
+  "default_prim": "/b2_description",
+  "meshes": [
+    {
+      "mesh_path": "/b2_description/FL_calf/visuals/FL_calf/mesh",
+      "direct_material": null,
+      "subset_count": 2,
+      "subsets": [
+        {
+          "subset_path": "/b2_description/FL_calf/visuals/FL_calf/mesh/subset_______005",
+          "material": "/b2_description/Looks/material_______005",
+          "indices_count": 7246
+        },
+        {
+          "subset_path": "/b2_description/FL_calf/visuals/FL_calf/mesh/subset________________018",
+          "material": "/b2_description/Looks/material________________011",
+          "indices_count": 1776
+        }
+      ]
+    },
+    {
+      "mesh_path": "/b2_description/FL_hip/visuals/FL_hip/mesh",
+      "direct_material": "/b2_description/Looks/material________________008",
+      "subset_count": 0,
+      "subsets": []
+    },
+    {
+      "mesh_path": "/b2_description/FL_thigh/visuals/FL_thigh/mesh",
+      "direct_material": null,
+      "subset_count": 2,
+      "subsets": [
+        {
+          "subset_path": "/b2_description/FL_thigh/visuals/FL_thigh/mesh/subset_____________009",
+          "material": "/b2_description/Looks/material_____________009",
+          "indices_count": 1461
+        },
+        {
+          "subset_path": "/b2_description/FL_thigh/visuals/FL_thigh/mesh/subset________________008",
+          "material": "/b2_description/Looks/material________________008",
+          "indices_count": 1150
+        }
+      ]
+    },
+    {
+      "mesh_path": "/b2_description/FR_calf/visuals/FR_calf/mesh",
+      "direct_material": null,
+      "subset_count": 2,
+      "subsets": [
+        {
+          "subset_path": "/b2_description/FR_calf/visuals/FR_calf/mesh/subset_______005",
+          "material": "/b2_description/Looks/material_______005",
+          "indices_count": 7246
+        },
+        {
+          "subset_path": "/b2_description/FR_calf/visuals/FR_calf/mesh/subset________________018",
+          "material": "/b2_description/Looks/material________________011",
+          "indices_count": 1776
+        }
+      ]
+    },
+    {
+      "mesh_path": "/b2_description/FR_hip/visuals/FR_hip/mesh",
+      "direct_material": "/b2_description/Looks/material________________008",
+      "subset_count": 0,
+      "subsets": []
+    },
+    {
+      "mesh_path": "/b2_description/FR_thigh/visuals/FR_thigh/mesh",
+      "direct_material": null,
+      "subset_count": 2,
+      "subsets": [
+        {
+          "subset_path": "/b2_description/FR_thigh/visuals/FR_thigh/mesh/subset_____________009",
+          "material": "/b2_description/Looks/material_____________009",
+          "indices_count": 1461
+        },
+        {
+          "subset_path": "/b2_description/FR_thigh/visuals/FR_thigh/mesh/subset________________008",
+          "material": "/b2_description/Looks/material________________008",
+          "indices_count": 1150
+        }
+      ]
+    },
+    {
+      "mesh_path": "/b2_description/RL_calf/visuals/RL_calf/mesh",
+      "direct_material": null,
+      "subset_count": 2,
+      "subsets": [
+        {
+          "subset_path": "/b2_description/RL_calf/visuals/RL_calf/mesh/subset_______005",
+          "material": "/b2_description/Looks/material_______005",
+          "indices_count": 7246
+        },
+        {
+          "subset_path": "/b2_description/RL_calf/visuals/RL_calf/mesh/subset________________018",
+          "material": "/b2_description/Looks/material________________011",
+          "indices_count": 1776
+        }
+      ]
+    },
+    {
+      "mesh_path": "/b2_description/RL_hip/visuals/RL_hip/mesh",
+      "direct_material": "/b2_description/Looks/material________________008",
+      "subset_count": 0,
+      "subsets": []
+    },
+    {
+      "mesh_path": "/b2_description/RL_thigh/visuals/RL_thigh/mesh",
+      "direct_material": null,
+      "subset_count": 2,
+      "subsets": [
+        {
+          "subset_path": "/b2_description/RL_thigh/visuals/RL_thigh/mesh/subset_____________009",
+          "material": "/b2_description/Looks/material_____________009",
+          "indices_count": 1461
+        },
+        {
+          "subset_path": "/b2_description/RL_thigh/visuals/RL_thigh/mesh/subset________________008",
+          "material": "/b2_description/Looks/material________________008",
+          "indices_count": 1150
+        }
+      ]
+    },
+    {
+      "mesh_path": "/b2_description/RR_calf/visuals/RR_calf/mesh",
+      "direct_material": null,
+      "subset_count": 2,
+      "subsets": [
+        {
+          "subset_path": "/b2_description/RR_calf/visuals/RR_calf/mesh/subset_______005",
+          "material": "/b2_description/Looks/material_______005",
+          "indices_count": 7246
+        },
+        {
+          "subset_path": "/b2_description/RR_calf/visuals/RR_calf/mesh/subset________________018",
+          "material": "/b2_description/Looks/material________________011",
+          "indices_count": 1776
+        }
+      ]
+    },
+    {
+      "mesh_path": "/b2_description/RR_hip/visuals/RR_hip/mesh",
+      "direct_material": "/b2_description/Looks/material________________008",
+      "subset_count": 0,
+      "subsets": []
+    },
+    {
+      "mesh_path": "/b2_description/RR_thigh/visuals/RR_thigh/mesh",
+      "direct_material": null,
+      "subset_count": 2,
+      "subsets": [
+        {
+          "subset_path": "/b2_description/RR_thigh/visuals/RR_thigh/mesh/subset_____________009",
+          "material": "/b2_description/Looks/material_____________009",
+          "indices_count": 1460
+        },
+        {
+          "subset_path": "/b2_description/RR_thigh/visuals/RR_thigh/mesh/subset________________008",
+          "material": "/b2_description/Looks/material________________008",
+          "indices_count": 1150
+        }
+      ]
+    },
+    {
+      "mesh_path": "/b2_description/base_link/visuals/base_link/mesh",
+      "direct_material": null,
+      "subset_count": 4,
+      "subsets": [
+        {
+          "subset_path": "/b2_description/base_link/visuals/base_link/mesh/logo_001",
+          "material": "/b2_description/Looks/logo_001",
+          "indices_count": 328
+        },
+        {
+          "subset_path": "/b2_description/base_link/visuals/base_link/mesh/subset_______023",
+          "material": "/b2_description/Looks/material_______023",
+          "indices_count": 366
+        },
+        {
+          "subset_path": "/b2_description/base_link/visuals/base_link/mesh/subset_______024",
+          "material": "/b2_description/Looks/material_______024",
+          "indices_count": 756
+        },
+        {
+          "subset_path": "/b2_description/base_link/visuals/base_link/mesh/subset________________011",
+          "material": "/b2_description/Looks/material________________011",
+          "indices_count": 30187
+        }
+      ]
+    }
+  ]
+}

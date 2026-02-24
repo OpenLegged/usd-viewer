@@ -1,0 +1,431 @@
+{
+  "generatedAt": "2026-02-24T01:48:57.929Z",
+  "stageSourcePath": "/unitree_model/B2/usd/b2.usd",
+  "meshCount": 13,
+  "uniqueMaterialCount": 7,
+  "materials": {
+    "material________________011": {
+      "name": "material________________011",
+      "uuid": "23b56bf8-961b-4b5f-837f-19e4f0fd9e7c",
+      "type": "MeshPhysicalMaterial",
+      "color": [
+        0.7487599849700928,
+        0.7487599849700928,
+        0.7487599849700928
+      ],
+      "roughness": 1,
+      "metalness": 0,
+      "opacity": 1,
+      "transparent": false,
+      "alphaTest": 0,
+      "emissive": [
+        0,
+        0,
+        0
+      ],
+      "emissiveIntensity": 10000,
+      "hasMap": false,
+      "hasEmissiveMap": false,
+      "hasNormalMap": false,
+      "hasRoughnessMap": false,
+      "hasMetalnessMap": false,
+      "hasAlphaMap": false,
+      "toneMapped": true
+    },
+    "logo_001": {
+      "name": "logo_001",
+      "uuid": "402b3e8c-a47b-4868-a872-b738a8bd10eb",
+      "type": "MeshPhysicalMaterial",
+      "color": [
+        1,
+        1,
+        1
+      ],
+      "roughness": 1,
+      "metalness": 0,
+      "opacity": 1,
+      "transparent": false,
+      "alphaTest": 0,
+      "emissive": [
+        0,
+        0,
+        0
+      ],
+      "emissiveIntensity": 10000,
+      "hasMap": false,
+      "hasEmissiveMap": false,
+      "hasNormalMap": false,
+      "hasRoughnessMap": false,
+      "hasMetalnessMap": false,
+      "hasAlphaMap": false,
+      "toneMapped": true
+    },
+    "material_______023": {
+      "name": "material_______023",
+      "uuid": "0a9c1fc1-ea74-4dec-87e5-336f036de200",
+      "type": "MeshPhysicalMaterial",
+      "color": [
+        0,
+        0,
+        0
+      ],
+      "roughness": 1,
+      "metalness": 0,
+      "opacity": 1,
+      "transparent": false,
+      "alphaTest": 0,
+      "emissive": [
+        0,
+        0,
+        0
+      ],
+      "emissiveIntensity": 10000,
+      "hasMap": false,
+      "hasEmissiveMap": false,
+      "hasNormalMap": false,
+      "hasRoughnessMap": false,
+      "hasMetalnessMap": false,
+      "hasAlphaMap": false,
+      "toneMapped": true
+    },
+    "material_______024": {
+      "name": "material_______024",
+      "uuid": "16164a86-e64f-4289-aa98-519d9f484844",
+      "type": "MeshPhysicalMaterial",
+      "color": [
+        0.002853000070899725,
+        0.002853000070899725,
+        0.002853000070899725
+      ],
+      "roughness": 1,
+      "metalness": 0,
+      "opacity": 1,
+      "transparent": false,
+      "alphaTest": 0,
+      "emissive": [
+        0,
+        0,
+        0
+      ],
+      "emissiveIntensity": 10000,
+      "hasMap": false,
+      "hasEmissiveMap": false,
+      "hasNormalMap": false,
+      "hasRoughnessMap": false,
+      "hasMetalnessMap": false,
+      "hasAlphaMap": false,
+      "toneMapped": true
+    },
+    "material________________008": {
+      "name": "material________________008",
+      "uuid": "a3427e54-e02f-4f05-920b-8f26385bb0c4",
+      "type": "MeshPhysicalMaterial",
+      "color": [
+        0.8500000238418579,
+        0.8500000238418579,
+        0.8500000238418579
+      ],
+      "roughness": 1,
+      "metalness": 0,
+      "opacity": 1,
+      "transparent": false,
+      "alphaTest": 0,
+      "emissive": [
+        0,
+        0,
+        0
+      ],
+      "emissiveIntensity": 10000,
+      "hasMap": false,
+      "hasEmissiveMap": false,
+      "hasNormalMap": false,
+      "hasRoughnessMap": false,
+      "hasMetalnessMap": false,
+      "hasAlphaMap": false,
+      "toneMapped": true
+    },
+    "material_____________009": {
+      "name": "material_____________009",
+      "uuid": "0a6d6116-181e-462a-b426-9c8eadaab83a",
+      "type": "MeshPhysicalMaterial",
+      "color": [
+        0.6500052809715271,
+        0.6800000071525574,
+        0.6500052809715271
+      ],
+      "roughness": 1,
+      "metalness": 0,
+      "opacity": 1,
+      "transparent": false,
+      "alphaTest": 0,
+      "emissive": [
+        0,
+        0,
+        0
+      ],
+      "emissiveIntensity": 10000,
+      "hasMap": false,
+      "hasEmissiveMap": false,
+      "hasNormalMap": false,
+      "hasRoughnessMap": false,
+      "hasMetalnessMap": false,
+      "hasAlphaMap": false,
+      "toneMapped": true
+    },
+    "material_______005": {
+      "name": "material_______005",
+      "uuid": "4359e8ee-89dd-4b47-a953-bd2d9bd97ab8",
+      "type": "MeshPhysicalMaterial",
+      "color": [
+        0.07323545962572098,
+        0.07323545962572098,
+        0.07323545962572098
+      ],
+      "roughness": 1,
+      "metalness": 0,
+      "opacity": 1,
+      "transparent": false,
+      "alphaTest": 0,
+      "emissive": [
+        0,
+        0,
+        0
+      ],
+      "emissiveIntensity": 10000,
+      "hasMap": false,
+      "hasEmissiveMap": false,
+      "hasNormalMap": false,
+      "hasRoughnessMap": false,
+      "hasMetalnessMap": false,
+      "hasAlphaMap": false,
+      "toneMapped": true
+    }
+  },
+  "meshes": [
+    {
+      "meshId": "/b2_description/base_link/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________011",
+        "logo_001",
+        "material_______023",
+        "material_______024"
+      ],
+      "materialCount": 4,
+      "groups": [
+        {
+          "start": 0,
+          "count": 247296,
+          "materialIndex": 0
+        },
+        {
+          "start": 247296,
+          "count": 3474,
+          "materialIndex": 1
+        },
+        {
+          "start": 250812,
+          "count": 3906,
+          "materialIndex": 2
+        },
+        {
+          "start": 254016,
+          "count": 8085,
+          "materialIndex": 3
+        }
+      ]
+    },
+    {
+      "meshId": "/b2_description/FL_calf/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________011",
+        "material_______005"
+      ],
+      "materialCount": 2,
+      "groups": [
+        {
+          "start": 0,
+          "count": 16824,
+          "materialIndex": 0
+        },
+        {
+          "start": 16824,
+          "count": 64383,
+          "materialIndex": 1
+        }
+      ]
+    },
+    {
+      "meshId": "/b2_description/FL_hip/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________008"
+      ],
+      "materialCount": 1,
+      "groups": []
+    },
+    {
+      "meshId": "/b2_description/FL_thigh/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________008",
+        "material_____________009"
+      ],
+      "materialCount": 2,
+      "groups": [
+        {
+          "start": 0,
+          "count": 11250,
+          "materialIndex": 0
+        },
+        {
+          "start": 11250,
+          "count": 15669,
+          "materialIndex": 1
+        }
+      ]
+    },
+    {
+      "meshId": "/b2_description/FR_calf/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________011",
+        "material_______005"
+      ],
+      "materialCount": 2,
+      "groups": [
+        {
+          "start": 0,
+          "count": 16824,
+          "materialIndex": 0
+        },
+        {
+          "start": 16824,
+          "count": 64383,
+          "materialIndex": 1
+        }
+      ]
+    },
+    {
+      "meshId": "/b2_description/FR_hip/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________008"
+      ],
+      "materialCount": 1,
+      "groups": []
+    },
+    {
+      "meshId": "/b2_description/FR_thigh/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________008",
+        "material_____________009"
+      ],
+      "materialCount": 2,
+      "groups": [
+        {
+          "start": 0,
+          "count": 11250,
+          "materialIndex": 0
+        },
+        {
+          "start": 11250,
+          "count": 15177,
+          "materialIndex": 1
+        }
+      ]
+    },
+    {
+      "meshId": "/b2_description/RL_calf/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________011",
+        "material_______005"
+      ],
+      "materialCount": 2,
+      "groups": [
+        {
+          "start": 0,
+          "count": 16824,
+          "materialIndex": 0
+        },
+        {
+          "start": 16824,
+          "count": 64383,
+          "materialIndex": 1
+        }
+      ]
+    },
+    {
+      "meshId": "/b2_description/RL_hip/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________008"
+      ],
+      "materialCount": 1,
+      "groups": []
+    },
+    {
+      "meshId": "/b2_description/RL_thigh/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________008",
+        "material_____________009"
+      ],
+      "materialCount": 2,
+      "groups": [
+        {
+          "start": 0,
+          "count": 11250,
+          "materialIndex": 0
+        },
+        {
+          "start": 11250,
+          "count": 15228,
+          "materialIndex": 1
+        }
+      ]
+    },
+    {
+      "meshId": "/b2_description/RR_calf/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________011",
+        "material_______005"
+      ],
+      "materialCount": 2,
+      "groups": [
+        {
+          "start": 0,
+          "count": 16824,
+          "materialIndex": 0
+        },
+        {
+          "start": 16824,
+          "count": 64383,
+          "materialIndex": 1
+        }
+      ]
+    },
+    {
+      "meshId": "/b2_description/RR_hip/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________008"
+      ],
+      "materialCount": 1,
+      "groups": []
+    },
+    {
+      "meshId": "/b2_description/RR_thigh/visuals.proto_mesh_id0",
+      "materialNames": [
+        "material________________008",
+        "material_____________009"
+      ],
+      "materialCount": 2,
+      "groups": [
+        {
+          "start": 0,
+          "count": 11250,
+          "materialIndex": 0
+        },
+        {
+          "start": 11250,
+          "count": 15345,
+          "materialIndex": 1
+        }
+      ]
+    }
+  ],
+  "consoleErrors": []
+}

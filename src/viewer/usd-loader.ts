@@ -190,6 +190,10 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     params.get("warmupRuntimeBridgeAfterDraw"),
     warmupRuntimeBridge,
   );
+  const prefetchFinalStageOverrideBatchBeforeDraw = parseBooleanFlag(
+    params.get("prefetchFinalStageOverrideBatchBeforeDraw"),
+    primeFinalStageOverrideBatchBeforeDraw,
+  );
   const warmupRobotMetadata = parseBooleanFlag(params.get("warmupRobotMetadata"), true);
   const maxCpuDraw = parseBooleanFlag(params.get("maxCpuDraw"), false);
   // Favor full-scene readiness during the loading phase to avoid long tail mesh hydration.
@@ -775,6 +779,32 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
       return 0;
     }
   };
+  const runFinalStageOverrideBatchPrefetch = (
+    phaseLabel: "driver-init" | "post-initial-draw",
+    options: { force?: boolean } = {},
+  ): Record<string, unknown> | null => {
+    const shouldPrefetchInPhase = (phaseLabel === "driver-init" && prefetchFinalStageOverrideBatchBeforeDraw)
+      || (phaseLabel === "post-initial-draw" && primeFinalStageOverrideBatchBeforeDraw);
+    if (!shouldPrefetchInPhase) return null;
+    const activeRenderInterface = window.renderInterface as any;
+    if (!activeRenderInterface || typeof activeRenderInterface.prefetchFinalStageOverrideBatchFromDriver !== "function") {
+      return null;
+    }
+    if (!isLoadStillActive()) return null;
+    if (window.driver !== state.driver) return null;
+    try {
+      const summary = activeRenderInterface.prefetchFinalStageOverrideBatchFromDriver(state.driver, {
+        force: options.force === true,
+      });
+      const prefetchedCount = Number((summary as any)?.count || 0);
+      if (prefetchedCount > 0) {
+        markLoadPhase(`stage-overrides-batch-prefetch-${phaseLabel}`);
+      }
+      return summary && typeof summary === "object" ? summary : null;
+    } catch {
+      return null;
+    }
+  };
   const scheduleProtoBlobPrefetch = (): void => {
     if (!prefetchProtoDataBlobs) return;
     const runPrefetch = (): void => {
@@ -809,6 +839,7 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
   };
 
   runRuntimeBridgeWarmup("driver-init", { force: true, includeRobotMetadata: false });
+  runFinalStageOverrideBatchPrefetch("driver-init", { force: false });
   refreshPrefetchedStageTransforms("driver-init");
   if (prefetchProtoDataBlobsBeforeDraw && !protoBlobPrefetchedBeforeDraw) {
     const prefetched = runProtoBlobPrefetch({ force: true });
@@ -987,6 +1018,7 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     force: false,
     includeRobotMetadata: warmupRobotMetadata,
   });
+  runFinalStageOverrideBatchPrefetch("post-initial-draw", { force: false });
   if (
     !postDrawBridgeWarmupSummary
     && warmupRobotMetadata

@@ -442,13 +442,13 @@ public:
         const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
         UsdGeomXformCache xformCache(timeCode);
         const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
-        CollisionCandidateMap candidateMap = _BuildCollisionCandidateMap(acceptableTypes);
+        _EnsureProtoCandidateMapsPrimed(acceptableTypes);
         _renderDelegate.ReadAllProtoDataBlobs(
             [&](std::string const& rprimPath, WebRenderDelegate::ProtoDataBlobRecord const&) {
                 if (rprimPath.find(".proto_") == std::string::npos) return;
-                const ProtoMeshIdentifier proto = _ParseProtoMeshIdentifier(rprimPath);
+                const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(rprimPath);
                 if (!proto.valid || proto.sectionName != "collisions") return;
-                overrides.set(rprimPath, _BuildCollisionProtoOverride(rprimPath, timeCode, &xformCache, &candidateMap));
+                overrides.set(rprimPath, _BuildCollisionProtoOverride(rprimPath, timeCode, &xformCache, &_collisionCandidateMapCache));
             });
         return overrides;
     }
@@ -470,13 +470,13 @@ public:
         const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
         UsdGeomXformCache xformCache(timeCode);
         const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
-        VisualCandidateMap candidateMap = _BuildVisualCandidateMap(acceptableTypes);
+        _EnsureProtoCandidateMapsPrimed(acceptableTypes);
         _renderDelegate.ReadAllProtoDataBlobs(
             [&](std::string const& rprimPath, WebRenderDelegate::ProtoDataBlobRecord const&) {
                 if (rprimPath.find(".proto_") == std::string::npos) return;
-                const ProtoMeshIdentifier proto = _ParseProtoMeshIdentifier(rprimPath);
+                const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(rprimPath);
                 if (!proto.valid || proto.sectionName != "visuals") return;
-                overrides.set(rprimPath, _BuildVisualProtoOverride(rprimPath, timeCode, &xformCache, &candidateMap));
+                overrides.set(rprimPath, _BuildVisualProtoOverride(rprimPath, timeCode, &xformCache, &_visualCandidateMapCache));
             });
         return overrides;
     }
@@ -496,15 +496,14 @@ public:
         const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
         UsdGeomXformCache xformCache(timeCode);
         const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
-        CollisionCandidateMap collisionCandidateMap = _BuildCollisionCandidateMap(acceptableTypes);
-        VisualCandidateMap visualCandidateMap = _BuildVisualCandidateMap(acceptableTypes);
+        _EnsureProtoCandidateMapsPrimed(acceptableTypes);
 
         size_t collisionCount = 0;
         size_t visualCount = 0;
         _renderDelegate.ReadAllProtoDataBlobs(
             [&](std::string const& rprimPath, WebRenderDelegate::ProtoDataBlobRecord const&) {
                 if (rprimPath.find(".proto_") == std::string::npos) return;
-                const ProtoMeshIdentifier proto = _ParseProtoMeshIdentifier(rprimPath);
+                const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(rprimPath);
                 if (!proto.valid) return;
 
                 if (proto.sectionName == "collisions") {
@@ -512,7 +511,7 @@ public:
                         rprimPath,
                         timeCode,
                         &xformCache,
-                        &collisionCandidateMap);
+                        &_collisionCandidateMapCache);
                     bool valid = false;
                     try {
                         valid = overrideData["valid"].as<bool>();
@@ -530,7 +529,7 @@ public:
                         rprimPath,
                         timeCode,
                         &xformCache,
-                        &visualCandidateMap);
+                        &_visualCandidateMapCache);
                     bool valid = false;
                     try {
                         valid = overrideData["valid"].as<bool>();
@@ -567,8 +566,7 @@ public:
         const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
         UsdGeomXformCache xformCache(timeCode);
         const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
-        CollisionCandidateMap collisionCandidateMap = _BuildCollisionCandidateMap(acceptableTypes);
-        VisualCandidateMap visualCandidateMap = _BuildVisualCandidateMap(acceptableTypes);
+        _EnsureProtoCandidateMapsPrimed(acceptableTypes);
 
         size_t totalCount = 0;
         size_t collisionCount = 0;
@@ -576,7 +574,7 @@ public:
         _renderDelegate.ReadAllProtoDataBlobs(
             [&](std::string const& rprimPath, WebRenderDelegate::ProtoDataBlobRecord const&) {
                 if (rprimPath.find(".proto_") == std::string::npos) return;
-                const ProtoMeshIdentifier proto = _ParseProtoMeshIdentifier(rprimPath);
+                const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(rprimPath);
                 if (!proto.valid) return;
 
                 emscripten::val overrideData = emscripten::val::object();
@@ -585,13 +583,13 @@ public:
                         rprimPath,
                         timeCode,
                         &xformCache,
-                        &collisionCandidateMap);
+                        &_collisionCandidateMapCache);
                 } else if (proto.sectionName == "visuals") {
                     overrideData = _BuildVisualProtoOverride(
                         rprimPath,
                         timeCode,
                         &xformCache,
-                        &visualCandidateMap);
+                        &_visualCandidateMapCache);
                 } else {
                     return;
                 }
@@ -720,6 +718,11 @@ private:
     using CollisionCandidateMap = ProtoCandidateMap;
     using VisualCandidateMap = ProtoCandidateMap;
 
+    mutable bool _protoCandidateMapsPrimed = false;
+    mutable CollisionCandidateMap _collisionCandidateMapCache;
+    mutable VisualCandidateMap _visualCandidateMapCache;
+    mutable std::unordered_map<std::string, ProtoMeshIdentifier> _protoMeshIdentifierCache;
+
     static constexpr uint32_t kFinalStageDirtyGeometryDescriptor = 1u << 0;
     static constexpr uint32_t kFinalStageDirtyWorldTransform = 1u << 1;
     static constexpr uint32_t kFinalStageDirtyResolvedPrimPath = 1u << 2;
@@ -728,6 +731,25 @@ private:
     static constexpr uint32_t kFinalStageDirtySectionCollision = 1u << 8;
     static constexpr uint32_t kFinalStageDirtySectionVisual = 1u << 9;
     static constexpr uint32_t kFinalStageDirtyApplyGeometry = 1u << 10;
+
+    ProtoMeshIdentifier _GetCachedProtoMeshIdentifier(std::string const& meshId) const {
+        if (meshId.empty()) return ProtoMeshIdentifier();
+        const auto found = _protoMeshIdentifierCache.find(meshId);
+        if (found != _protoMeshIdentifierCache.end()) {
+            return found->second;
+        }
+        const ProtoMeshIdentifier parsed = _ParseProtoMeshIdentifier(meshId);
+        _protoMeshIdentifierCache.emplace(meshId, parsed);
+        return parsed;
+    }
+
+    void _EnsureProtoCandidateMapsPrimed(
+        std::vector<std::string> const& acceptedTypes) const {
+        if (_protoCandidateMapsPrimed) return;
+        _collisionCandidateMapCache = _BuildCollisionCandidateMap(acceptedTypes);
+        _visualCandidateMapCache = _BuildVisualCandidateMap(acceptedTypes);
+        _protoCandidateMapsPrimed = true;
+    }
 
     static emscripten::val _Matrix4dToJsArray(GfMatrix4d const& matrix) {
         emscripten::val values = emscripten::val::array();
@@ -1375,7 +1397,7 @@ private:
         out.set("valid", false);
         if (!_stage || !xformCache) return out;
 
-        const ProtoMeshIdentifier proto = _ParseProtoMeshIdentifier(meshId);
+        const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(meshId);
         if (!proto.valid || proto.sectionName != "collisions") return out;
 
         UsdPrim resolvedPrim;
@@ -1399,7 +1421,7 @@ private:
         out.set("valid", false);
         if (!_stage || !xformCache) return out;
 
-        const ProtoMeshIdentifier proto = _ParseProtoMeshIdentifier(meshId);
+        const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(meshId);
         if (!proto.valid || proto.sectionName != "visuals") return out;
 
         UsdPrim resolvedPrim;

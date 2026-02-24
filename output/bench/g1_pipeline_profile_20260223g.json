@@ -1,0 +1,1018 @@
+{
+  "generatedAtUtc": "2026-02-23T15:55:51.276Z",
+  "server": "http://127.0.0.1:3003",
+  "model": "/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd",
+  "runs": 3,
+  "successfulRuns": 3,
+  "metricsMedian": {
+    "firstMeshReadyMs": 2110,
+    "allMeshReadyMs": 2110,
+    "jointRowsReadyMs": 4224,
+    "jointMoveVerifiedMs": 4224,
+    "longTaskTotalMs": 4872,
+    "longTaskMaxMs": 2110,
+    "hydraCommitMs": 1278.204999923706,
+    "hydraWasmFetchMs": 11.969997882843018,
+    "hydraThreeBuildMs": 12.144999504089355,
+    "networkTransferBytes": 12543354,
+    "stageTransferBytes": 7753680,
+    "wasmTransferBytes": 3863840,
+    "dataTransferBytes": 101793
+  },
+  "runResults": [
+    {
+      "run": 1,
+      "url": "http://127.0.0.1:3003/?file=%2Funitree_model%2FG1%2F29dof%2Fusd%2Fg1_29dof_rev_1_0%2Fg1_29dof_rev_1_0.usd&showVisuals=1&showCollisions=1&showDynamics=1&showRobotInspector=1&readStageMetadata=1&profileLoad=1&profileHydraPhases=1&cb=1771862130329-936hdi-1",
+      "success": true,
+      "failureReason": null,
+      "firstMeshReadyMs": 1814,
+      "allMeshReadyMs": 1814,
+      "jointRowsReadyMs": 3373,
+      "jointMoveVerifiedMs": 3373,
+      "totalElapsedMs": 5630,
+      "state": {
+        "message": "Loaded 68 meshes (visual: 35, collision: 33).",
+        "meshTotal": 68,
+        "meshReady": 68,
+        "jointRows": 29,
+        "jointMoveProbe": {
+          "attempted": true,
+          "success": true,
+          "linkPath": "/g1_29dof_rev_1_0/left_ankle_pitch_link",
+          "beforeAngleDeg": 0,
+          "afterAngleDeg": 12,
+          "matrixDelta": 0.45952818016790736,
+          "trackedMeshCount": 1
+        },
+        "hydraSnapshot": {
+          "drawSeq": 1,
+          "renderSeq": 3,
+          "activeDraw": null,
+          "firstRenderSample": {
+            "seq": 1,
+            "durationMs": 0.005000114440917969,
+            "source": "renderer.render"
+          },
+          "texture": {
+            "started": 0,
+            "completed": 0,
+            "failed": 0,
+            "pending": 0,
+            "manager": {
+              "starts": 0,
+              "ends": 0,
+              "errors": 0,
+              "pending": 0,
+              "lastStartUrl": "",
+              "lastEndUrl": "",
+              "lastErrorUrl": ""
+            },
+            "recent": []
+          },
+          "history": [
+            {
+              "seq": 1,
+              "source": "load-fast",
+              "totalMs": 1499.8849999904633,
+              "wasmFetchMs": 11.904999256134033,
+              "threeBuildMs": 11.559999465942383,
+              "commitMs": 1281.3600001335144,
+              "renderMs": 0.005000114440917969,
+              "texturePending": 0,
+              "loadingManagerPending": 0,
+              "textureStarted": 0,
+              "textureCompleted": 0,
+              "textureFailed": 0,
+              "topWasmMeshes": [
+                [
+                  "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                  1.4750001430511475
+                ],
+                [
+                  "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.304999589920044
+                ],
+                [
+                  "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.190000057220459
+                ],
+                [
+                  "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                  1.0699996948242188
+                ],
+                [
+                  "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id0",
+                  0.6000001430511475
+                ]
+              ],
+              "topBuildMeshes": [
+                [
+                  "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                  1.5099999904632568
+                ],
+                [
+                  "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.4050002098083496
+                ],
+                [
+                  "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.2049999237060547
+                ],
+                [
+                  "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                  1.005000114440918
+                ],
+                [
+                  "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id0",
+                  0.6549997329711914
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      "hydraSnapshot": {
+        "drawSeq": 1,
+        "renderSeq": 3,
+        "activeDraw": null,
+        "firstRenderSample": {
+          "seq": 1,
+          "durationMs": 0.005000114440917969,
+          "source": "renderer.render"
+        },
+        "texture": {
+          "started": 0,
+          "completed": 0,
+          "failed": 0,
+          "pending": 0,
+          "manager": {
+            "starts": 0,
+            "ends": 0,
+            "errors": 0,
+            "pending": 0,
+            "lastStartUrl": "",
+            "lastEndUrl": "",
+            "lastErrorUrl": ""
+          },
+          "recent": []
+        },
+        "history": [
+          {
+            "seq": 1,
+            "source": "load-fast",
+            "totalMs": 1499.8849999904633,
+            "wasmFetchMs": 11.904999256134033,
+            "threeBuildMs": 11.559999465942383,
+            "commitMs": 1281.3600001335144,
+            "renderMs": 0.005000114440917969,
+            "texturePending": 0,
+            "loadingManagerPending": 0,
+            "textureStarted": 0,
+            "textureCompleted": 0,
+            "textureFailed": 0,
+            "topWasmMeshes": [
+              [
+                "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                1.4750001430511475
+              ],
+              [
+                "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.304999589920044
+              ],
+              [
+                "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.190000057220459
+              ],
+              [
+                "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                1.0699996948242188
+              ],
+              [
+                "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id0",
+                0.6000001430511475
+              ]
+            ],
+            "topBuildMeshes": [
+              [
+                "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                1.5099999904632568
+              ],
+              [
+                "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.4050002098083496
+              ],
+              [
+                "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.2049999237060547
+              ],
+              [
+                "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                1.005000114440918
+              ],
+              [
+                "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id0",
+                0.6549997329711914
+              ]
+            ]
+          }
+        ]
+      },
+      "network": {
+        "requestCount": 63,
+        "totalTransferBytes": 12543354,
+        "stageRequests": [
+          {
+            "requestId": "2394350.70",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd",
+            "method": "GET",
+            "startTime": 2024000.722071,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 1235,
+            "endTime": 2024000.724094,
+            "failed": false,
+            "errorText": null
+          },
+          {
+            "requestId": "2394350.71",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/configuration/g1_29dof_rev_1_0_base.usd",
+            "method": "GET",
+            "startTime": 2024000.727961,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 7744802,
+            "endTime": 2024000.990316,
+            "failed": false,
+            "errorText": null
+          },
+          {
+            "requestId": "2394350.72",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/configuration/g1_29dof_rev_1_0_physics.usd",
+            "method": "GET",
+            "startTime": 2024000.728148,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 6977,
+            "endTime": 2024000.730763,
+            "failed": false,
+            "errorText": null
+          },
+          {
+            "requestId": "2394350.73",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/configuration/g1_29dof_rev_1_0_sensor.usd",
+            "method": "GET",
+            "startTime": 2024000.728279,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 666,
+            "endTime": 2024000.730599,
+            "failed": false,
+            "errorText": null
+          }
+        ],
+        "wasmRequests": [
+          {
+            "requestId": "2394350.49",
+            "url": "http://127.0.0.1:3003/usd/bindings/emHdBindings.wasm?v=20260223f",
+            "method": "GET",
+            "startTime": 2024000.408359,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/wasm",
+            "encodedDataLength": 3863840,
+            "endTime": 2024000.600133,
+            "failed": false,
+            "errorText": null
+          }
+        ],
+        "dataRequests": [
+          {
+            "requestId": "2394350.48",
+            "url": "http://127.0.0.1:3003/usd/bindings/emHdBindings.data?v=20260223f",
+            "method": "GET",
+            "startTime": 2024000.401801,
+            "type": "XHR",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 101793,
+            "endTime": 2024000.418806,
+            "failed": false,
+            "errorText": null
+          }
+        ],
+        "failedRequests": [],
+        "failures": [
+          {
+            "requestId": "67C7565ACE3756FAD2F8387AB81853B7",
+            "errorText": "net::ERR_ABORTED",
+            "canceled": true
+          }
+        ]
+      },
+      "longTask": {
+        "count": 4,
+        "totalMs": 4872,
+        "maxMs": 1552,
+        "top10": [
+          {
+            "startTime": 1691.6600000858307,
+            "duration": 1552
+          },
+          {
+            "startTime": 3251.3399999141693,
+            "duration": 1369
+          },
+          {
+            "startTime": 4639.350000143051,
+            "duration": 987
+          },
+          {
+            "startTime": 726.375,
+            "duration": 964
+          }
+        ]
+      },
+      "console": {
+        "total": 8,
+        "errorCount": 0,
+        "errors": [],
+        "warnings": [
+          "RGBELoader has been deprecated. Please use HDRLoader instead.",
+          "WebGL: CONTEXT_LOST_WEBGL: loseContext: context lost",
+          "[.WebGL-0x216c1a4fec00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+          "[.WebGL-0x216c1a4fec00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
+        ],
+        "infoSample": [
+          "[LOAD PROFILE][init-usd] module-ready in 342.5ms",
+          "[LOAD PROFILE][ok] /unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd\n00. start: +0.1ms (t=0.1ms)\n01. root-path-checked: +0.3ms (t=0.4ms)\n02. dependency-preload-done: +282ms (t=282.4ms)\n03. render-interface-ready: +0.7ms (t=283.1ms)\n04. stage-transform-prefetch-done: +989.8ms (t=1272.9ms)\n05. driver-created: +0.1ms (t=1273ms)\n06. initial-draw-done: +1500.4ms (t=2773.4ms)\n07. runtime-bridge-warmup-post-initial-draw: +0.9ms (t=2774.3ms)\n08. stage-ready-deferred: +34ms (t=2808.3ms)\n09. stage-mesh-fastpath: +0ms (t=2808.3ms)\n10. stage-overrides-applied: +0ms (t=2808.3ms)\n11. camera-and-link-axes-done: +160.7ms (t=2969ms)\n12. end:ok: +2.8ms (t=2971.8ms)\n[LOAD PROFILE][callbacks]\nCommitResources: count=1, total=1281.6ms, max=1281.6ms\npullRprimDeltaBatchFromDriver: count=1, total=84.3ms, max=84.3ms\ngetVisualProtoOverride: count=35, total=45.2ms, max=3.6ms\ngetCollisionProtoOverride: count=33, total=25.9ms, max=2ms\nwarmupRuntimeBridgeFromDriver: count=2, total=13.1ms, max=12.2ms\nprefetchPrimTransformsFromDriver: count=2, total=11.8ms, max=11.8ms\nprefetchPrimPathSetFromDriver: count=2, total=7.2ms, max=7.2ms\napplyStageFallbackMaterialParameters: count=2, total=4ms, max=3ms\nprefetchProtoMeshOverridesFromDriver: count=2, total=3.9ms, max=3.9ms\nreadPrimAttribute: count=92, total=3.3ms, max=0.8ms\ncreateRPrim: count=68, total=3.1ms, max=0.6ms\nregisterMeshLinkPathIndex: count=204, total=2.3ms, max=0.6ms\nmatrixHasNonIdentityRotation: count=244, total=2.2ms, max=0.6ms\ngetProtoDataBlob: count=65, total=2.1ms, max=0.4ms\nsafeGetPrimAtPath: count=23, total=1.6ms, max=0.8ms\napplyStageFallbackColorInput: count=10, total=1.1ms, max=0.9ms\napplyStageFallbackScalarInput: count=38, total=1.1ms, max=0.1ms\nprefetchProtoDataBlobsFromDriver: count=4, total=1ms, max=0.8ms\napplyStageFallbackTextureInput: count=38, total=1ms, max=0.1ms\nmatrixFromWasmTransform: count=346, total=1ms, max=0.1ms"
+        ]
+      },
+      "pageErrors": []
+    },
+    {
+      "run": 2,
+      "url": "http://127.0.0.1:3003/?file=%2Funitree_model%2FG1%2F29dof%2Fusd%2Fg1_29dof_rev_1_0%2Fg1_29dof_rev_1_0.usd&showVisuals=1&showCollisions=1&showDynamics=1&showRobotInspector=1&readStageMetadata=1&profileLoad=1&profileHydraPhases=1&cb=1771862136483-0ajfom-2",
+      "success": true,
+      "failureReason": null,
+      "firstMeshReadyMs": 2158,
+      "allMeshReadyMs": 2158,
+      "jointRowsReadyMs": 4313,
+      "jointMoveVerifiedMs": 4313,
+      "totalElapsedMs": 6872,
+      "state": {
+        "message": "Loaded 68 meshes (visual: 35, collision: 33).",
+        "meshTotal": 68,
+        "meshReady": 68,
+        "jointRows": 29,
+        "jointMoveProbe": {
+          "attempted": true,
+          "success": true,
+          "linkPath": "/g1_29dof_rev_1_0/left_ankle_pitch_link",
+          "beforeAngleDeg": 0,
+          "afterAngleDeg": 12,
+          "matrixDelta": 0.45952818016790736,
+          "trackedMeshCount": 1
+        },
+        "hydraSnapshot": {
+          "drawSeq": 1,
+          "renderSeq": 3,
+          "activeDraw": null,
+          "firstRenderSample": {
+            "seq": 1,
+            "durationMs": 51.36500000953674,
+            "source": "renderer.render"
+          },
+          "texture": {
+            "started": 0,
+            "completed": 0,
+            "failed": 0,
+            "pending": 0,
+            "manager": {
+              "starts": 0,
+              "ends": 0,
+              "errors": 0,
+              "pending": 0,
+              "lastStartUrl": "",
+              "lastEndUrl": "",
+              "lastErrorUrl": ""
+            },
+            "recent": []
+          },
+          "history": [
+            {
+              "seq": 1,
+              "source": "load-fast",
+              "totalMs": 1511.8949999809265,
+              "wasmFetchMs": 11.969997882843018,
+              "threeBuildMs": 12.144999504089355,
+              "commitMs": 1278.204999923706,
+              "renderMs": 51.36500000953674,
+              "texturePending": 0,
+              "loadingManagerPending": 0,
+              "textureStarted": 0,
+              "textureCompleted": 0,
+              "textureFailed": 0,
+              "topWasmMeshes": [
+                [
+                  "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                  1.4350001811981201
+                ],
+                [
+                  "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.2899997234344482
+                ],
+                [
+                  "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.2699999809265137
+                ],
+                [
+                  "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                  0.9749999046325684
+                ],
+                [
+                  "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id0",
+                  0.5850000381469727
+                ]
+              ],
+              "topBuildMeshes": [
+                [
+                  "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                  1.6349997520446777
+                ],
+                [
+                  "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.3350000381469727
+                ],
+                [
+                  "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.325000286102295
+                ],
+                [
+                  "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                  1.0399999618530273
+                ],
+                [
+                  "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id0",
+                  0.5699999332427979
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      "hydraSnapshot": {
+        "drawSeq": 1,
+        "renderSeq": 3,
+        "activeDraw": null,
+        "firstRenderSample": {
+          "seq": 1,
+          "durationMs": 51.36500000953674,
+          "source": "renderer.render"
+        },
+        "texture": {
+          "started": 0,
+          "completed": 0,
+          "failed": 0,
+          "pending": 0,
+          "manager": {
+            "starts": 0,
+            "ends": 0,
+            "errors": 0,
+            "pending": 0,
+            "lastStartUrl": "",
+            "lastEndUrl": "",
+            "lastErrorUrl": ""
+          },
+          "recent": []
+        },
+        "history": [
+          {
+            "seq": 1,
+            "source": "load-fast",
+            "totalMs": 1511.8949999809265,
+            "wasmFetchMs": 11.969997882843018,
+            "threeBuildMs": 12.144999504089355,
+            "commitMs": 1278.204999923706,
+            "renderMs": 51.36500000953674,
+            "texturePending": 0,
+            "loadingManagerPending": 0,
+            "textureStarted": 0,
+            "textureCompleted": 0,
+            "textureFailed": 0,
+            "topWasmMeshes": [
+              [
+                "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                1.4350001811981201
+              ],
+              [
+                "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.2899997234344482
+              ],
+              [
+                "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.2699999809265137
+              ],
+              [
+                "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                0.9749999046325684
+              ],
+              [
+                "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id0",
+                0.5850000381469727
+              ]
+            ],
+            "topBuildMeshes": [
+              [
+                "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                1.6349997520446777
+              ],
+              [
+                "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.3350000381469727
+              ],
+              [
+                "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.325000286102295
+              ],
+              [
+                "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                1.0399999618530273
+              ],
+              [
+                "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id0",
+                0.5699999332427979
+              ]
+            ]
+          }
+        ]
+      },
+      "network": {
+        "requestCount": 63,
+        "totalTransferBytes": 12543354,
+        "stageRequests": [
+          {
+            "requestId": "2394486.70",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd",
+            "method": "GET",
+            "startTime": 2024006.915164,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 1235,
+            "endTime": 2024006.917065,
+            "failed": false,
+            "errorText": null
+          },
+          {
+            "requestId": "2394486.71",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/configuration/g1_29dof_rev_1_0_base.usd",
+            "method": "GET",
+            "startTime": 2024006.918025,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 7744802,
+            "endTime": 2024007.442781,
+            "failed": false,
+            "errorText": null
+          },
+          {
+            "requestId": "2394486.72",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/configuration/g1_29dof_rev_1_0_physics.usd",
+            "method": "GET",
+            "startTime": 2024006.918228,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 6977,
+            "endTime": 2024006.920532,
+            "failed": false,
+            "errorText": null
+          },
+          {
+            "requestId": "2394486.73",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/configuration/g1_29dof_rev_1_0_sensor.usd",
+            "method": "GET",
+            "startTime": 2024006.918325,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 666,
+            "endTime": 2024006.920405,
+            "failed": false,
+            "errorText": null
+          }
+        ],
+        "wasmRequests": [
+          {
+            "requestId": "2394486.49",
+            "url": "http://127.0.0.1:3003/usd/bindings/emHdBindings.wasm?v=20260223f",
+            "method": "GET",
+            "startTime": 2024006.596635,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/wasm",
+            "encodedDataLength": 3863840,
+            "endTime": 2024006.789485,
+            "failed": false,
+            "errorText": null
+          }
+        ],
+        "dataRequests": [
+          {
+            "requestId": "2394486.48",
+            "url": "http://127.0.0.1:3003/usd/bindings/emHdBindings.data?v=20260223f",
+            "method": "GET",
+            "startTime": 2024006.589926,
+            "type": "XHR",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 101793,
+            "endTime": 2024006.604072,
+            "failed": false,
+            "errorText": null
+          }
+        ],
+        "failedRequests": [],
+        "failures": [
+          {
+            "requestId": "58E9130CE9E0BF7D977FEB194DF5960E",
+            "errorText": "net::ERR_ABORTED",
+            "canceled": true
+          }
+        ]
+      },
+      "longTask": {
+        "count": 5,
+        "totalMs": 5855,
+        "maxMs": 2151,
+        "top10": [
+          {
+            "startTime": 2037.1449999809265,
+            "duration": 2151
+          },
+          {
+            "startTime": 4191.984999895096,
+            "duration": 1414
+          },
+          {
+            "startTime": 5626.379999876022,
+            "duration": 1243
+          },
+          {
+            "startTime": 1039.25,
+            "duration": 995
+          },
+          {
+            "startTime": 432.4449999332428,
+            "duration": 52
+          }
+        ]
+      },
+      "console": {
+        "total": 4,
+        "errorCount": 0,
+        "errors": [],
+        "warnings": [
+          "RGBELoader has been deprecated. Please use HDRLoader instead.",
+          "[.WebGL-0x216c00166c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+        ],
+        "infoSample": [
+          "[LOAD PROFILE][init-usd] module-ready in 369.7ms",
+          "[LOAD PROFILE][ok] /unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd\n00. start: +0.1ms (t=0.1ms)\n01. root-path-checked: +0.3ms (t=0.4ms)\n02. dependency-preload-done: +544.5ms (t=544.9ms)\n03. render-interface-ready: +0.9ms (t=545.8ms)\n04. stage-transform-prefetch-done: +1025.5ms (t=1571.3ms)\n05. driver-created: +0ms (t=1571.3ms)\n06. initial-draw-done: +1512.4ms (t=3083.7ms)\n07. runtime-bridge-warmup-post-initial-draw: +0.4ms (t=3084.1ms)\n08. stage-ready-deferred: +625ms (t=3709.1ms)\n09. stage-mesh-fastpath: +0ms (t=3709.1ms)\n10. stage-overrides-applied: +0.1ms (t=3709.2ms)\n11. camera-and-link-axes-done: +62.4ms (t=3771.6ms)\n12. end:ok: +2.6ms (t=3774.2ms)\n[LOAD PROFILE][callbacks]\nCommitResources: count=1, total=1278.4ms, max=1278.4ms\npullRprimDeltaBatchFromDriver: count=1, total=85.5ms, max=85.5ms\ngetVisualProtoOverride: count=35, total=45.3ms, max=3.8ms\ngetCollisionProtoOverride: count=33, total=24.6ms, max=1.6ms\nwarmupRuntimeBridgeFromDriver: count=2, total=8.7ms, max=8.4ms\nprefetchPrimTransformsFromDriver: count=2, total=8.5ms, max=8.5ms\ngetProtoDataBlob: count=65, total=4.5ms, max=2.3ms\nprefetchPrimPathSetFromDriver: count=2, total=4.3ms, max=4.3ms\napplyStageFallbackMaterialParameters: count=2, total=3.6ms, max=2.7ms\nprefetchProtoMeshOverridesFromDriver: count=2, total=3.2ms, max=3.2ms\nreadPrimAttribute: count=92, total=3.1ms, max=0.9ms\ncreateRPrim: count=68, total=2.8ms, max=0.6ms\nsafeGetPrimAtPath: count=23, total=1.6ms, max=0.7ms\nregisterMeshLinkPathIndex: count=204, total=1.3ms, max=0.2ms\napplyStageFallbackColorInput: count=10, total=1.2ms, max=1ms\napplyStageFallbackScalarInput: count=38, total=1ms, max=0.2ms\nprefetchProtoDataBlobsFromDriver: count=4, total=1ms, max=0.8ms\nmatrixHasNonIdentityRotation: count=244, total=1ms, max=0.1ms\napplyStageFallbackTextureInput: count=38, total=1ms, max=0.2ms\nresolveMaterialTexturePath: count=38, total=0.9ms, max=0.2ms"
+        ]
+      },
+      "pageErrors": []
+    },
+    {
+      "run": 3,
+      "url": "http://127.0.0.1:3003/?file=%2Funitree_model%2FG1%2F29dof%2Fusd%2Fg1_29dof_rev_1_0%2Fg1_29dof_rev_1_0.usd&showVisuals=1&showCollisions=1&showDynamics=1&showRobotInspector=1&readStageMetadata=1&profileLoad=1&profileHydraPhases=1&cb=1771862143892-34rzbd-3",
+      "success": true,
+      "failureReason": null,
+      "firstMeshReadyMs": 2110,
+      "allMeshReadyMs": 2110,
+      "jointRowsReadyMs": 4224,
+      "jointMoveVerifiedMs": 4224,
+      "totalElapsedMs": 6790,
+      "state": {
+        "message": "Loaded 68 meshes (visual: 35, collision: 33).",
+        "meshTotal": 68,
+        "meshReady": 68,
+        "jointRows": 29,
+        "jointMoveProbe": {
+          "attempted": true,
+          "success": true,
+          "linkPath": "/g1_29dof_rev_1_0/left_ankle_pitch_link",
+          "beforeAngleDeg": 0,
+          "afterAngleDeg": 12,
+          "matrixDelta": 0.45952818016790736,
+          "trackedMeshCount": 1
+        },
+        "hydraSnapshot": {
+          "drawSeq": 1,
+          "renderSeq": 3,
+          "activeDraw": null,
+          "firstRenderSample": {
+            "seq": 1,
+            "durationMs": 44.65499997138977,
+            "source": "renderer.render"
+          },
+          "texture": {
+            "started": 0,
+            "completed": 0,
+            "failed": 0,
+            "pending": 0,
+            "manager": {
+              "starts": 0,
+              "ends": 0,
+              "errors": 0,
+              "pending": 0,
+              "lastStartUrl": "",
+              "lastEndUrl": "",
+              "lastErrorUrl": ""
+            },
+            "recent": []
+          },
+          "history": [
+            {
+              "seq": 1,
+              "source": "load-fast",
+              "totalMs": 1498.1400001049042,
+              "wasmFetchMs": 12.605001449584961,
+              "threeBuildMs": 12.324999332427979,
+              "commitMs": 1260.0899999141693,
+              "renderMs": 44.65499997138977,
+              "texturePending": 0,
+              "loadingManagerPending": 0,
+              "textureStarted": 0,
+              "textureCompleted": 0,
+              "textureFailed": 0,
+              "topWasmMeshes": [
+                [
+                  "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.7000000476837158
+                ],
+                [
+                  "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                  1.4449999332427979
+                ],
+                [
+                  "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.3149998188018799
+                ],
+                [
+                  "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                  1.0199999809265137
+                ],
+                [
+                  "/g1_29dof_rev_1_0/right_knee_link/visuals.proto_mesh_id0",
+                  0.6250002384185791
+                ]
+              ],
+              "topBuildMeshes": [
+                [
+                  "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.6850001811981201
+                ],
+                [
+                  "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                  1.5299997329711914
+                ],
+                [
+                  "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                  1.2400000095367432
+                ],
+                [
+                  "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                  1.0299999713897705
+                ],
+                [
+                  "/g1_29dof_rev_1_0/right_knee_link/visuals.proto_mesh_id0",
+                  0.6550002098083496
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      "hydraSnapshot": {
+        "drawSeq": 1,
+        "renderSeq": 3,
+        "activeDraw": null,
+        "firstRenderSample": {
+          "seq": 1,
+          "durationMs": 44.65499997138977,
+          "source": "renderer.render"
+        },
+        "texture": {
+          "started": 0,
+          "completed": 0,
+          "failed": 0,
+          "pending": 0,
+          "manager": {
+            "starts": 0,
+            "ends": 0,
+            "errors": 0,
+            "pending": 0,
+            "lastStartUrl": "",
+            "lastEndUrl": "",
+            "lastErrorUrl": ""
+          },
+          "recent": []
+        },
+        "history": [
+          {
+            "seq": 1,
+            "source": "load-fast",
+            "totalMs": 1498.1400001049042,
+            "wasmFetchMs": 12.605001449584961,
+            "threeBuildMs": 12.324999332427979,
+            "commitMs": 1260.0899999141693,
+            "renderMs": 44.65499997138977,
+            "texturePending": 0,
+            "loadingManagerPending": 0,
+            "textureStarted": 0,
+            "textureCompleted": 0,
+            "textureFailed": 0,
+            "topWasmMeshes": [
+              [
+                "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.7000000476837158
+              ],
+              [
+                "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                1.4449999332427979
+              ],
+              [
+                "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.3149998188018799
+              ],
+              [
+                "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                1.0199999809265137
+              ],
+              [
+                "/g1_29dof_rev_1_0/right_knee_link/visuals.proto_mesh_id0",
+                0.6250002384185791
+              ]
+            ],
+            "topBuildMeshes": [
+              [
+                "/g1_29dof_rev_1_0/left_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.6850001811981201
+              ],
+              [
+                "/g1_29dof_rev_1_0/torso_link/visuals.proto_mesh_id0",
+                1.5299997329711914
+              ],
+              [
+                "/g1_29dof_rev_1_0/right_wrist_yaw_link/visuals.proto_mesh_id1",
+                1.2400000095367432
+              ],
+              [
+                "/g1_29dof_rev_1_0/pelvis/visuals.proto_mesh_id1",
+                1.0299999713897705
+              ],
+              [
+                "/g1_29dof_rev_1_0/right_knee_link/visuals.proto_mesh_id0",
+                0.6550002098083496
+              ]
+            ]
+          }
+        ]
+      },
+      "network": {
+        "requestCount": 63,
+        "totalTransferBytes": 12543354,
+        "stageRequests": [
+          {
+            "requestId": "2394609.70",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd",
+            "method": "GET",
+            "startTime": 2024014.367383,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 1235,
+            "endTime": 2024014.369547,
+            "failed": false,
+            "errorText": null
+          },
+          {
+            "requestId": "2394609.71",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/configuration/g1_29dof_rev_1_0_base.usd",
+            "method": "GET",
+            "startTime": 2024014.370712,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 7744802,
+            "endTime": 2024014.771363,
+            "failed": false,
+            "errorText": null
+          },
+          {
+            "requestId": "2394609.72",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/configuration/g1_29dof_rev_1_0_physics.usd",
+            "method": "GET",
+            "startTime": 2024014.370882,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 6977,
+            "endTime": 2024014.373882,
+            "failed": false,
+            "errorText": null
+          },
+          {
+            "requestId": "2394609.73",
+            "url": "http://127.0.0.1:3003/unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/configuration/g1_29dof_rev_1_0_sensor.usd",
+            "method": "GET",
+            "startTime": 2024014.371024,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 666,
+            "endTime": 2024014.373733,
+            "failed": false,
+            "errorText": null
+          }
+        ],
+        "wasmRequests": [
+          {
+            "requestId": "2394609.49",
+            "url": "http://127.0.0.1:3003/usd/bindings/emHdBindings.wasm?v=20260223f",
+            "method": "GET",
+            "startTime": 2024014.047645,
+            "type": "Fetch",
+            "status": 200,
+            "mimeType": "application/wasm",
+            "encodedDataLength": 3863840,
+            "endTime": 2024014.247259,
+            "failed": false,
+            "errorText": null
+          }
+        ],
+        "dataRequests": [
+          {
+            "requestId": "2394609.48",
+            "url": "http://127.0.0.1:3003/usd/bindings/emHdBindings.data?v=20260223f",
+            "method": "GET",
+            "startTime": 2024014.0413,
+            "type": "XHR",
+            "status": 200,
+            "mimeType": "application/octet-stream",
+            "encodedDataLength": 101793,
+            "endTime": 2024014.058258,
+            "failed": false,
+            "errorText": null
+          }
+        ],
+        "failedRequests": [],
+        "failures": [
+          {
+            "requestId": "DEC5350D2ED5BCEE15775AE4EE5EAFBE",
+            "errorText": "net::ERR_ABORTED",
+            "canceled": true
+          }
+        ]
+      },
+      "longTask": {
+        "count": 3,
+        "totalMs": 4550,
+        "maxMs": 2110,
+        "top10": [
+          {
+            "startTime": 1988.710000038147,
+            "duration": 2110
+          },
+          {
+            "startTime": 4102.569999933243,
+            "duration": 1415
+          },
+          {
+            "startTime": 962.6549999713898,
+            "duration": 1025
+          }
+        ]
+      },
+      "console": {
+        "total": 3,
+        "errorCount": 0,
+        "errors": [],
+        "warnings": [
+          "RGBELoader has been deprecated. Please use HDRLoader instead."
+        ],
+        "infoSample": [
+          "[LOAD PROFILE][init-usd] module-ready in 367.6ms",
+          "[LOAD PROFILE][ok] /unitree_model/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd\n00. start: +0.1ms (t=0.1ms)\n01. root-path-checked: +0.3ms (t=0.4ms)\n02. dependency-preload-done: +421.6ms (t=422ms)\n03. render-interface-ready: +0.9ms (t=422.9ms)\n04. stage-transform-prefetch-done: +1058.3ms (t=1481.2ms)\n05. driver-created: +0.1ms (t=1481.3ms)\n06. initial-draw-done: +1498.6ms (t=2979.9ms)\n07. runtime-bridge-warmup-post-initial-draw: +0.4ms (t=2980.3ms)\n08. stage-ready-deferred: +596.7ms (t=3577ms)\n09. stage-mesh-fastpath: +0ms (t=3577ms)\n10. stage-overrides-applied: +0.1ms (t=3577.1ms)\n11. camera-and-link-axes-done: +63.4ms (t=3640.5ms)\n12. end:ok: +2.7ms (t=3643.2ms)\n[LOAD PROFILE][callbacks]\nCommitResources: count=1, total=1260.3ms, max=1260.3ms\npullRprimDeltaBatchFromDriver: count=1, total=88.9ms, max=88.9ms\ngetVisualProtoOverride: count=35, total=47.6ms, max=3.5ms\ngetCollisionProtoOverride: count=33, total=24.5ms, max=1.5ms\nwarmupRuntimeBridgeFromDriver: count=2, total=10.3ms, max=10ms\nprefetchPrimTransformsFromDriver: count=2, total=8ms, max=8ms\nprefetchPrimPathSetFromDriver: count=2, total=6ms, max=6ms\ncreateRPrim: count=68, total=4.2ms, max=0.8ms\napplyStageFallbackMaterialParameters: count=2, total=3.5ms, max=2.6ms\nprefetchProtoMeshOverridesFromDriver: count=2, total=3.1ms, max=3.1ms\nreadPrimAttribute: count=92, total=2.9ms, max=0.8ms\ngetProtoDataBlob: count=65, total=2.3ms, max=0.4ms\nsafeGetPrimAtPath: count=23, total=1.6ms, max=0.7ms\nregisterMeshLinkPathIndex: count=204, total=1.5ms, max=0.2ms\napplyStageFallbackColorInput: count=10, total=1.2ms, max=0.9ms\nmatrixHasNonIdentityRotation: count=244, total=1.1ms, max=0.1ms\nprefetchProtoDataBlobsFromDriver: count=4, total=1.1ms, max=0.8ms\napplyStageFallbackScalarInput: count=38, total=1ms, max=0.2ms\napplyStageFallbackTextureInput: count=38, total=1ms, max=0.2ms\nresolveMaterialTexturePath: count=38, total=0.9ms, max=0.2ms"
+        ]
+      },
+      "pageErrors": []
+    }
+  ]
+}

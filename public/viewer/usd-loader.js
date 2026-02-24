@@ -129,6 +129,7 @@ export async function loadUsdStage(args) {
     const warmupRuntimeBridge = parseBooleanFlag(params.get("warmupRuntimeBridge"), true);
     const warmupRuntimeBridgeBeforeDraw = parseBooleanFlag(params.get("warmupRuntimeBridgeBeforeDraw"), truthFirst || !!loadCollisionPrims);
     const warmupRuntimeBridgeAfterDraw = parseBooleanFlag(params.get("warmupRuntimeBridgeAfterDraw"), warmupRuntimeBridge);
+    const prefetchFinalStageOverrideBatchBeforeDraw = parseBooleanFlag(params.get("prefetchFinalStageOverrideBatchBeforeDraw"), primeFinalStageOverrideBatchBeforeDraw);
     const warmupRobotMetadata = parseBooleanFlag(params.get("warmupRobotMetadata"), true);
     const maxCpuDraw = parseBooleanFlag(params.get("maxCpuDraw"), false);
     // Favor full-scene readiness during the loading phase to avoid long tail mesh hydration.
@@ -734,6 +735,33 @@ export async function loadUsdStage(args) {
             return 0;
         }
     };
+    const runFinalStageOverrideBatchPrefetch = (phaseLabel, options = {}) => {
+        const shouldPrefetchInPhase = (phaseLabel === "driver-init" && prefetchFinalStageOverrideBatchBeforeDraw)
+            || (phaseLabel === "post-initial-draw" && primeFinalStageOverrideBatchBeforeDraw);
+        if (!shouldPrefetchInPhase)
+            return null;
+        const activeRenderInterface = window.renderInterface;
+        if (!activeRenderInterface || typeof activeRenderInterface.prefetchFinalStageOverrideBatchFromDriver !== "function") {
+            return null;
+        }
+        if (!isLoadStillActive())
+            return null;
+        if (window.driver !== state.driver)
+            return null;
+        try {
+            const summary = activeRenderInterface.prefetchFinalStageOverrideBatchFromDriver(state.driver, {
+                force: options.force === true,
+            });
+            const prefetchedCount = Number(summary?.count || 0);
+            if (prefetchedCount > 0) {
+                markLoadPhase(`stage-overrides-batch-prefetch-${phaseLabel}`);
+            }
+            return summary && typeof summary === "object" ? summary : null;
+        }
+        catch {
+            return null;
+        }
+    };
     const scheduleProtoBlobPrefetch = () => {
         if (!prefetchProtoDataBlobs)
             return;
@@ -765,6 +793,7 @@ export async function loadUsdStage(args) {
         }, startDelayMs);
     };
     runRuntimeBridgeWarmup("driver-init", { force: true, includeRobotMetadata: false });
+    runFinalStageOverrideBatchPrefetch("driver-init", { force: false });
     refreshPrefetchedStageTransforms("driver-init");
     if (prefetchProtoDataBlobsBeforeDraw && !protoBlobPrefetchedBeforeDraw) {
         const prefetched = runProtoBlobPrefetch({ force: true });
@@ -956,6 +985,7 @@ export async function loadUsdStage(args) {
         force: false,
         includeRobotMetadata: warmupRobotMetadata,
     });
+    runFinalStageOverrideBatchPrefetch("post-initial-draw", { force: false });
     if (!postDrawBridgeWarmupSummary
         && warmupRobotMetadata
         && window.renderInterface

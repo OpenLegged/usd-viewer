@@ -73,6 +73,23 @@ const PRIMITIVE_SEGMENTS = {
   capsuleCap: 12,
   capsuleRadial: 24,
 };
+// Collision primitives are debug overlays. Use a lighter tessellation profile to
+// reduce first-commit CPU cost without affecting collision pose/size truth checks.
+const FAST_COLLISION_PRIMITIVE_SEGMENTS = {
+  sphereWidth: 12,
+  sphereHeight: 8,
+  cylinderRadial: 12,
+  cylinderHeight: 1,
+  capsuleCap: 8,
+  capsuleRadial: 12,
+};
+const PRIMITIVE_GEOMETRY_TEMPLATE_CACHE = new Map();
+
+function toPrimitiveKeyNumber(value, digits = 6) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "nan";
+  return parsed.toFixed(digits);
+}
 
 function shouldProfileHydraSync(): boolean {
   return HYDRA_SYNC_PROFILE_FROM_QUERY || globalThis?.__HYDRA_PROFILE_SYNC__ === true;
@@ -137,6 +154,37 @@ class HydraMesh {
     // console.log("Creating HydraMesh: " + id + " -> " + _name);
 
     hydraInterface.config.usdRoot.add(this._mesh); // FIXME
+  }
+
+  _getPrimitiveSegmentProfile() {
+    if (this.isCollisionProtoMesh()) {
+      return FAST_COLLISION_PRIMITIVE_SEGMENTS;
+    }
+    return PRIMITIVE_SEGMENTS;
+  }
+
+  _getCachedPrimitiveGeometry(cacheKey, buildGeometry) {
+    const normalizedKey = String(cacheKey || "").trim();
+    if (!normalizedKey || typeof buildGeometry !== "function") return null;
+
+    const fromCache = PRIMITIVE_GEOMETRY_TEMPLATE_CACHE.get(normalizedKey);
+    if (fromCache) {
+      const cloned = fromCache.clone();
+      if (!cloned.boundingBox) cloned.computeBoundingBox?.();
+      if (!cloned.boundingSphere) cloned.computeBoundingSphere?.();
+      return cloned;
+    }
+
+    const generated = buildGeometry();
+    if (!generated) return null;
+    generated.computeBoundingBox?.();
+    generated.computeBoundingSphere?.();
+    PRIMITIVE_GEOMETRY_TEMPLATE_CACHE.set(normalizedKey, generated);
+
+    const cloned = generated.clone();
+    if (!cloned.boundingBox) cloned.computeBoundingBox?.();
+    if (!cloned.boundingSphere) cloned.computeBoundingSphere?.();
+    return cloned;
   }
 
   getPrimitiveFallbackType() {
@@ -217,33 +265,59 @@ class HydraMesh {
       return;
     }
 
+    const segmentProfile = this._getPrimitiveSegmentProfile();
     let fallbackGeometry = null;
     switch (this._primitiveFallbackType) {
-      case "box":
-        fallbackGeometry = new BoxGeometry(1, 1, 1);
+      case "box": {
+        const key = "fallback|box|1.000000|1.000000|1.000000";
+        fallbackGeometry = this._getCachedPrimitiveGeometry(key, () => new BoxGeometry(1, 1, 1));
         break;
-      case "sphere":
-        fallbackGeometry = new SphereGeometry(0.5, PRIMITIVE_SEGMENTS.sphereWidth, PRIMITIVE_SEGMENTS.sphereHeight);
-        break;
-      case "cylinder":
-        fallbackGeometry = new CylinderGeometry(
-          0.5,
-          0.5,
-          1,
-          PRIMITIVE_SEGMENTS.cylinderRadial,
-          PRIMITIVE_SEGMENTS.cylinderHeight,
-          false,
+      }
+      case "sphere": {
+        const key = [
+          "fallback|sphere|0.500000",
+          segmentProfile.sphereWidth,
+          segmentProfile.sphereHeight,
+        ].join("|");
+        fallbackGeometry = this._getCachedPrimitiveGeometry(
+          key,
+          () => new SphereGeometry(0.5, segmentProfile.sphereWidth, segmentProfile.sphereHeight),
         );
         break;
-      case "collisionProxy":
-        fallbackGeometry = new BoxGeometry(0.12, 0.12, 0.12);
+      }
+      case "cylinder":
+        {
+          const key = [
+            "fallback|cylinder|0.500000|1.000000|Y",
+            segmentProfile.cylinderRadial,
+            segmentProfile.cylinderHeight,
+          ].join("|");
+          fallbackGeometry = this._getCachedPrimitiveGeometry(
+            key,
+            () => new CylinderGeometry(
+              0.5,
+              0.5,
+              1,
+              segmentProfile.cylinderRadial,
+              segmentProfile.cylinderHeight,
+              false,
+            ),
+          );
+        }
         break;
+      case "collisionProxy": {
+        const key = "fallback|collisionProxy|0.120000|0.120000|0.120000";
+        fallbackGeometry = this._getCachedPrimitiveGeometry(
+          key,
+          () => new BoxGeometry(0.12, 0.12, 0.12),
+        );
+        break;
+      }
       default:
         return;
     }
 
-    this._geometry.copy(fallbackGeometry);
-    fallbackGeometry.dispose();
+    this.replaceGeometry(fallbackGeometry);
     this._hasGeneratedPrimitiveFallback = true;
   }
 
@@ -294,6 +368,7 @@ class HydraMesh {
     const radiusValue = toFiniteNumber(descriptor?.radius);
     const heightValue = toFiniteNumber(descriptor?.height);
     const axis = String(descriptor?.axis || 'Z').toUpperCase();
+    const segmentProfile = this._getPrimitiveSegmentProfile();
 
     if (normalizedType === 'cube') {
       const extentMatchesSize = dimensionsFromExtent && sizeValue !== undefined
@@ -311,16 +386,30 @@ class HydraMesh {
       const depth = dimensionsFromExtent
         ? (sizeValue !== undefined && !extentMatchesSize ? sizeValue : dimensionsFromExtent[2])
         : (sizeValue ?? 1);
-      generated = new BoxGeometry(width, height, depth);
+      const safeWidth = Math.max(width, 1e-6);
+      const safeHeight = Math.max(height, 1e-6);
+      const safeDepth = Math.max(depth, 1e-6);
+      const key = [
+        "descriptor|cube",
+        toPrimitiveKeyNumber(safeWidth),
+        toPrimitiveKeyNumber(safeHeight),
+        toPrimitiveKeyNumber(safeDepth),
+      ].join("|");
+      generated = this._getCachedPrimitiveGeometry(key, () => new BoxGeometry(safeWidth, safeHeight, safeDepth));
     } else if (normalizedType === 'sphere') {
       const radiusFromExtent = dimensionsFromExtent
         ? Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1], dimensionsFromExtent[2]) * 0.5
         : undefined;
-      const radius = radiusValue ?? radiusFromExtent ?? 0.5;
-      generated = new SphereGeometry(
-        Math.max(radius, 1e-6),
-        PRIMITIVE_SEGMENTS.sphereWidth,
-        PRIMITIVE_SEGMENTS.sphereHeight,
+      const radius = Math.max(radiusValue ?? radiusFromExtent ?? 0.5, 1e-6);
+      const key = [
+        "descriptor|sphere",
+        toPrimitiveKeyNumber(radius),
+        segmentProfile.sphereWidth,
+        segmentProfile.sphereHeight,
+      ].join("|");
+      generated = this._getCachedPrimitiveGeometry(
+        key,
+        () => new SphereGeometry(radius, segmentProfile.sphereWidth, segmentProfile.sphereHeight),
       );
     } else if (normalizedType === 'cylinder') {
       let radiusFromExtent = undefined;
@@ -337,21 +426,32 @@ class HydraMesh {
           radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1]) * 0.5;
         }
       }
-      const radius = radiusValue ?? radiusFromExtent ?? 0.5;
-      const height = heightValue ?? heightFromExtent ?? 1;
-      generated = new CylinderGeometry(
-        Math.max(radius, 1e-6),
-        Math.max(radius, 1e-6),
-        Math.max(height, 1e-6),
-        PRIMITIVE_SEGMENTS.cylinderRadial,
-        PRIMITIVE_SEGMENTS.cylinderHeight,
-        false,
-      );
-      if (axis === 'X') {
-        generated.rotateZ(-Math.PI / 2);
-      } else if (axis === 'Z') {
-        generated.rotateX(Math.PI / 2);
-      }
+      const radius = Math.max(radiusValue ?? radiusFromExtent ?? 0.5, 1e-6);
+      const height = Math.max(heightValue ?? heightFromExtent ?? 1, 1e-6);
+      const key = [
+        "descriptor|cylinder",
+        toPrimitiveKeyNumber(radius),
+        toPrimitiveKeyNumber(height),
+        axis,
+        segmentProfile.cylinderRadial,
+        segmentProfile.cylinderHeight,
+      ].join("|");
+      generated = this._getCachedPrimitiveGeometry(key, () => {
+        const geometry = new CylinderGeometry(
+          radius,
+          radius,
+          height,
+          segmentProfile.cylinderRadial,
+          segmentProfile.cylinderHeight,
+          false,
+        );
+        if (axis === 'X') {
+          geometry.rotateZ(-Math.PI / 2);
+        } else if (axis === 'Z') {
+          geometry.rotateX(Math.PI / 2);
+        }
+        return geometry;
+      });
     } else if (normalizedType === 'capsule') {
       let radiusFromExtent = undefined;
       let totalHeightFromExtent = undefined;
@@ -370,22 +470,31 @@ class HydraMesh {
       const radius = Math.max(radiusValue ?? radiusFromExtent ?? 0.5, 1e-6);
       const totalHeight = Math.max(heightValue ?? totalHeightFromExtent ?? 1, 1e-6);
       const capsuleBodyHeight = Math.max(totalHeight - 2 * radius, 1e-6);
-      generated = new CapsuleGeometry(
-        radius,
-        capsuleBodyHeight,
-        PRIMITIVE_SEGMENTS.capsuleCap,
-        PRIMITIVE_SEGMENTS.capsuleRadial,
-      );
-      if (axis === 'X') {
-        generated.rotateZ(-Math.PI / 2);
-      } else if (axis === 'Z') {
-        generated.rotateX(Math.PI / 2);
-      }
+      const key = [
+        "descriptor|capsule",
+        toPrimitiveKeyNumber(radius),
+        toPrimitiveKeyNumber(capsuleBodyHeight),
+        axis,
+        segmentProfile.capsuleCap,
+        segmentProfile.capsuleRadial,
+      ].join("|");
+      generated = this._getCachedPrimitiveGeometry(key, () => {
+        const geometry = new CapsuleGeometry(
+          radius,
+          capsuleBodyHeight,
+          segmentProfile.capsuleCap,
+          segmentProfile.capsuleRadial,
+        );
+        if (axis === 'X') {
+          geometry.rotateZ(-Math.PI / 2);
+        } else if (axis === 'Z') {
+          geometry.rotateX(Math.PI / 2);
+        }
+        return geometry;
+      });
     }
 
     if (!generated) return false;
-    generated.computeBoundingBox();
-    generated.computeBoundingSphere();
     this.replaceGeometry(generated);
     return true;
   }
@@ -931,115 +1040,15 @@ class HydraMesh {
   }
 
   applyUsdPrimitiveGeometry(prim, primType) {
-    let generated = null;
-    const normalizedType = String(primType || '').toLowerCase();
     const dimensionsFromExtent = this.getExtentDimensions(prim);
-
-    if (normalizedType === 'cube') {
-      const sizeAttribute = toFiniteNumber(prim.GetAttribute('size')?.Get?.());
-      const extentMatchesSize = dimensionsFromExtent && sizeAttribute !== undefined
-        ? nearlyEqual(dimensionsFromExtent[0], sizeAttribute) &&
-          nearlyEqual(dimensionsFromExtent[1], sizeAttribute) &&
-          nearlyEqual(dimensionsFromExtent[2], sizeAttribute)
-        : false;
-
-      const width = dimensionsFromExtent
-        ? (sizeAttribute !== undefined && !extentMatchesSize ? sizeAttribute : dimensionsFromExtent[0])
-        : (sizeAttribute ?? 1);
-      const height = dimensionsFromExtent
-        ? (sizeAttribute !== undefined && !extentMatchesSize ? sizeAttribute : dimensionsFromExtent[1])
-        : (sizeAttribute ?? 1);
-      const depth = dimensionsFromExtent
-        ? (sizeAttribute !== undefined && !extentMatchesSize ? sizeAttribute : dimensionsFromExtent[2])
-        : (sizeAttribute ?? 1);
-      generated = new BoxGeometry(width, height, depth);
-    } else if (normalizedType === 'sphere') {
-      const radiusAttribute = toFiniteNumber(prim.GetAttribute('radius')?.Get?.());
-      const radiusFromExtent = dimensionsFromExtent ? Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1], dimensionsFromExtent[2]) * 0.5 : undefined;
-      const radius = radiusAttribute ?? radiusFromExtent ?? 0.5;
-      generated = new SphereGeometry(
-        Math.max(radius, 1e-6),
-        PRIMITIVE_SEGMENTS.sphereWidth,
-        PRIMITIVE_SEGMENTS.sphereHeight,
-      );
-    } else if (normalizedType === 'cylinder') {
-      const radiusAttribute = toFiniteNumber(prim.GetAttribute('radius')?.Get?.());
-      const heightAttribute = toFiniteNumber(prim.GetAttribute('height')?.Get?.());
-      const axis = String(prim.GetAttribute('axis')?.Get?.() || 'Z').toUpperCase();
-      let radiusFromExtent = undefined;
-      let heightFromExtent = undefined;
-
-      if (dimensionsFromExtent) {
-        if (axis === 'X') {
-          heightFromExtent = dimensionsFromExtent[0];
-          radiusFromExtent = Math.max(dimensionsFromExtent[1], dimensionsFromExtent[2]) * 0.5;
-        } else if (axis === 'Y') {
-          heightFromExtent = dimensionsFromExtent[1];
-          radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[2]) * 0.5;
-        } else {
-          heightFromExtent = dimensionsFromExtent[2];
-          radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1]) * 0.5;
-        }
-      }
-
-      const radius = radiusAttribute ?? radiusFromExtent ?? 0.5;
-      const height = heightAttribute ?? heightFromExtent ?? 1;
-      generated = new CylinderGeometry(
-        Math.max(radius, 1e-6),
-        Math.max(radius, 1e-6),
-        Math.max(height, 1e-6),
-        PRIMITIVE_SEGMENTS.cylinderRadial,
-        PRIMITIVE_SEGMENTS.cylinderHeight,
-        false,
-      );
-
-      if (axis === 'X') {
-        generated.rotateZ(-Math.PI / 2);
-      } else if (axis === 'Z') {
-        generated.rotateX(Math.PI / 2);
-      }
-    } else if (normalizedType === 'capsule') {
-      const radiusAttribute = toFiniteNumber(prim.GetAttribute('radius')?.Get?.());
-      const heightAttribute = toFiniteNumber(prim.GetAttribute('height')?.Get?.());
-      const axis = String(prim.GetAttribute('axis')?.Get?.() || 'Z').toUpperCase();
-      let radiusFromExtent = undefined;
-      let totalHeightFromExtent = undefined;
-
-      if (dimensionsFromExtent) {
-        if (axis === 'X') {
-          totalHeightFromExtent = dimensionsFromExtent[0];
-          radiusFromExtent = Math.max(dimensionsFromExtent[1], dimensionsFromExtent[2]) * 0.5;
-        } else if (axis === 'Y') {
-          totalHeightFromExtent = dimensionsFromExtent[1];
-          radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[2]) * 0.5;
-        } else {
-          totalHeightFromExtent = dimensionsFromExtent[2];
-          radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1]) * 0.5;
-        }
-      }
-
-      const radius = Math.max(radiusAttribute ?? radiusFromExtent ?? 0.5, 1e-6);
-      const totalHeight = Math.max(heightAttribute ?? totalHeightFromExtent ?? 1, 1e-6);
-      const capsuleBodyHeight = Math.max(totalHeight - 2 * radius, 1e-6);
-      generated = new CapsuleGeometry(
-        radius,
-        capsuleBodyHeight,
-        PRIMITIVE_SEGMENTS.capsuleCap,
-        PRIMITIVE_SEGMENTS.capsuleRadial,
-      );
-
-      if (axis === 'X') {
-        generated.rotateZ(-Math.PI / 2);
-      } else if (axis === 'Z') {
-        generated.rotateX(Math.PI / 2);
-      }
-    }
-
-    if (!generated) return false;
-    generated.computeBoundingBox();
-    generated.computeBoundingSphere();
-    this.replaceGeometry(generated);
-    return true;
+    const descriptor = {
+      size: toFiniteNumber(prim.GetAttribute('size')?.Get?.()),
+      radius: toFiniteNumber(prim.GetAttribute('radius')?.Get?.()),
+      height: toFiniteNumber(prim.GetAttribute('height')?.Get?.()),
+      axis: String(prim.GetAttribute('axis')?.Get?.() || 'Z').toUpperCase(),
+      extentSize: dimensionsFromExtent || undefined,
+    };
+    return this.applyPrimitiveGeometryFromDescriptor(primType, descriptor) === true;
   }
 
   applyCollisionGeometryFromOverrides() {
@@ -1940,6 +1949,18 @@ class HydraMesh {
       trackStep('meshCount', 1);
       return;
     }
+
+    const shouldDeferHiddenCollisionProtoSync =
+      this.isCollisionProtoMesh()
+      && this._hasCompletedProtoSync !== true
+      && this._mesh?.visible === false
+      && this._interface?.deferHiddenCollisionProtoSyncInCommit === true;
+    if (shouldDeferHiddenCollisionProtoSync) {
+      trackStep('meshTotalMs', this._nowMs() - commitStart);
+      trackStep('meshCount', 1);
+      return;
+    }
+
     if (this._hasCompletedProtoSync) {
       trackStep('meshTotalMs', this._nowMs() - commitStart);
       trackStep('meshCount', 1);
@@ -2218,8 +2239,9 @@ class HydraMesh {
     }
   }
 
-  applyProtoStageSync() {
+  applyProtoStageSync(options = {}) {
     if (!this._id.includes(".proto_")) return;
+    const allowDeferredFinalBatch = options?.allowDeferredFinalBatch !== false;
     const finalizeProtoSync = () => {
       if (this.isCollisionProtoMesh() && !this._appliedCollisionOverride) {
         this._hasCompletedProtoSync = false;
@@ -2240,9 +2262,18 @@ class HydraMesh {
     }
     const preferFinalBatchSync = this._interface?.preferFinalStageOverrideBatchInProtoSync === true;
     const finalBatchPrimed = this._interface?._finalStageOverrideBatchPrimed === true;
-    if (preferFinalBatchSync && !finalBatchPrimed) {
+    const shouldDeferToFinalBatch = (
+      allowDeferredFinalBatch
+      && preferFinalBatchSync
+      && !finalBatchPrimed
+      // Visual proto meshes must keep local fast-path sync available by default.
+      // In the common fast-load configuration, visual stage-overrides are disabled,
+      // so deferring here can leave visuals unsynchronized (empty placeholders).
+      && this.isCollisionProtoMesh()
+    );
+    if (shouldDeferToFinalBatch) {
       // Defer expensive per-mesh fallback sync until a final-stage override batch
-      // is primed. This avoids duplicating heavy sync work in the first draw burst.
+      // is primed. Keep this optimization collision-only to avoid starving visuals.
       return;
     }
     const useProtoBlobFastPath = this._interface?.enableProtoBlobFastPath === true;
@@ -2282,6 +2313,14 @@ class HydraMesh {
     this.syncProtoTransformFromFallback();
     this.syncCollisionRotationFromVisualLink();
     finalizeProtoSync();
+  }
+
+  ensureProtoReadyForVisibility() {
+    if (!this._id.includes(".proto_")) return false;
+    if (!this.isCollisionProtoMesh()) return false;
+    if (this._hasCompletedProtoSync) return false;
+    this.applyProtoStageSync({ allowDeferredFinalBatch: false });
+    return this._hasCompletedProtoSync === true;
   }
 
   // Lightweight post-draw resync path:

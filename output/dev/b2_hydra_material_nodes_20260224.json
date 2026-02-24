@@ -1,0 +1,66 @@
+{
+  "": {
+    "nodeCount": 0,
+    "nodeEntries": [],
+    "materialName": "DefaultMaterial",
+    "roughness": 1,
+    "metalness": 0,
+    "emissiveIntensity": 1
+  },
+  "/b2_description/Looks/material________________008": {
+    "nodeCount": 0,
+    "nodeEntries": [],
+    "materialName": "material________________008",
+    "roughness": 1,
+    "metalness": 0,
+    "emissiveIntensity": 10000
+  },
+  "/b2_description/Looks/material________________011": {
+    "nodeCount": 0,
+    "nodeEntries": [],
+    "materialName": "material________________011",
+    "roughness": 1,
+    "metalness": 0,
+    "emissiveIntensity": 10000
+  },
+  "/b2_description/Looks/material_______005": {
+    "nodeCount": 0,
+    "nodeEntries": [],
+    "materialName": "material_______005",
+    "roughness": 1,
+    "metalness": 0,
+    "emissiveIntensity": 10000
+  },
+  "/b2_description/Looks/material_____________009": {
+    "nodeCount": 0,
+    "nodeEntries": [],
+    "materialName": "material_____________009",
+    "roughness": 1,
+    "metalness": 0,
+    "emissiveIntensity": 10000
+  },
+  "/b2_description/Looks/logo_001": {
+    "nodeCount": 0,
+    "nodeEntries": [],
+    "materialName": "logo_001",
+    "roughness": 1,
+    "metalness": 0,
+    "emissiveIntensity": 10000
+  },
+  "/b2_description/Looks/material_______023": {
+    "nodeCount": 0,
+    "nodeEntries": [],
+    "materialName": "material_______023",
+    "roughness": 1,
+    "metalness": 0,
+    "emissiveIntensity": 10000
+  },
+  "/b2_description/Looks/material_______024": {
+    "nodeCount": 0,
+    "nodeEntries": [],
+    "materialName": "material_______024",
+    "roughness": 1,
+    "metalness": 0,
+    "emissiveIntensity": 10000
+  }
+}

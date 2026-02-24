@@ -80,31 +80,58 @@ class HydraMaterial {
     'diffuse_color_constant': 'color',
     'emissiveColor': 'emissive',
     'emissive_color': 'emissive',
+    'emissive_color_constant': 'emissive',
     'emissive_intensity': 'emissiveIntensity',
     'ior': 'ior',
     'metallic': 'metalness',
+    'metallic_constant': 'metalness',
     'metalness': 'metalness',
+    'metalness_constant': 'metalness',
     'opacity': 'opacity',
+    'opacity_constant': 'opacity',
     'roughness': 'roughness',
+    'roughness_constant': 'roughness',
+    'reflection_roughness': 'roughness',
+    'reflection_roughness_constant': 'roughness',
+    'specular_roughness': 'roughness',
     'opacityThreshold': 'alphaTest',
+    'opacity_threshold': 'alphaTest',
+    'alphaCutoff': 'alphaTest',
+    'alpha_cutoff': 'alphaTest',
     'specular': 'specularIntensity',
+    'specular_constant': 'specularIntensity',
     'specularIntensity': 'specularIntensity',
+    'specular_intensity': 'specularIntensity',
     'specularColor': 'specularColor',
     'specular_color': 'specularColor',
     'transmission': 'transmission',
+    'transmission_weight': 'transmission',
     'thickness': 'thickness',
+    'thickness_constant': 'thickness',
     'attenuationDistance': 'attenuationDistance',
+    'attenuation_distance': 'attenuationDistance',
     'attenuationColor': 'attenuationColor',
+    'attenuation_color': 'attenuationColor',
     'normalScale': 'normalScale',
+    'normal_scale': 'normalScale',
     'occlusion': 'aoMapIntensity',
+    'occlusion_strength': 'aoMapIntensity',
+    'ao_strength': 'aoMapIntensity',
     'ao': 'aoMapIntensity',
     'sheen': 'sheen',
+    'sheen_weight': 'sheen',
     'sheenColor': 'sheenColor',
+    'sheen_color': 'sheenColor',
     'sheenRoughness': 'sheenRoughness',
+    'sheen_roughness': 'sheenRoughness',
     'iridescence': 'iridescence',
+    'iridescence_weight': 'iridescence',
     'iridescenceIOR': 'iridescenceIOR',
+    'iridescence_ior': 'iridescenceIOR',
     'anisotropy': 'anisotropy',
+    'anisotropy_level': 'anisotropy',
     'anisotropyRotation': 'anisotropyRotation',
+    'anisotropy_rotation': 'anisotropyRotation',
   };
 
   static colorMaterialProperties = new Set([
@@ -135,6 +162,44 @@ class HydraMaterial {
     'iridescence',
     'anisotropy',
   ]);
+
+  static _readBooleanParameter(materialNode, parameterNames) {
+    if (!materialNode || !Array.isArray(parameterNames)) return undefined;
+    for (const parameterName of parameterNames) {
+      if (!(parameterName in materialNode)) continue;
+      const value = materialNode[parameterName];
+      if (value === undefined || value === null) continue;
+      if (typeof value === 'boolean') return value;
+      const numeric = toFiniteNumber(value);
+      if (numeric !== undefined) return numeric !== 0;
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) continue;
+      if (normalized === 'true' || normalized === 'yes' || normalized === 'on') return true;
+      if (normalized === 'false' || normalized === 'no' || normalized === 'off') return false;
+    }
+    return undefined;
+  }
+
+  static _isEmissionEnabled(materialNode) {
+    return HydraMaterial._readBooleanParameter(materialNode, [
+      'enable_emission',
+      'enableEmission',
+    ]) !== false;
+  }
+
+  static _isOpacityEnabled(materialNode) {
+    return HydraMaterial._readBooleanParameter(materialNode, [
+      'enable_opacity',
+      'enableOpacity',
+    ]) !== false;
+  }
+
+  static _isOpacityTextureEnabled(materialNode) {
+    return HydraMaterial._readBooleanParameter(materialNode, [
+      'enable_opacity_texture',
+      'enableOpacityTexture',
+    ]) !== false;
+  }
 
   constructor(id, hydraInterface) {
     this._id = id;
@@ -267,6 +332,17 @@ class HydraMaterial {
       const materialParameterMapName = HydraMaterial.usdPreviewToMeshPhysicalTextureMap[parameterName];
       if (materialParameterMapName === undefined) {
         console.warn(`Unsupported material texture parameter '${parameterName}'.`);
+        resolve();
+        return;
+      }
+      const emissionEnabled = HydraMaterial._isEmissionEnabled(mainMaterial);
+      const opacityEnabled = HydraMaterial._isOpacityEnabled(mainMaterial);
+      const opacityTextureEnabled = HydraMaterial._isOpacityTextureEnabled(mainMaterial);
+      if (materialParameterMapName === 'emissiveMap' && !emissionEnabled) {
+        resolve();
+        return;
+      }
+      if (materialParameterMapName === 'alphaMap' && (!opacityEnabled || !opacityTextureEnabled)) {
         resolve();
         return;
       }
@@ -520,6 +596,20 @@ class HydraMaterial {
     if (mainMaterial[parameterName] === undefined || mainMaterial[parameterName]?.nodeIn) return;
 
     const rawValue = mainMaterial[parameterName];
+    const emissionEnabled = HydraMaterial._isEmissionEnabled(mainMaterial);
+    if (!emissionEnabled && (materialParameterName === 'emissive' || materialParameterName === 'emissiveIntensity')) {
+      this._material.emissive = new Color(0x000000);
+      this._material.emissiveIntensity = 1;
+      return;
+    }
+
+    const opacityEnabled = HydraMaterial._isOpacityEnabled(mainMaterial);
+    if (!opacityEnabled && (materialParameterName === 'opacity' || materialParameterName === 'alphaTest')) {
+      this._material.opacity = 1;
+      this._material.alphaTest = 0;
+      this._material.transparent = false;
+      return;
+    }
 
     if (HydraMaterial.colorMaterialProperties.has(materialParameterName)) {
       const colorTuple = toColorArray(rawValue);

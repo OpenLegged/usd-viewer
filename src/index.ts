@@ -29,7 +29,7 @@ type GetUsdModuleFn = (options: Record<string, unknown>) => Promise<UsdModule>;
 
 // Keep this cache key aligned with the bindings build generation so JS/WASM/data
 // are always fetched from the same build.
-const EMHD_BINDINGS_CACHE_KEY = "20260223e";
+const EMHD_BINDINGS_CACHE_KEY = "20260223f";
 const withEmHdBindingsCacheKey = (resourcePath: string): string => {
   if (!resourcePath) return resourcePath;
   return resourcePath.includes("?")

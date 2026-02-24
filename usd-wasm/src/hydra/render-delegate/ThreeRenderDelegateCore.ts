@@ -46,6 +46,9 @@ export class ThreeRenderDelegateCore {
     this.enableProtoBlobFastPath = safeConfig.enableProtoBlobFastPath !== false;
     this.preferProtoBlobOverHydraPayload = safeConfig.preferProtoBlobOverHydraPayload !== false;
     this.preferFinalStageOverrideBatchInProtoSync = safeConfig.preferFinalStageOverrideBatchInProtoSync !== false;
+    // Keep first visual frame fast: hidden collision proto meshes can defer
+    // expensive sync until they become visible.
+    this.deferHiddenCollisionProtoSyncInCommit = safeConfig.deferHiddenCollisionProtoSyncInCommit !== false;
     // Reduce JS<->WASM bridge chatter by default: prime batch payloads once,
     // then resolve per-mesh reads from JS cache.
     this.autoBatchProtoBlobsOnFirstAccess = safeConfig.autoBatchProtoBlobsOnFirstAccess !== false;

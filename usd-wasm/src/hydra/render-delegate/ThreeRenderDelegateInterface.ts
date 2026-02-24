@@ -22,6 +22,19 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
   applyStageFallbackMaterialParameters(material, shaderPrim) {
     if (!material || !shaderPrim) return;
     const treatNamedHexDiffuseAsSrgb = this.shouldTreatNamedHexDiffuseAsSrgb();
+    const isOmniPbrShader = this.isLikelyOmniPbrShaderPrim(shaderPrim);
+    const emissiveEnabled = this.readPrimBooleanAttribute(shaderPrim, [
+      'inputs:enable_emission',
+      'inputs:enableEmission',
+    ]);
+    const opacityEnabled = this.readPrimBooleanAttribute(shaderPrim, [
+      'inputs:enable_opacity',
+      'inputs:enableOpacity',
+    ]);
+    const opacityTextureEnabled = this.readPrimBooleanAttribute(shaderPrim, [
+      'inputs:enable_opacity_texture',
+      'inputs:enableOpacityTexture',
+    ]);
 
     this.applyStageFallbackColorInput(material, shaderPrim, [
       'inputs:diffuseColor',
@@ -36,12 +49,18 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       treatAsSrgbWhenMatchingMaterialName: treatNamedHexDiffuseAsSrgb,
     });
 
-    this.applyStageFallbackScalarInput(material, shaderPrim, [
+    const roughnessAssigned = this.applyStageFallbackScalarInput(material, shaderPrim, [
       'inputs:roughness',
       'inputs:roughness_constant',
+      'inputs:reflection_roughness',
       'inputs:reflection_roughness_constant',
       'inputs:specular_roughness',
     ], 'roughness', { clamp01: true });
+    if (!roughnessAssigned && isOmniPbrShader) {
+      // OmniPBR often omits explicit roughness attributes in exported USD.
+      // A middle-ground default avoids the fully matte MeshPhysical default.
+      material.roughness = 0.5;
+    }
 
     this.applyStageFallbackScalarInput(material, shaderPrim, [
       'inputs:metallic',
@@ -71,6 +90,12 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (value > 0) material.transparent = false;
       },
     });
+
+    if (opacityEnabled === false) {
+      material.opacity = 1;
+      material.transparent = false;
+      material.alphaTest = 0;
+    }
 
     this.applyStageFallbackScalarInput(material, shaderPrim, [
       'inputs:clearcoat',
@@ -163,15 +188,6 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       'inputs:sheen_color',
     ], 'sheenColor');
 
-    const emissiveEnabledValue = this.readPrimAttribute(shaderPrim, [
-      'inputs:enable_emission',
-      'inputs:enableEmission',
-    ]);
-    const emissiveEnabledNumeric = toFiniteNumber(emissiveEnabledValue);
-    const emissiveEnabled = typeof emissiveEnabledValue === 'boolean'
-      ? emissiveEnabledValue
-      : (emissiveEnabledNumeric !== undefined ? emissiveEnabledNumeric > 0 : undefined);
-
     const emissiveColor = this.applyStageFallbackColorInput(material, shaderPrim, [
       'inputs:emissiveColor',
       'inputs:emissive_color',
@@ -183,9 +199,14 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       material.emissive = new Color(0x000000);
     }
 
-    this.applyStageFallbackScalarInput(material, shaderPrim, [
-      'inputs:emissive_intensity',
-    ], 'emissiveIntensity', { min: 0 });
+    if (emissiveEnabled === false) {
+      material.emissive = new Color(0x000000);
+      material.emissiveIntensity = 1;
+    } else {
+      this.applyStageFallbackScalarInput(material, shaderPrim, [
+        'inputs:emissive_intensity',
+      ], 'emissiveIntensity', { min: 0 });
+    }
 
     const normalScaleValue = this.readPrimAttribute(shaderPrim, [
       'inputs:normalScale',
@@ -228,16 +249,18 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       },
     });
 
-    this.applyStageFallbackTextureInput(material, shaderPrim, [
-      'inputs:emissiveColor_texture',
-      'inputs:emissive_color_texture',
-      'inputs:emissive_texture',
-    ], 'emissiveMap', {
-      colorSpace: SRGBColorSpace,
-      onAssigned: () => {
-        material.emissive = new Color(0xffffff);
-      },
-    });
+    if (emissiveEnabled !== false) {
+      this.applyStageFallbackTextureInput(material, shaderPrim, [
+        'inputs:emissiveColor_texture',
+        'inputs:emissive_color_texture',
+        'inputs:emissive_texture',
+      ], 'emissiveMap', {
+        colorSpace: SRGBColorSpace,
+        onAssigned: () => {
+          material.emissive = new Color(0xffffff);
+        },
+      });
+    }
 
     this.applyStageFallbackTextureInput(material, shaderPrim, [
       'inputs:roughness_texture',
@@ -270,15 +293,17 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       'inputs:ao_texture',
     ], 'aoMap');
 
-    this.applyStageFallbackTextureInput(material, shaderPrim, [
-      'inputs:opacity_texture',
-      'inputs:opacity_mask_texture',
-      'inputs:opacityMask_texture',
-    ], 'alphaMap', {
-      onAssigned: () => {
-        if (!(material.alphaTest > 0)) material.transparent = true;
-      },
-    });
+    if (opacityEnabled !== false && opacityTextureEnabled !== false) {
+      this.applyStageFallbackTextureInput(material, shaderPrim, [
+        'inputs:opacity_texture',
+        'inputs:opacity_mask_texture',
+        'inputs:opacityMask_texture',
+      ], 'alphaMap', {
+        onAssigned: () => {
+          if (!(material.alphaTest > 0)) material.transparent = true;
+        },
+      });
+    }
 
     this.applyStageFallbackTextureInput(material, shaderPrim, [
       'inputs:clearcoat_texture',
@@ -546,6 +571,31 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
     }
 
     return undefined;
+  }
+
+  readPrimBooleanAttribute(prim, attributeNames) {
+    const value = this.readPrimAttribute(prim, attributeNames);
+    if (typeof value === 'boolean') return value;
+
+    const numeric = toFiniteNumber(value);
+    if (numeric !== undefined) return numeric !== 0;
+
+    if (value === null || value === undefined) return undefined;
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return undefined;
+    if (normalized === 'true' || normalized === 'yes' || normalized === 'on') return true;
+    if (normalized === 'false' || normalized === 'no' || normalized === 'off') return false;
+    return undefined;
+  }
+
+  isLikelyOmniPbrShaderPrim(shaderPrim) {
+    if (!shaderPrim) return false;
+    const signatures = [
+      this.readPrimAttribute(shaderPrim, ['info:id']),
+      this.readPrimAttribute(shaderPrim, ['info:mdl:sourceAsset:subIdentifier']),
+      this.readPrimAttribute(shaderPrim, ['info:mdl:sourceAsset']),
+    ];
+    return signatures.some((value) => String(value || '').toLowerCase().includes('omnipbr'));
   }
 
   normalizeMaterialTexturePath(pathValue) {

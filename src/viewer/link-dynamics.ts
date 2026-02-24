@@ -579,6 +579,7 @@ export class LinkDynamicsController {
     const requestId = ++this.rebuildRequestId;
     await this.ensureLinkDynamicsCatalogReady(renderInterface);
     if (requestId !== this.rebuildRequestId) return;
+    this.prefetchLinkWorldTransforms(renderInterface);
 
     const group = new Group();
     group.name = "Link Dynamics";
@@ -610,6 +611,36 @@ export class LinkDynamicsController {
     if (group.children.length === 0) return;
     this.linkDynamicsGroup = group;
     usdRoot.add(group);
+  }
+
+  /**
+   * Warm up stage transform caches in one bridge call.
+   * Without this, first COM/inertia enable can fall back to per-prim transform
+   * reads and block the main thread for several seconds on large stages.
+   */
+  private prefetchLinkWorldTransforms(renderInterface: RenderInterfaceLike): void {
+    const prefetch = (renderInterface as any)?.prefetchPrimTransformsFromDriver;
+    if (typeof prefetch !== "function") return;
+
+    let driver: any = null;
+    try {
+      const driverGetter = (renderInterface as any)?.config?.driver;
+      driver = typeof driverGetter === "function" ? driverGetter.call(renderInterface) : null;
+    } catch {
+      driver = null;
+    }
+    if (!driver) {
+      driver = (window as any)?.driver || null;
+    }
+    if (!driver) return;
+
+    try {
+      // Force-refresh avoids stale "primed but empty" transform cache states
+      // and keeps first COM/inertia toggle responsive.
+      prefetch.call(renderInterface, driver, { force: true });
+    } catch {
+      // Keep overlay rebuild resilient; fallback path remains available.
+    }
   }
 
   syncLinkDynamicsTransforms(renderInterface: RenderInterfaceLike): boolean {

@@ -80,7 +80,16 @@ export function applyMeshVisibilityFilters(renderInterface, showVisualMeshes, sh
             continue;
         const meshName = mesh.name || "";
         if (isCollisionMeshId(meshId, meshName)) {
+            const wasVisible = mesh.visible === true;
             mesh.visible = showCollisionMeshes;
+            if (showCollisionMeshes && !wasVisible) {
+                try {
+                    hydraMesh?.ensureProtoReadyForVisibility?.();
+                }
+                catch {
+                    // Keep visibility toggles resilient even if a single proto mesh fails.
+                }
+            }
             setCollisionMeshStyle(mesh, showCollisionMeshes, showVisualMeshes);
             continue;
         }

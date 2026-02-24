@@ -12,7 +12,7 @@ import { JointPanelController } from "./viewer/joint-panel.js";
 import { LinkDynamicsController } from "./viewer/link-dynamics.js";
 // Keep this cache key aligned with the bindings build generation so JS/WASM/data
 // are always fetched from the same build.
-const EMHD_BINDINGS_CACHE_KEY = "20260223e";
+const EMHD_BINDINGS_CACHE_KEY = "20260223f";
 const withEmHdBindingsCacheKey = (resourcePath) => {
     if (!resourcePath)
         return resourcePath;
