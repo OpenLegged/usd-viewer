@@ -5,4 +5,5 @@ node_modules
 .vscode/
 .github/
 .DS_Store
+output/
 **/dist
