@@ -544,7 +544,7 @@ class HydraMaterial {
         dataEntry[2] = data[i + 2];
         dataEntry[3] = data[i + 3];
         dataEntry[4] = 0; // empty value
-        dataEntry[5] = 1;
+        dataEntry[5] = 255;
 
         const rAccess = arrayAccessBySwizzle[0];
         const gAccess = arrayAccessBySwizzle[1];

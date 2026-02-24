@@ -38,6 +38,7 @@
 #include "pxr/imaging/hd/vtBufferSource.h"
 
 #include <algorithm>
+#include <cctype>
 #include <iostream>
 
 using namespace emscripten;
@@ -130,6 +131,9 @@ public:
         // Get the id of this mesh. This is used to get various resources associated with it.
         SdfPath const& id = GetId();
         const std::string idPath = id.GetAsString();
+        const bool skipHydraPayloadForProto = _IsProtoMeshRprim()
+            && _ownerDelegate
+            && _ownerDelegate->GetPreferProtoBlobOverHydraPayload();
 
         // Materials need to be synced before primvars, to allow the JS side to apply primvar information like
         // displayColor if no other material is set.
@@ -167,7 +171,7 @@ public:
             VtValue value = delegate->Get(id, HdTokens->points);
             _points = value.Get<VtVec3fArray>();
             _normalsValid = false;
-            if (!_points.empty()) {
+            if (!_points.empty() && !skipHydraPayloadForProto) {
                 _ownerDelegate->QueueRprimPoints(
                     idPath,
                     reinterpret_cast<float const*>(_points.cdata()),
@@ -193,7 +197,7 @@ public:
             _meshUtil = new HdMeshUtil(&_topology, GetId());
             _meshUtil->ComputeTriangleIndices(&_triangulatedIndices, &_trianglePrimitiveParams);
 
-            if (!_triangulatedIndices.empty()) {
+            if (!_triangulatedIndices.empty() && !skipHydraPayloadForProto) {
                 _ownerDelegate->QueueRprimIndices(
                     idPath,
                     reinterpret_cast<int32_t const*>(_triangulatedIndices.cdata()),
@@ -206,7 +210,7 @@ public:
 
         // Sync primvars
         if (HdChangeTracker::IsAnyPrimvarDirty(*dirtyBits, id)) {
-            _SyncPrimvars(delegate, *dirtyBits, idPath);
+            _SyncPrimvars(delegate, *dirtyBits, idPath, skipHydraPayloadForProto);
         }
 
         // TODO: Various sources, such as surface representation description, the topology scheme, or the availablity
@@ -229,7 +233,7 @@ public:
             _computedNormals = Hd_SmoothNormals::ComputeSmoothNormals(
                 &_adjacency, _points.size(), _points.cdata());
             _normalsValid = true;
-            if (!_computedNormals.empty()) {
+            if (!_computedNormals.empty() && !skipHydraPayloadForProto) {
                 _ownerDelegate->QueueRprimNormals(
                     idPath,
                     reinterpret_cast<float const*>(_computedNormals.cdata()),
@@ -239,10 +243,12 @@ public:
 
         if (HdChangeTracker::IsTransformDirty(*dirtyBits, id)) {
             _transform = GfMatrix4f(delegate->GetTransform(id));
-            _ownerDelegate->QueueRprimTransform(
-                idPath,
-                reinterpret_cast<float const*>(_transform.data()),
-                16);
+            if (!skipHydraPayloadForProto) {
+                _ownerDelegate->QueueRprimTransform(
+                    idPath,
+                    reinterpret_cast<float const*>(_transform.data()),
+                    16);
+            }
         }
 
         _UpdateProtoDataBlobCache();
@@ -311,6 +317,25 @@ private:
     bool _ShouldCapturePrimvarForProtoBlob(std::string const& name) const
     {
         return name == "st" || name == "primvars:st";
+    }
+
+    static bool _ShouldQueuePrimvarToJs(std::string const& name)
+    {
+        if (name.empty()) return false;
+
+        std::string normalized = name;
+        std::transform(
+            normalized.begin(),
+            normalized.end(),
+            normalized.begin(),
+            [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        if (normalized.rfind("primvars:", 0) == 0) {
+            normalized = normalized.substr(9);
+        }
+
+        return normalized == "st"
+            || normalized == "displaycolor"
+            || normalized == "normals";
     }
 
     void _UpdateProtoDataBlobCache()
@@ -398,7 +423,8 @@ private:
     void _SendPrimvar(const VtValue &value,
                       const std::string &name,
                       const HdInterpolation &interpolation,
-                      std::string const& rprimPath)
+                      std::string const& rprimPath,
+                      bool queueToJs)
     {
         const std::string &ip = InterpolationStrings.at(interpolation);
         if (value.CanCast<VtVec2fArray>()) {
@@ -406,6 +432,7 @@ private:
             if (_ShouldCapturePrimvarForProtoBlob(name)) {
                 _uvPrimvar = primvarData;
             }
+            if (!queueToJs) return;
             std::vector<float> flattened;
             flattened.reserve(primvarData.size() * 2);
             for (auto const& item : primvarData) {
@@ -415,6 +442,7 @@ private:
             _StorePrimvarPayload(name + "|2|" + ip, name, ip, 2, std::move(flattened), rprimPath);
         }
         if (value.CanCast<VtVec3fArray>()) {
+            if (!queueToJs) return;
             VtVec3fArray primvarData = value.Get<VtVec3fArray>();
             std::vector<float> flattened;
             flattened.reserve(primvarData.size() * 3);
@@ -426,6 +454,7 @@ private:
             _StorePrimvarPayload(name + "|3|" + ip, name, ip, 3, std::move(flattened), rprimPath);
         }
         if (value.CanCast<VtVec4fArray>()) {
+            if (!queueToJs) return;
             VtVec4fArray primvarData = value.Get<VtVec4fArray>();
             std::vector<float> flattened;
             flattened.reserve(primvarData.size() * 4);
@@ -441,7 +470,8 @@ private:
 
     void _SyncPrimvars(HdSceneDelegate *delegate,
                        HdDirtyBits      dirtyBits,
-                       std::string const& rprimPath)
+                       std::string const& rprimPath,
+                       bool skipHydraPayloadForProto)
     {
         SdfPath const &id = GetId();
         for (size_t interpolation = HdInterpolationConstant;
@@ -459,6 +489,8 @@ private:
                                                     id,
                                                     primvar.name)) {
                     VtValue value = GetPrimvar(delegate, primvar.name);
+                    const bool queueToJs = !skipHydraPayloadForProto
+                        && _ShouldQueuePrimvarToJs(primvar.name.GetString());
 
                     switch(ip) {
                         case HdInterpolationFaceVarying: {
@@ -475,12 +507,12 @@ private:
                                 continue;
                             }
 
-                            _SendPrimvar(triangulated, primvar.name.GetString(), ip, rprimPath);
+                            _SendPrimvar(triangulated, primvar.name.GetString(), ip, rprimPath, queueToJs);
                             break;
                         }
                         case HdInterpolationConstant:
                         case HdInterpolationVertex: {
-                            _SendPrimvar(value, primvar.name.GetString(), ip, rprimPath);
+                            _SendPrimvar(value, primvar.name.GetString(), ip, rprimPath, queueToJs);
                             break;
                         }
                         default:
@@ -750,6 +782,18 @@ WebRenderDelegate::RemoveProtoDataBlob(std::string const& rprimPath)
     if (rprimPath.empty()) return;
     std::lock_guard<std::mutex> lock(_protoDataBlobMutex);
     _protoDataBlobByRprimPath.erase(rprimPath);
+}
+
+void
+WebRenderDelegate::SetPreferProtoBlobOverHydraPayload(bool prefer)
+{
+    _preferProtoBlobOverHydraPayload.store(prefer, std::memory_order_release);
+}
+
+bool
+WebRenderDelegate::GetPreferProtoBlobOverHydraPayload() const
+{
+    return _preferProtoBlobOverHydraPayload.load(std::memory_order_acquire);
 }
 
 void

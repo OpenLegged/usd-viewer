@@ -12,7 +12,7 @@ import { JointPanelController } from "./viewer/joint-panel.js";
 import { LinkDynamicsController } from "./viewer/link-dynamics.js";
 // Keep this cache key aligned with the bindings build generation so JS/WASM/data
 // are always fetched from the same build.
-const EMHD_BINDINGS_CACHE_KEY = "20260223f";
+const EMHD_BINDINGS_CACHE_KEY = "20260224d";
 const withEmHdBindingsCacheKey = (resourcePath) => {
     if (!resourcePath)
         return resourcePath;
@@ -1397,11 +1397,17 @@ class ViewerApp {
         renderScene();
     }
     applyPostDrawSceneUpdates() {
-        if (!this.showLinkDynamics)
+        const renderInterface = window.renderInterface;
+        if (!renderInterface)
             return false;
-        if (!window.renderInterface)
-            return false;
-        return this.linkDynamicsController.syncLinkDynamicsTransforms(window.renderInterface);
+        let changed = false;
+        // Re-apply interactive joint poses after each Hydra Draw() pass; otherwise
+        // slider/pointer joint edits are overwritten by the next frame's stage sync.
+        changed = this.linkRotationController.apply(renderInterface) === true || changed;
+        if (this.showLinkDynamics) {
+            changed = this.linkDynamicsController.syncLinkDynamicsTransforms(renderInterface) === true || changed;
+        }
+        return changed;
     }
     async animate() {
         if (this.stopped) {

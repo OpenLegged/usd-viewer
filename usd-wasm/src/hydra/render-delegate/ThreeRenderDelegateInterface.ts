@@ -9,12 +9,12 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import * as Shared from './shared.js?v=20260223i';
-import { ThreeRenderDelegateMaterialOps } from './ThreeRenderDelegateMaterialOps.js?v=20260223i';
-import { HydraInstancer } from './HydraInstancer.js?v=20260223i';
-import { HydraMaterial } from './HydraMaterial.js?v=20260223i';
-import { HydraMesh } from './HydraMesh.js?v=20260223i';
-import { getDefaultMaterial } from './default-material-state.js?v=20260223i';
+import * as Shared from './shared.js?v=20260224c';
+import { ThreeRenderDelegateMaterialOps } from './ThreeRenderDelegateMaterialOps.js?v=20260224c';
+import { HydraInstancer } from './HydraInstancer.js?v=20260224c';
+import { HydraMaterial } from './HydraMaterial.js?v=20260224c';
+import { HydraMesh } from './HydraMesh.js?v=20260224c';
+import { getDefaultMaterial } from './default-material-state.js?v=20260224c';
 
 const { buildProtoPrimPathCandidates,clamp01,createMatrixFromXformOp,debugInstancer,debugMaterials,debugMeshes,debugPrims,debugTextures,defaultGrayComponent,disableMaterials,disableTextures,extractPrimPathFromMaterialBindingWarning,extractReferencePrimTargets,extractScopeBodyText,extractUsdAssetReferencesFromLayerText,getActiveMaterialBindingWarningOwner,getAngleInRadians,getCollisionGeometryTypeFromUrdfElement,getExpectedPrimTypesForCollisionProto,getExpectedPrimTypesForProtoType,getMatrixMaxElementDelta,getPathBasename,getPathWithoutRoot,getRawConsoleMethod,getRootPathFromPrimPath,getSafePrimTypeName,hasNonZeroTranslation,hydraCallbackErrorCounts,installMaterialBindingApiWarningInterceptor,isIdentityQuaternion,isLikelyDefaultGrayMaterial,isLikelyInverseTransform,isMaterialBindingApiWarningMessage,isMatrixApproximatelyIdentity,isNonZero,isPotentiallyLargeBaseAssetPath,logHydraCallbackError,materialBindingRepairMaxLayerTextLength,materialBindingWarningHandlers,maxHydraCallbackErrorLogsPerMethod,nearlyEqual,normalizeHydraPath,normalizeUsdPathToken,parseGuideCollisionReferencesFromLayerText,parseProtoMeshIdentifier,parseUrdfTruthFromText,parseVector3Text,parseXformOpFallbacksFromLayerText,rawConsoleError,rawConsoleWarn,registerMaterialBindingApiWarningHandler,remapRootPathIfNeeded,resolveUrdfTruthFileNameForStagePath,resolveUsdAssetPath,setActiveMaterialBindingWarningOwner,shouldAllowLargeBaseAssetScan,stringifyConsoleArgs,toArrayLike,toColorArray,toFiniteNumber,toFiniteQuaternionWxyzTuple,toFiniteVector2Tuple,toFiniteVector3Tuple,toMatrixFromUrdfOrigin,toQuaternionWxyzFromRpy,transformEpsilon,wrapHydraCallbackObject } = Shared;
 
@@ -980,6 +980,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
 
     const primType = String(rawOverride.primType || '').trim().toLowerCase();
     if (!primType) return null;
+    const meshPayload = primType === 'mesh'
+      ? (this.normalizeProtoDataBlob((rawOverride as any).meshPayload || rawOverride) || null)
+      : null;
 
     return {
       valid: true,
@@ -1000,6 +1003,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       )
         ? rawOverride.worldTransform
         : undefined,
+      meshPayload: meshPayload || undefined,
     };
   }
 
@@ -1041,6 +1045,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
 
     const primType = String(rawData.primType || '').trim().toLowerCase();
     if (!primType) return null;
+    const meshPayload = primType === 'mesh'
+      ? (this.normalizeProtoDataBlob((rawData as any).meshPayload || rawData) || null)
+      : null;
 
     return {
       valid: true,
@@ -1060,6 +1067,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       )
         ? rawData.worldTransform
         : undefined,
+      meshPayload: meshPayload || undefined,
     };
   }
 
@@ -1495,6 +1503,10 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
       const hydraMesh = this.meshes[meshId];
       if (!hydraMesh || typeof hydraMesh.applyUpdates !== 'function') continue;
       if (!rawDelta || typeof rawDelta !== 'object') continue;
+      const skipHydraPayloadReadForProto = (
+        this.preferProtoBlobOverHydraPayload === true
+        && meshId.includes('.proto_')
+      );
 
       const updates = {};
       let hasUpdates = false;
@@ -1524,51 +1536,53 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         }
       }
 
-      const points = this._readHeapFloat32View(rawDelta.pointsPtr, rawDelta.pointsCount);
-      if (points && points.length > 0) {
-        updates.points = points;
-        hasUpdates = true;
-      }
-
-      const indices = this._readHeapUint32View(rawDelta.indicesPtr, rawDelta.indicesCount);
-      if (indices && indices.length > 0) {
-        updates.indices = indices;
-        hasUpdates = true;
-      }
-
-      const normals = this._readHeapFloat32View(rawDelta.normalsPtr, rawDelta.normalsCount);
-      if (normals && normals.length > 0) {
-        updates.normals = normals;
-        hasUpdates = true;
-      }
-
-      const transform = this._readHeapFloat32View(rawDelta.transformPtr, rawDelta.transformCount);
-      if (transform && transform.length >= 16) {
-        updates.transform = transform.subarray(0, 16);
-        hasUpdates = true;
-      }
-
-      const rawPrimvars = toObjectArray(rawDelta.primvars);
-      if (rawPrimvars.length > 0) {
-        const primvars = [];
-        for (const rawPrimvar of rawPrimvars) {
-          const name = String(rawPrimvar?.name || '').trim();
-          if (!name) continue;
-          const dimension = Number(rawPrimvar?.dimension);
-          if (!Number.isFinite(dimension) || dimension <= 0) continue;
-          const data = this._readHeapFloat32View(rawPrimvar?.dataPtr, rawPrimvar?.dataCount);
-          if (!data || data.length <= 0) continue;
-          const interpolation = String(rawPrimvar?.interpolation || 'vertex').trim().toLowerCase() || 'vertex';
-          primvars.push({
-            name,
-            data,
-            dimension: Math.max(1, Math.floor(dimension)),
-            interpolation,
-          });
-        }
-        if (primvars.length > 0) {
-          updates.primvars = primvars;
+      if (!skipHydraPayloadReadForProto) {
+        const points = this._readHeapFloat32View(rawDelta.pointsPtr, rawDelta.pointsCount);
+        if (points && points.length > 0) {
+          updates.points = points;
           hasUpdates = true;
+        }
+
+        const indices = this._readHeapUint32View(rawDelta.indicesPtr, rawDelta.indicesCount);
+        if (indices && indices.length > 0) {
+          updates.indices = indices;
+          hasUpdates = true;
+        }
+
+        const normals = this._readHeapFloat32View(rawDelta.normalsPtr, rawDelta.normalsCount);
+        if (normals && normals.length > 0) {
+          updates.normals = normals;
+          hasUpdates = true;
+        }
+
+        const transform = this._readHeapFloat32View(rawDelta.transformPtr, rawDelta.transformCount);
+        if (transform && transform.length >= 16) {
+          updates.transform = transform.subarray(0, 16);
+          hasUpdates = true;
+        }
+
+        const rawPrimvars = toObjectArray(rawDelta.primvars);
+        if (rawPrimvars.length > 0) {
+          const primvars = [];
+          for (const rawPrimvar of rawPrimvars) {
+            const name = String(rawPrimvar?.name || '').trim();
+            if (!name) continue;
+            const dimension = Number(rawPrimvar?.dimension);
+            if (!Number.isFinite(dimension) || dimension <= 0) continue;
+            const data = this._readHeapFloat32View(rawPrimvar?.dataPtr, rawPrimvar?.dataCount);
+            if (!data || data.length <= 0) continue;
+            const interpolation = String(rawPrimvar?.interpolation || 'vertex').trim().toLowerCase() || 'vertex';
+            primvars.push({
+              name,
+              data,
+              dimension: Math.max(1, Math.floor(dimension)),
+              interpolation,
+            });
+          }
+          if (primvars.length > 0) {
+            updates.primvars = primvars;
+            hasUpdates = true;
+          }
         }
       }
 
@@ -2462,6 +2476,18 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
     const resolvedDriver = typeof this.config?.driver === 'function'
       ? this.config.driver()
       : null;
+    const shouldPrimeFinalStageOverrides = (
+      this.preferFinalStageOverrideBatchInProtoSync === true
+      && !!resolvedDriver
+      && typeof this.prefetchFinalStageOverrideBatchFromDriver === 'function'
+      && this._finalStageOverrideBatchPrimed !== true
+      && Object.keys(this.meshes || {}).some((meshId) => String(meshId).includes('.proto_'))
+    );
+    if (shouldPrimeFinalStageOverrides) {
+      try {
+        this.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, { force: false });
+      } catch {}
+    }
     const deltaBatchSummary = this.pullRprimDeltaBatchFromDriver?.(resolvedDriver) || null;
     const shouldUseDirtyMeshCommit = deltaBatchSummary?.ok === true;
     const dirtyMeshIds = shouldUseDirtyMeshCommit

@@ -1,5 +1,5 @@
 // @ts-ignore runtime cache-busting query suffix is resolved by browser ESM loader.
-import { ThreeRenderDelegateInterface } from "/usd/hydra/ThreeJsRenderDelegate.js?v=20260223i";
+import { ThreeRenderDelegateInterface } from "/usd/hydra/ThreeJsRenderDelegate.js?v=20260224c";
 import { fitCameraToSelection, scheduleCameraRefit } from "./camera.js";
 import { getDirectoryFromVirtualPath, isLikelyNonRenderableUsdConfig, normalizeUsdPath, parseBooleanFlag } from "./path-utils.js";
 import { UsdFsHelper } from "./usd-fs.js";
@@ -707,6 +707,14 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     return state;
   }
 
+  try {
+    if (typeof (driver as any).SetPreferProtoBlobOverHydraPayload === "function") {
+      (driver as any).SetPreferProtoBlobOverHydraPayload(
+        (renderInterface as any)?.preferProtoBlobOverHydraPayload !== false,
+      );
+    }
+  } catch {}
+
   state.driver = window.driver = driver;
   await yieldToMainThread();
   let protoBlobPrefetchedBeforeDraw = false;
@@ -1014,20 +1022,68 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     runInstrumentedDriverDraw("load-finalize");
   }
   markLoadPhase("initial-draw-done");
-  const postDrawBridgeWarmupSummary = runRuntimeBridgeWarmup("post-initial-draw", {
+  runRuntimeBridgeWarmup("post-initial-draw", {
     force: false,
-    includeRobotMetadata: warmupRobotMetadata,
+    // Keep robot metadata build off the current critical path; schedule it
+    // separately on idle to reduce post-first-frame main-thread stalls.
+    includeRobotMetadata: false,
   });
   runFinalStageOverrideBatchPrefetch("post-initial-draw", { force: false });
-  if (
-    !postDrawBridgeWarmupSummary
-    && warmupRobotMetadata
-    && window.renderInterface
-    && typeof (window.renderInterface as any).startRobotMetadataWarmupForStage === "function"
-  ) {
-    void Promise.resolve((window.renderInterface as any).startRobotMetadataWarmupForStage({ force: false })).catch(() => {
-      // Robot metadata warmup is best-effort.
-    });
+  if (warmupRobotMetadata) {
+    const scheduleRobotMetadataWarmup = (): void => {
+      const runWarmup = (): void => {
+        const renderInterface = window.renderInterface as any;
+        if (!renderInterface || typeof renderInterface.startRobotMetadataWarmupForStage !== "function") return;
+        if (!isLoadStillActive()) return;
+        if (window.driver !== state.driver) return;
+        void Promise.resolve(renderInterface.startRobotMetadataWarmupForStage({ force: false })).catch(() => {
+          // Robot metadata warmup is best-effort.
+        });
+      };
+
+      const requestIdle = (window as any).requestIdleCallback as
+        | ((callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void, options?: { timeout?: number }) => number)
+        | undefined;
+      const minIdleBudgetMs = 6;
+      const maxIdleAttempts = 8;
+      const idleTimeoutMs = 1_800;
+      let idleAttempts = 0;
+
+      const scheduleWhenIdle = (): void => {
+        if (!isLoadStillActive()) return;
+        if (window.driver !== state.driver) return;
+
+        if (typeof requestIdle !== "function") {
+          runWarmup();
+          return;
+        }
+
+        try {
+          requestIdle((deadline) => {
+            if (!isLoadStillActive()) return;
+            if (window.driver !== state.driver) return;
+
+            const remaining = Number(deadline?.timeRemaining?.() || 0);
+            const timedOut = deadline?.didTimeout === true;
+            if (!timedOut && remaining < minIdleBudgetMs && idleAttempts < maxIdleAttempts) {
+              idleAttempts += 1;
+              window.setTimeout(() => scheduleWhenIdle(), 0);
+              return;
+            }
+            runWarmup();
+          }, { timeout: idleTimeoutMs });
+        } catch {
+          runWarmup();
+        }
+      };
+
+      // Give first render + one RAF a chance to settle before any metadata warmup.
+      window.requestAnimationFrame(() => {
+        window.setTimeout(() => scheduleWhenIdle(), 0);
+      });
+    };
+
+    scheduleRobotMetadataWarmup();
   }
   if (profileTextureLoads) {
     const textureSnapshot = (window.renderInterface as any)?.registry?.getTextureLoadSnapshot?.();

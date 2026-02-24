@@ -121,6 +121,7 @@ class HydraMesh {
     this._appliedCollisionOverride = false;
     this._lastAppliedResolvedPrimPath = null;
     this._needsNormalFallback = false;
+    this._needsNormalSanitization = false;
     // Track whether this mesh already received authored topology/vertex payloads
     // from Hydra. When true, proto blob fast-path is redundant and can add avoidable
     // first-sync stalls (especially if it triggers driver-side batch blob fetch).
@@ -506,15 +507,23 @@ class HydraMesh {
 
     let geometryApplied = false;
     if (primType === 'mesh') {
+      const meshPayload = (overridePayload?.meshPayload && overridePayload.meshPayload.valid === true)
+        ? overridePayload.meshPayload
+        : null;
       try {
-        geometryApplied = this.tryApplyProtoDataBlobFastPath() === true;
+        geometryApplied = this.tryApplyProtoDataBlobFastPath(
+          meshPayload
+            ? { blobOverride: meshPayload, allowForceRefreshRetry: false }
+            : {},
+        ) === true;
       } catch {
         geometryApplied = false;
       }
       if (!geometryApplied) {
-        const resolvedPath = normalizeHydraPath(overridePayload.resolvedPrimPath);
-        if (resolvedPath) {
-          geometryApplied = this.applyResolvedPrimGeometry(resolvedPath) === true;
+        try {
+          geometryApplied = this.tryApplyProtoDataBlobFastPath() === true;
+        } catch {
+          geometryApplied = false;
         }
       }
       if (!geometryApplied) {
@@ -588,8 +597,36 @@ class HydraMesh {
     }
 
     if (isVisualSection) {
+      const overridePrimType = String(overridePayload?.primType || '').toLowerCase();
+      const isPrimitiveVisualOverride = (
+        overridePrimType === 'cube'
+        || overridePrimType === 'sphere'
+        || overridePrimType === 'cylinder'
+        || overridePrimType === 'capsule'
+      );
+      let primitiveGeometryApplied = false;
+      if (isPrimitiveVisualOverride) {
+        primitiveGeometryApplied = this.applyPrimitiveGeometryFromDescriptor(overridePrimType, overridePayload) === true;
+        if (primitiveGeometryApplied) {
+          this._hasGeneratedPrimitiveFallback = true;
+        }
+      }
       const existingPosition = this._geometry?.getAttribute?.('position');
-      let geometryReady = !!existingPosition && Number(existingPosition.count || 0) > 0;
+      let geometryReady = primitiveGeometryApplied || (!!existingPosition && Number(existingPosition.count || 0) > 0);
+      if (!geometryReady) {
+        const meshPayload = (overridePayload?.meshPayload && overridePayload.meshPayload.valid === true)
+          ? overridePayload.meshPayload
+          : null;
+        try {
+          geometryReady = this.tryApplyProtoDataBlobFastPath(
+            meshPayload
+              ? { blobOverride: meshPayload, allowForceRefreshRetry: false }
+              : {},
+          ) === true;
+        } catch {
+          geometryReady = false;
+        }
+      }
       if (!geometryReady) {
         try {
           geometryReady = this.tryApplyProtoDataBlobFastPath() === true;
@@ -659,13 +696,24 @@ class HydraMesh {
     if (primOverrideData && primOverrideData.valid === true) {
       let geometryApplied = false;
       if (primOverrideData.primType === 'mesh') {
+        const meshPayload = (primOverrideData?.meshPayload && primOverrideData.meshPayload.valid === true)
+          ? primOverrideData.meshPayload
+          : null;
         try {
-          geometryApplied = this.tryApplyProtoDataBlobFastPath() === true;
+          geometryApplied = this.tryApplyProtoDataBlobFastPath(
+            meshPayload
+              ? { blobOverride: meshPayload, allowForceRefreshRetry: false }
+              : {},
+          ) === true;
         } catch {
           geometryApplied = false;
         }
         if (!geometryApplied) {
-          geometryApplied = this.applyResolvedPrimGeometry(normalizedPrimPath) === true;
+          try {
+            geometryApplied = this.tryApplyProtoDataBlobFastPath() === true;
+          } catch {
+            geometryApplied = false;
+          }
         }
       } else if (
         primOverrideData.primType === 'cube'
@@ -702,44 +750,7 @@ class HydraMesh {
         return true;
       }
     }
-
-    if (!this.applyResolvedPrimGeometry(normalizedPrimPath)) return false;
-
-    const localXformOverride = this._interface.getCollisionLocalXformOverride(this._id);
-    if (localXformOverride) {
-      const proto = parseProtoMeshIdentifier(this._id);
-      const linkPath = localXformOverride.linkPath || proto?.linkPath || null;
-      const linkTransform = linkPath ? this._interface.getWorldTransformForPrimPath(linkPath) : null;
-      const localMatrix = new Matrix4().compose(
-        localXformOverride.translation,
-        localXformOverride.orientation,
-        localXformOverride.scale
-      );
-      if (linkTransform) {
-        localMatrix.premultiply(linkTransform);
-      }
-      this._mesh.matrix.copy(localMatrix);
-      this._mesh.matrixAutoUpdate = false;
-    } else {
-      const resolvedTransform = this._interface.getWorldTransformForPrimPath(normalizedPrimPath);
-      if (resolvedTransform) {
-        this._mesh.matrix.copy(resolvedTransform);
-        this._mesh.matrixAutoUpdate = false;
-      } else {
-        const urdfWorldTransform = this.isCollisionProtoMesh()
-          ? this._interface.getCollisionWorldTransformFromUrdfTruth(this._id)
-          : null;
-        if (urdfWorldTransform) {
-          this._mesh.matrix.copy(urdfWorldTransform);
-          this._mesh.matrixAutoUpdate = false;
-        }
-      }
-    }
-
-    this._appliedCollisionOverride = true;
-    this._lastAppliedResolvedPrimPath = normalizedPrimPath;
-    this._hasGeneratedPrimitiveFallback = true;
-    return true;
+    return false;
   }
 
   syncVisualTransformFromResolvedPrim() {
@@ -1354,6 +1365,9 @@ class HydraMesh {
     } else {
       this._geometry.setAttribute(attributeName, new Float32BufferAttribute(values, dimension));
     }
+    if (attributeName === 'normal') {
+      this._needsNormalSanitization = true;
+    }
     const uploadEnd = this._nowMs();
     this._addGpuUploadSample(profile, uploadEnd - uploadStart);
   }
@@ -1455,14 +1469,68 @@ class HydraMesh {
     }
   }
 
+  _shouldUseGeneratedNormals(normals) {
+    const generatedLength = Number(normals?.length || 0);
+    if (generatedLength <= 0) return false;
+
+    const existingNormals = this._geometry?.getAttribute?.('normal');
+    if (!existingNormals || existingNormals.count <= 0) {
+      return true;
+    }
+
+    const existingArray = existingNormals.array;
+    const existingLength = Number(existingArray?.length || 0);
+    if (existingLength <= 0) return true;
+    if (existingLength !== generatedLength) {
+      // Attribute size mismatch usually means authored data is inconsistent with
+      // current topology, prefer generated smooth normals in this case.
+      return true;
+    }
+
+    const tripletCount = Math.floor(existingLength / 3);
+    if (tripletCount <= 0) return true;
+
+    const maxSamples = 2048;
+    const sampleCount = Math.min(tripletCount, maxSamples);
+    const stride = Math.max(1, Math.floor(tripletCount / sampleCount));
+    let sampled = 0;
+    let invalid = 0;
+    const zeroLengthEpsilon = 1e-10;
+
+    for (let normalIndex = 0; normalIndex < tripletCount && sampled < sampleCount; normalIndex += stride) {
+      const base = normalIndex * 3;
+      const x = Number(existingArray[base]);
+      const y = Number(existingArray[base + 1]);
+      const z = Number(existingArray[base + 2]);
+      sampled += 1;
+
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+        invalid += 1;
+        continue;
+      }
+
+      const lengthSq = x * x + y * y + z * z;
+      if (lengthSq <= zeroLengthEpsilon) {
+        invalid += 1;
+      }
+    }
+
+    if (sampled <= 0) return true;
+
+    // A small amount of bad authored normals is tolerated; beyond this threshold
+    // we prefer robust generated normals from Hydra/OpenUSD.
+    const invalidRatio = invalid / sampled;
+    return invalidRatio >= 0.02;
+  }
+
   /**
-   * Sets automatically generated normals on the mesh. Should only be used if there are no authored normals.
+   * Sets automatically generated normals on the mesh. Prefer generated normals
+   * when authored normals are absent or clearly invalid.
    * @param {} normals 
    */
   updateNormals(normals, profile = null) {
-    // don't apply automatically generated normals if there are already authored normals.
-    if (this._geometry.hasAttribute('normal')) return;
     if (!normals || typeof normals.length !== 'number') return;
+    if (!this._shouldUseGeneratedNormals(normals)) return;
 
     const copyStart = this._nowMs();
     this._normals = this._toStableFloat32Array(normals);
@@ -1483,6 +1551,7 @@ class HydraMesh {
       if (!stable) return;
       const uploadStart = this._nowMs();
       this._geometry.setAttribute('normal', new Float32BufferAttribute(stable, 3));
+      this._needsNormalSanitization = true;
       const uploadEnd = this._nowMs();
       this._addGpuUploadSample(profile, uploadEnd - uploadStart);
       this._needsNormalFallback = false;
@@ -1772,9 +1841,123 @@ class HydraMesh {
     }
     try {
       geometry.computeVertexNormals?.();
+      this._needsNormalSanitization = true;
     } catch {}
     // If geometry is refreshed later, updatePoints/updateIndices will re-arm this flag.
     this._needsNormalFallback = false;
+  }
+
+  sanitizeNormalsIfNeeded() {
+    if (!this._needsNormalSanitization) return;
+    this._needsNormalSanitization = false;
+
+    const geometry = this._geometry;
+    if (!geometry) return;
+
+    let normalAttribute = geometry.getAttribute?.('normal');
+    const positionAttribute = geometry.getAttribute?.('position');
+    if (!normalAttribute || !positionAttribute) return;
+    if (normalAttribute.itemSize !== 3 || positionAttribute.itemSize !== 3) return;
+
+    let normals = normalAttribute.array;
+    const positions = positionAttribute.array;
+    if (!normals || !positions) return;
+
+    const collectInvalidVertexIndices = (array, vertexCount) => {
+      const invalidIndices = [];
+      let fallbackNormal = null;
+
+      for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {
+        const base = vertexIndex * 3;
+        const x = Number(array[base]);
+        const y = Number(array[base + 1]);
+        const z = Number(array[base + 2]);
+        const lenSq = x * x + y * y + z * z;
+        const isValid = Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) && lenSq > 1e-10;
+
+        if (isValid) {
+          if (!fallbackNormal) {
+            fallbackNormal = [x, y, z];
+          }
+          continue;
+        }
+
+        invalidIndices.push(vertexIndex);
+      }
+
+      return { invalidIndices, fallbackNormal };
+    };
+
+    let normalCount = Math.floor(Number(normals.length || 0) / 3);
+    const positionCount = Math.floor(Number(positions.length || 0) / 3);
+    let count = Math.min(normalCount, positionCount);
+    if (count <= 0) return;
+
+    let { invalidIndices, fallbackNormal } = collectInvalidVertexIndices(normals, count);
+    if (invalidIndices.length <= 0) return;
+
+    const indexAttribute = geometry.getIndex?.();
+    if (indexAttribute && Number(indexAttribute.count || 0) > 0) {
+      try {
+        geometry.computeVertexNormals?.();
+      } catch {}
+      normalAttribute = geometry.getAttribute?.('normal');
+      if (!normalAttribute || normalAttribute.itemSize !== 3 || !normalAttribute.array) return;
+      normals = normalAttribute.array;
+      normalCount = Math.floor(Number(normals.length || 0) / 3);
+      count = Math.min(normalCount, positionCount);
+      if (count <= 0) return;
+      ({ invalidIndices, fallbackNormal } = collectInvalidVertexIndices(normals, count));
+      if (invalidIndices.length <= 0) {
+        normalAttribute.needsUpdate = true;
+        return;
+      }
+    }
+
+    const safeFallback = fallbackNormal || [0, 1, 0];
+    const faceNormalScratch = [0, 0, 0];
+    const computeTriangleFaceNormal = (triStartVertex) => {
+      if (triStartVertex < 0 || (triStartVertex + 2) >= count) return null;
+
+      const p0 = triStartVertex * 3;
+      const p1 = (triStartVertex + 1) * 3;
+      const p2 = (triStartVertex + 2) * 3;
+
+      const ux = Number(positions[p1]) - Number(positions[p0]);
+      const uy = Number(positions[p1 + 1]) - Number(positions[p0 + 1]);
+      const uz = Number(positions[p1 + 2]) - Number(positions[p0 + 2]);
+      const vx = Number(positions[p2]) - Number(positions[p0]);
+      const vy = Number(positions[p2 + 1]) - Number(positions[p0 + 1]);
+      const vz = Number(positions[p2 + 2]) - Number(positions[p0 + 2]);
+
+      const nx = (uy * vz) - (uz * vy);
+      const ny = (uz * vx) - (ux * vz);
+      const nz = (ux * vy) - (uy * vx);
+      const lenSq = nx * nx + ny * ny + nz * nz;
+      if (!Number.isFinite(lenSq) || lenSq <= 1e-14) return null;
+
+      const invLen = 1 / Math.sqrt(lenSq);
+      faceNormalScratch[0] = nx * invLen;
+      faceNormalScratch[1] = ny * invLen;
+      faceNormalScratch[2] = nz * invLen;
+      return faceNormalScratch;
+    };
+
+    for (const vertexIndex of invalidIndices) {
+      const triStart = Math.floor(vertexIndex / 3) * 3;
+      let replacement = computeTriangleFaceNormal(triStart);
+
+      if (!replacement) {
+        replacement = safeFallback;
+      }
+
+      const base = vertexIndex * 3;
+      normals[base] = replacement[0];
+      normals[base + 1] = replacement[1];
+      normals[base + 2] = replacement[2];
+    }
+
+    normalAttribute.needsUpdate = true;
   }
 
   applyUpdates(updates) {
@@ -1936,6 +2119,10 @@ class HydraMesh {
     this.ensureFallbackNormalsIfMissing();
     trackStep('normalFallbackMs', this._nowMs() - normalFallbackStart);
 
+    const normalSanitizeStart = this._nowMs();
+    this.sanitizeNormalsIfNeeded();
+    trackStep('normalSanitizeMs', this._nowMs() - normalSanitizeStart);
+
     const visualColorStart = this._nowMs();
     this.applyVisualColorOverride();
     trackStep('visualColorMs', this._nowMs() - visualColorStart);
@@ -1969,6 +2156,11 @@ class HydraMesh {
     const protoSyncStart = this._nowMs();
     this.applyProtoStageSync();
     trackStep('protoSyncMs', this._nowMs() - protoSyncStart);
+
+    const postProtoNormalSanitizeStart = this._nowMs();
+    this.sanitizeNormalsIfNeeded();
+    trackStep('postProtoNormalSanitizeMs', this._nowMs() - postProtoNormalSanitizeStart);
+
     trackStep('meshTotalMs', this._nowMs() - commitStart);
     trackStep('meshCount', 1);
   }
@@ -1977,6 +2169,8 @@ class HydraMesh {
     const phaseInstrumentationEnabled = this._interface?.isHydraPhaseInstrumentationEnabled?.() === true;
     const forceRefresh = options?.forceRefresh === true;
     const allowForceRefreshRetry = options?.allowForceRefreshRetry !== false;
+    const blobOverride = options?.blobOverride;
+    const useBlobOverride = !!(blobOverride && blobOverride.valid === true);
     let wasmFetchMs = 0;
     let threeBuildMs = 0;
     const measureWasmStage = (fn) => {
@@ -1995,8 +2189,10 @@ class HydraMesh {
     };
 
     try {
-    const blob = this._interface?.getProtoDataBlob?.(this._id, { forceRefresh });
-    if ((!blob || blob.valid !== true) && allowForceRefreshRetry && !forceRefresh) {
+    const blob = useBlobOverride
+      ? blobOverride
+      : this._interface?.getProtoDataBlob?.(this._id, { forceRefresh });
+    if ((!blob || blob.valid !== true) && allowForceRefreshRetry && !forceRefresh && !useBlobOverride) {
       return this.tryApplyProtoDataBlobFastPath({
         forceRefresh: true,
         allowForceRefreshRetry: false,
@@ -2197,6 +2393,7 @@ class HydraMesh {
         measureThreeBuildStage(() => {
           this._geometry.setAttribute('normal', new Float32BufferAttribute(normalsCopy, normalsDimension));
         });
+        this._needsNormalSanitization = true;
       }
     }
 
@@ -2221,7 +2418,7 @@ class HydraMesh {
     const geometryReady = positionReady && indexReady;
 
     if (!geometryReady) {
-      if (allowForceRefreshRetry && !forceRefresh) {
+      if (allowForceRefreshRetry && !forceRefresh && !useBlobOverride) {
         return this.tryApplyProtoDataBlobFastPath({
           forceRefresh: true,
           allowForceRefreshRetry: false,

@@ -422,6 +422,52 @@ export class ThreeRenderDelegateCore {
             catch { }
         }
     }
+    tryBuildRobotMetadataSnapshotFromDriver(stageSourcePath, sortedLinkPaths, meshCountsByLinkPath) {
+        if (!Array.isArray(sortedLinkPaths) || sortedLinkPaths.length <= 0) {
+            return {
+                stageSourcePath: stageSourcePath || null,
+                generatedAtMs: this._nowPerfMs(),
+                source: 'mesh-only',
+                linkParentPairs: [],
+                jointCatalogEntries: [],
+                linkDynamicsEntries: [],
+                meshCountsByLinkPath,
+            };
+        }
+        const activeDriver = typeof window !== 'undefined' ? window?.driver : null;
+        if (!activeDriver || typeof activeDriver.GetRobotMetadataSnapshot !== 'function') {
+            return null;
+        }
+        const toArray = (value) => (Array.isArray(value)
+            ? value
+            : (value && typeof value.length === 'number' ? Array.from(value) : []));
+        try {
+            const rawSnapshot = activeDriver.GetRobotMetadataSnapshot(sortedLinkPaths, String(stageSourcePath || ''));
+            if (!rawSnapshot || typeof rawSnapshot !== 'object')
+                return null;
+            const linkParentPairs = toArray(rawSnapshot.linkParentPairs);
+            const jointCatalogEntries = toArray(rawSnapshot.jointCatalogEntries);
+            const linkDynamicsEntries = toArray(rawSnapshot.linkDynamicsEntries);
+            const hasStageData = (linkParentPairs.length > 0
+                || jointCatalogEntries.length > 0
+                || linkDynamicsEntries.length > 0);
+            const generatedAtMs = Number(rawSnapshot.generatedAtMs);
+            return {
+                stageSourcePath: String(rawSnapshot.stageSourcePath || stageSourcePath || '').trim() || null,
+                generatedAtMs: Number.isFinite(generatedAtMs) ? generatedAtMs : this._nowPerfMs(),
+                source: hasStageData
+                    ? (String(rawSnapshot.source || 'usd-stage-cpp') || 'usd-stage-cpp')
+                    : 'mesh-only',
+                linkParentPairs,
+                jointCatalogEntries,
+                linkDynamicsEntries,
+                meshCountsByLinkPath,
+            };
+        }
+        catch {
+            return null;
+        }
+    }
     buildRobotMetadataSnapshotForStage(stageSourcePath, truth) {
         const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0] || null;
         const stage = this.getStage?.() || null;
@@ -568,9 +614,15 @@ export class ThreeRenderDelegateCore {
                 counts.visualMeshCount += 1;
             }
         }
+        const sortedLinkPaths = Array.from(linkPathSet).sort((left, right) => left.localeCompare(right));
+        if (!truth) {
+            const cxxSnapshot = this.tryBuildRobotMetadataSnapshotFromDriver(normalizedStagePath, sortedLinkPaths, meshCountsByLinkPath);
+            if (cxxSnapshot) {
+                return cxxSnapshot;
+            }
+        }
         const jointCatalogEntries = [];
         const linkDynamicsEntries = [];
-        const sortedLinkPaths = Array.from(linkPathSet).sort((left, right) => left.localeCompare(right));
         const rootPaths = Array.from(new Set(sortedLinkPaths.map((linkPath) => getRootPathFromPrimPath(linkPath)).filter(Boolean)));
         const runtimeLinkPathsByName = new Map();
         for (const linkPath of sortedLinkPaths) {
@@ -905,8 +957,61 @@ export class ThreeRenderDelegateCore {
         if (this._robotMetadataBuildPromisesByStageSource.has(normalizedStagePath)) {
             return this._robotMetadataBuildPromisesByStageSource.get(normalizedStagePath);
         }
+        const waitForIdleSlice = async (options = {}) => {
+            const minBudgetMs = Math.max(0, Number(options?.minBudgetMs ?? 6));
+            const maxPasses = Math.max(1, Math.floor(Number(options?.maxPasses ?? 6)));
+            const timeoutMs = Math.max(0, Math.floor(Number(options?.timeoutMs ?? 360)));
+            await new Promise((resolve) => {
+                try {
+                    globalThis.setTimeout(resolve, 0);
+                }
+                catch {
+                    resolve();
+                }
+            });
+            const requestIdle = globalThis.requestIdleCallback;
+            if (typeof requestIdle !== 'function')
+                return;
+            for (let pass = 0; pass < maxPasses; pass += 1) {
+                const hasBudget = await new Promise((resolve) => {
+                    let done = false;
+                    const finish = (value) => {
+                        if (done)
+                            return;
+                        done = true;
+                        resolve(value);
+                    };
+                    try {
+                        requestIdle((deadline) => {
+                            const remaining = Number(deadline?.timeRemaining?.() || 0);
+                            const timedOut = deadline?.didTimeout === true;
+                            finish(timedOut || remaining >= minBudgetMs);
+                        }, { timeout: timeoutMs });
+                    }
+                    catch {
+                        finish(true);
+                        return;
+                    }
+                    try {
+                        globalThis.setTimeout(() => finish(true), timeoutMs + 120);
+                    }
+                    catch { }
+                });
+                if (hasBudget)
+                    return;
+                await new Promise((resolve) => {
+                    try {
+                        globalThis.setTimeout(resolve, 0);
+                    }
+                    catch {
+                        resolve();
+                    }
+                });
+            }
+        };
         const buildPromise = Promise.resolve()
             .then(async () => {
+            await waitForIdleSlice({ minBudgetMs: 6, maxPasses: 8, timeoutMs: 360 });
             let snapshot = this.buildRobotMetadataSnapshotForStage(normalizedStagePath, null);
             const needsUrdfTruth = (this.shouldAllowUrdfHttpFallback()
                 && (!snapshot
@@ -915,6 +1020,7 @@ export class ThreeRenderDelegateCore {
             if (needsUrdfTruth) {
                 const truthPromise = this.startUrdfTruthLoadForStage(normalizedStagePath);
                 const truth = truthPromise ? await truthPromise.catch(() => null) : null;
+                await waitForIdleSlice({ minBudgetMs: 4, maxPasses: 6, timeoutMs: 420 });
                 snapshot = this.buildRobotMetadataSnapshotForStage(normalizedStagePath, truth || null);
             }
             if (!snapshot)

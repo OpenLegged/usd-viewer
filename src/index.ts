@@ -29,7 +29,7 @@ type GetUsdModuleFn = (options: Record<string, unknown>) => Promise<UsdModule>;
 
 // Keep this cache key aligned with the bindings build generation so JS/WASM/data
 // are always fetched from the same build.
-const EMHD_BINDINGS_CACHE_KEY = "20260223f";
+const EMHD_BINDINGS_CACHE_KEY = "20260224d";
 const withEmHdBindingsCacheKey = (resourcePath: string): string => {
   if (!resourcePath) return resourcePath;
   return resourcePath.includes("?")
@@ -1453,9 +1453,19 @@ class ViewerApp {
   }
 
   private applyPostDrawSceneUpdates(): boolean {
-    if (!this.showLinkDynamics) return false;
-    if (!window.renderInterface) return false;
-    return this.linkDynamicsController.syncLinkDynamicsTransforms(window.renderInterface);
+    const renderInterface = window.renderInterface;
+    if (!renderInterface) return false;
+
+    let changed = false;
+    // Re-apply interactive joint poses after each Hydra Draw() pass; otherwise
+    // slider/pointer joint edits are overwritten by the next frame's stage sync.
+    changed = this.linkRotationController.apply(renderInterface) === true || changed;
+
+    if (this.showLinkDynamics) {
+      changed = this.linkDynamicsController.syncLinkDynamicsTransforms(renderInterface) === true || changed;
+    }
+
+    return changed;
   }
 
   private async animate(): Promise<void> {

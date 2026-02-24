@@ -21,6 +21,7 @@
 #include <emscripten/bind.h>
 #include <emscripten/threading.h>
 
+#include <atomic>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -193,6 +194,8 @@ public:
                            int dataCount);
     void ClearRprimDelta(std::string const& rprimPath);
     emscripten::val TakeRprimDeltaBatch();
+    void SetPreferProtoBlobOverHydraPayload(bool prefer);
+    bool GetPreferProtoBlobOverHydraPayload() const;
 
 private:
     static const TfTokenVector SUPPORTED_RPRIM_TYPES;
@@ -210,6 +213,7 @@ private:
     mutable std::mutex _rprimDeltaMutex;
     std::unordered_map<std::string, RprimDeltaRecord> _rprimDeltaByPath;
     std::vector<std::string> _rprimDeltaOrder;
+    std::atomic<bool> _preferProtoBlobOverHydraPayload{true};
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
