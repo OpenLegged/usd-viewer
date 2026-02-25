@@ -1,7 +1,7 @@
 {
   "name": "usd-viewer",
   "version": "0.1.0",
-  "description": "Basic USD viewer",
+  "description": "OpenUSD WASM robot viewer with Hydra rendering and a fast load pipeline / 基于 OpenUSD WASM 的机器人模型 Viewer，支持 Hydra 渲染与快速加载链路",
   "main": "server.ts",
   "scripts": {
     "build": "npm run build:usd-wasm && node node_modules/typescript/bin/tsc -p tsconfig.json && node scripts/sync-vendor.cjs",
