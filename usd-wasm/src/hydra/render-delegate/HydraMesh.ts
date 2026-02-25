@@ -62,6 +62,22 @@ const DEFER_COLLISION_OVERRIDE_IN_COMMIT = (() => {
   }
 })();
 
+const ALLOW_RESOLVED_VISUAL_SUBMESH_TRANSFORM = (() => {
+  try {
+    const search = typeof window !== 'undefined' ? String(window.location?.search || '') : '';
+    if (!search) return false;
+    const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+    const raw = params.get('allowResolvedVisualSubmeshTransform');
+    if (raw === null || raw === undefined) return false;
+    const normalized = String(raw).trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+    return false;
+  } catch {
+    return false;
+  }
+})();
+
 const EMPTY_UINT32_ARRAY = new Uint32Array(0);
 // Keep primitive tessellation multiples of 4 so cardinal directions land on
 // vertices; this avoids ~1.5% AABB shrink on spheres/cylinders.
@@ -126,6 +142,9 @@ class HydraMesh {
     // from Hydra. When true, proto blob fast-path is redundant and can add avoidable
     // first-sync stalls (especially if it triggers driver-side batch blob fetch).
     this._hasHydraGeometryPayload = false;
+    // Keep the latest proto-blob matrix so visual proto sub-meshes can avoid
+    // being overwritten by coarse resolved-prim transforms during post-sync.
+    this._lastProtoBlobTransformMatrix = null;
     this._lastGeomSubsetSignature = '';
     this._decomposeScratchPositionA = new Vector3();
     this._decomposeScratchQuaternionA = new Quaternion();
@@ -513,7 +532,7 @@ class HydraMesh {
       try {
         geometryApplied = this.tryApplyProtoDataBlobFastPath(
           meshPayload
-            ? { blobOverride: meshPayload, allowForceRefreshRetry: false }
+            ? { blobOverride: meshPayload, allowForceRefreshRetry: false, replaceExistingGeometry: true }
             : {},
         ) === true;
       } catch {
@@ -521,7 +540,7 @@ class HydraMesh {
       }
       if (!geometryApplied) {
         try {
-          geometryApplied = this.tryApplyProtoDataBlobFastPath() === true;
+          geometryApplied = this.tryApplyProtoDataBlobFastPath({ replaceExistingGeometry: true }) === true;
         } catch {
           geometryApplied = false;
         }
@@ -620,7 +639,7 @@ class HydraMesh {
         try {
           geometryReady = this.tryApplyProtoDataBlobFastPath(
             meshPayload
-              ? { blobOverride: meshPayload, allowForceRefreshRetry: false }
+              ? { blobOverride: meshPayload, allowForceRefreshRetry: false, replaceExistingGeometry: true }
               : {},
           ) === true;
         } catch {
@@ -642,24 +661,93 @@ class HydraMesh {
         return false;
       }
 
+      const proto = parseProtoMeshIdentifier(this._id);
+      const isVisualProtoSubMesh = !!proto
+        && proto.sectionName === 'visuals'
+        && proto.protoType === 'mesh'
+        && proto.protoIndex > 0;
+      const protoBlobMatrix = this._lastProtoBlobTransformMatrix;
+      const hasVisualSubMeshProtoBlobTransform = isVisualProtoSubMesh && !!protoBlobMatrix;
+
       let transformApplied = false;
       const worldTransform = overridePayload?.worldTransform || null;
+      let transformCandidate = null;
       if (worldTransform && worldTransform.isMatrix4 === true) {
-        this._mesh.matrix.copy(worldTransform);
-        transformApplied = true;
+        transformCandidate = worldTransform;
       } else {
         const worldElements = overridePayload?.worldTransformElements || worldTransform;
-        transformApplied = this._setMatrixFromRowMajorSource(worldElements);
+        transformCandidate = this._buildMatrix4FromRowMajorSource(worldElements);
       }
 
-      if (!transformApplied) {
+      if (!transformCandidate) {
         const resolvedPrimPath = normalizeHydraPath(overridePayload?.resolvedPrimPath || '');
         if (resolvedPrimPath) {
           const resolvedTransform = this._interface.getWorldTransformForPrimPath(resolvedPrimPath);
           if (resolvedTransform) {
-            this._mesh.matrix.copy(resolvedTransform);
-            transformApplied = true;
+            transformCandidate = resolvedTransform;
           }
+        }
+      }
+
+      if (transformCandidate) {
+        if (
+          !transformApplied
+          && isVisualProtoSubMesh
+          && this._mesh?.matrix
+          && hasNonZeroTranslation(this._mesh.matrix)
+        ) {
+          const currentVsCandidateDelta = getMatrixMaxElementDelta(this._mesh.matrix, transformCandidate);
+          if (currentVsCandidateDelta > 1e-4) {
+            const currentElements = this._mesh.matrix?.elements;
+            const candidateElements = transformCandidate?.elements;
+            const translationDelta = (
+              currentElements
+              && candidateElements
+              && currentElements.length >= 16
+              && candidateElements.length >= 16
+            )
+              ? Math.hypot(
+                Number(currentElements[12]) - Number(candidateElements[12]),
+                Number(currentElements[13]) - Number(candidateElements[13]),
+                Number(currentElements[14]) - Number(candidateElements[14]),
+              )
+              : Number.POSITIVE_INFINITY;
+            if (Number.isFinite(translationDelta) && translationDelta <= 1e-3) {
+              // Keep Hydra-authored sub-mesh orientation when stage override
+              // provides a coarse link-level transform at (nearly) identical
+              // translation.
+              transformApplied = true;
+            }
+          }
+        }
+        if (hasVisualSubMeshProtoBlobTransform) {
+          const candidateVsProtoBlobDelta = getMatrixMaxElementDelta(transformCandidate, protoBlobMatrix);
+          if (candidateVsProtoBlobDelta > 1e-4) {
+            const candidateElements = transformCandidate?.elements;
+            const protoElements = protoBlobMatrix?.elements;
+            const translationDelta = (
+              candidateElements
+              && protoElements
+              && candidateElements.length >= 16
+              && protoElements.length >= 16
+            )
+              ? Math.hypot(
+                Number(candidateElements[12]) - Number(protoElements[12]),
+                Number(candidateElements[13]) - Number(protoElements[13]),
+                Number(candidateElements[14]) - Number(protoElements[14]),
+              )
+              : Number.POSITIVE_INFINITY;
+            if (Number.isFinite(translationDelta) && translationDelta <= 1e-3) {
+              // Some visual proto sub-meshes carry per-submesh orientation in proto blob,
+              // while resolved prim paths provide only coarse link transforms.
+              this._mesh.matrix.copy(protoBlobMatrix);
+              transformApplied = true;
+            }
+          }
+        }
+        if (!transformApplied) {
+          this._mesh.matrix.copy(transformCandidate);
+          transformApplied = true;
         }
       }
 
@@ -702,7 +790,7 @@ class HydraMesh {
         try {
           geometryApplied = this.tryApplyProtoDataBlobFastPath(
             meshPayload
-              ? { blobOverride: meshPayload, allowForceRefreshRetry: false }
+              ? { blobOverride: meshPayload, allowForceRefreshRetry: false, replaceExistingGeometry: true }
               : {},
           ) === true;
         } catch {
@@ -710,7 +798,7 @@ class HydraMesh {
         }
         if (!geometryApplied) {
           try {
-            geometryApplied = this.tryApplyProtoDataBlobFastPath() === true;
+            geometryApplied = this.tryApplyProtoDataBlobFastPath({ replaceExistingGeometry: true }) === true;
           } catch {
             geometryApplied = false;
           }
@@ -765,6 +853,78 @@ class HydraMesh {
     const currentMatrix = this._mesh.matrix;
     const currentVsResolvedDelta = getMatrixMaxElementDelta(currentMatrix, resolvedTransform);
     const preferResolvedTransform = this._interface.shouldPreferResolvedVisualTransformForMeshId?.(this._id) === true;
+    const proto = parseProtoMeshIdentifier(this._id);
+    const isVisualProtoSubMesh = !!proto
+      && proto.sectionName === 'visuals'
+      && proto.protoType === 'mesh'
+      && proto.protoIndex > 0;
+    if (isVisualProtoSubMesh && !ALLOW_RESOLVED_VISUAL_SUBMESH_TRANSFORM) {
+      return false;
+    }
+    if (preferResolvedTransform && isVisualProtoSubMesh) {
+      // Proto blob transforms for visual sub-meshes are often authored as
+      // link-local offsets. If Hydra hasn't provided a world transform yet,
+      // keep fallback composition path active instead of force-overwriting with
+      // resolved prim world transform.
+      if (!this._hasEverReceivedTransform && this._lastProtoBlobTransformMatrix) {
+        const fallbackTransform = this._interface.getSafeFallbackTransformForMeshId(this._id);
+        if (fallbackTransform && hasNonZeroTranslation(fallbackTransform)) {
+          return false;
+        }
+      }
+
+      const resolvedElements = resolvedTransform?.elements;
+      const currentElements = currentMatrix?.elements;
+      if (
+        currentElements
+        && resolvedElements
+        && currentElements.length >= 16
+        && resolvedElements.length >= 16
+      ) {
+        const translationDelta = Math.hypot(
+          Number(currentElements[12]) - Number(resolvedElements[12]),
+          Number(currentElements[13]) - Number(resolvedElements[13]),
+          Number(currentElements[14]) - Number(resolvedElements[14]),
+        );
+        const currentLooksAuthored = hasNonZeroTranslation(currentMatrix)
+          || !isMatrixApproximatelyIdentity(currentMatrix);
+        if (currentLooksAuthored && Number.isFinite(translationDelta) && translationDelta <= 1e-3) {
+          const currentVsResolvedDelta = getMatrixMaxElementDelta(currentMatrix, resolvedTransform);
+          if (currentVsResolvedDelta > 1e-4) {
+            // Preserve authored sub-mesh orientation when resolved prim provides
+            // only a coarse link-aligned rotation at essentially the same pivot.
+            return true;
+          }
+        }
+      }
+      const protoBlobMatrix = this._lastProtoBlobTransformMatrix;
+      if (protoBlobMatrix) {
+        const resolvedVsProtoBlobDelta = getMatrixMaxElementDelta(resolvedTransform, protoBlobMatrix);
+        if (resolvedVsProtoBlobDelta > 1e-4) {
+          const protoElements = protoBlobMatrix?.elements;
+          const translationDelta = (
+            resolvedElements
+            && protoElements
+            && resolvedElements.length >= 16
+            && protoElements.length >= 16
+          )
+            ? Math.hypot(
+              Number(resolvedElements[12]) - Number(protoElements[12]),
+              Number(resolvedElements[13]) - Number(protoElements[13]),
+              Number(resolvedElements[14]) - Number(protoElements[14]),
+            )
+            : Number.POSITIVE_INFINITY;
+          if (Number.isFinite(translationDelta) && translationDelta <= 1e-3) {
+            const currentVsProtoBlobDelta = getMatrixMaxElementDelta(currentMatrix, protoBlobMatrix);
+            if (currentVsProtoBlobDelta > transformEpsilon) {
+              this._mesh.matrix.copy(protoBlobMatrix);
+              this._mesh.matrixAutoUpdate = false;
+            }
+            return true;
+          }
+        }
+      }
+    }
     if (preferResolvedTransform) {
       if (currentVsResolvedDelta > transformEpsilon) {
         this._mesh.matrix.copy(resolvedTransform);
@@ -800,14 +960,18 @@ class HydraMesh {
       || resolvedTranslationLength >= fallbackTranslationLength * 0.5;
 
     const keepResolvedPose = currentVsResolvedDelta <= transformEpsilon && resolvedLooksWorldRelativeToFallback;
-    if (keepResolvedPose) return true;
+    if (keepResolvedPose) {
+      return true;
+    }
 
     const shouldUseResolved = (
       (currentNearFallback && !resolvedNearFallback)
       || (resolvedLooksWorldRelativeToFallback && currentLooksLocalRelativeToFallback)
       || (resolvedLooksWorldRelativeToFallback && resolvedVsFallbackDelta + 1e-4 < currentVsFallbackDelta)
     );
-    if (!shouldUseResolved) return false;
+    if (!shouldUseResolved) {
+      return false;
+    }
 
     this._mesh.matrix.copy(resolvedTransform);
     this._mesh.matrixAutoUpdate = false;
@@ -907,7 +1071,6 @@ class HydraMesh {
         }
       }
     }
-
     this._mesh.matrix.premultiply(fallbackTransform);
     this._mesh.matrixAutoUpdate = false;
     return true;
@@ -1201,8 +1364,8 @@ class HydraMesh {
     return null;
   }
 
-  _setMatrixFromRowMajorSource(matrixLike) {
-    if (!matrixLike) return false;
+  _buildMatrix4FromRowMajorSource(matrixLike) {
+    if (!matrixLike) return null;
     let source = null;
     if (Array.isArray(matrixLike) || ArrayBuffer.isView(matrixLike) || typeof matrixLike.length === 'number') {
       source = matrixLike;
@@ -1212,17 +1375,17 @@ class HydraMesh {
       for (const value of matrixLike) {
         if (index >= 16) break;
         const numeric = Number(value);
-        if (!Number.isFinite(numeric)) return false;
+        if (!Number.isFinite(numeric)) return null;
         materialized[index] = numeric;
         index += 1;
       }
-      if (index < 16) return false;
+      if (index < 16) return null;
       source = materialized;
     } else {
-      return false;
+      return null;
     }
 
-    if (!source || Number(source.length) < 16) return false;
+    if (!source || Number(source.length) < 16) return null;
     const m00 = Number(source[0]); const m01 = Number(source[1]); const m02 = Number(source[2]); const m03 = Number(source[3]);
     const m10 = Number(source[4]); const m11 = Number(source[5]); const m12 = Number(source[6]); const m13 = Number(source[7]);
     const m20 = Number(source[8]); const m21 = Number(source[9]); const m22 = Number(source[10]); const m23 = Number(source[11]);
@@ -1233,15 +1396,23 @@ class HydraMesh {
       || !Number.isFinite(m20) || !Number.isFinite(m21) || !Number.isFinite(m22) || !Number.isFinite(m23)
       || !Number.isFinite(m30) || !Number.isFinite(m31) || !Number.isFinite(m32) || !Number.isFinite(m33)
     ) {
-      return false;
+      return null;
     }
-    this._mesh.matrix.set(
+    const matrix = new Matrix4();
+    matrix.set(
       m00, m01, m02, m03,
       m10, m11, m12, m13,
       m20, m21, m22, m23,
       m30, m31, m32, m33,
     );
-    this._mesh.matrix.transpose();
+    matrix.transpose();
+    return matrix;
+  }
+
+  _setMatrixFromRowMajorSource(matrixLike) {
+    const matrix = this._buildMatrix4FromRowMajorSource(matrixLike);
+    if (!matrix) return false;
+    this._mesh.matrix.copy(matrix);
     return true;
   }
 
@@ -2169,6 +2340,7 @@ class HydraMesh {
     const phaseInstrumentationEnabled = this._interface?.isHydraPhaseInstrumentationEnabled?.() === true;
     const forceRefresh = options?.forceRefresh === true;
     const allowForceRefreshRetry = options?.allowForceRefreshRetry !== false;
+    const replaceExistingGeometry = options?.replaceExistingGeometry === true;
     const blobOverride = options?.blobOverride;
     const useBlobOverride = !!(blobOverride && blobOverride.valid === true);
     let wasmFetchMs = 0;
@@ -2196,6 +2368,7 @@ class HydraMesh {
       return this.tryApplyProtoDataBlobFastPath({
         forceRefresh: true,
         allowForceRefreshRetry: false,
+        replaceExistingGeometry,
       });
     }
     if (!blob || blob.valid !== true) return false;
@@ -2316,14 +2489,25 @@ class HydraMesh {
       );
       this._mesh.matrix.transpose();
       this._mesh.matrixAutoUpdate = false;
+      this._lastProtoBlobTransformMatrix = this._mesh.matrix.clone();
     });
+
+    if (replaceExistingGeometry) {
+      const existingPositionCount = Number(this._geometry?.getAttribute?.('position')?.count || 0);
+      const existingIndexCount = Number(this._geometry?.getIndex?.()?.count || 0);
+      if (existingPositionCount > 0 || existingIndexCount > 0) {
+        measureThreeBuildStage(() => {
+          this.replaceGeometry(new BufferGeometry());
+        });
+      }
+    }
 
     // Geometry payload from WASM must be copied before storing in BufferAttributes.
     // Keeping HEAP-backed views here causes silent corruption after later draws/reallocations.
     const numVertices = normalizeLength(blob.numVertices);
     const pointValueCount = numVertices * 3;
     const positionAttribute = this._geometry.getAttribute('position');
-    if ((!positionAttribute || positionAttribute.count === 0) && pointValueCount > 0) {
+    if ((replaceExistingGeometry || !positionAttribute || positionAttribute.count === 0) && pointValueCount > 0) {
       const pointsSource = resolveFloatSource(
         blob.pointsPtr,
         pointValueCount,
@@ -2341,7 +2525,7 @@ class HydraMesh {
 
     const numIndices = normalizeLength(blob.numIndices);
     const existingIndex = this._geometry.getIndex();
-    if ((!existingIndex || existingIndex.count === 0) && numIndices > 0) {
+    if ((replaceExistingGeometry || !existingIndex || existingIndex.count === 0) && numIndices > 0) {
       const indicesSource = resolveUintSource(
         blob.indicesPtr,
         numIndices,
@@ -2361,7 +2545,7 @@ class HydraMesh {
     const numUVs = normalizeLength(blob.numUVs);
     const uvValueCount = uvDimension * numUVs;
     const uvAttribute = this._geometry.getAttribute('uv');
-    if ((!uvAttribute || uvAttribute.count === 0) && uvDimension >= 2 && uvValueCount > 0) {
+    if ((replaceExistingGeometry || !uvAttribute || uvAttribute.count === 0) && uvDimension >= 2 && uvValueCount > 0) {
       const uvSource = resolveFloatSource(
         blob.uvPtr,
         uvValueCount,
@@ -2381,7 +2565,7 @@ class HydraMesh {
     const numNormals = normalizeLength((blob as any).numNormals || numVertices);
     const normalValueCount = numNormals * normalsDimension;
     const normalAttribute = this._geometry.getAttribute('normal');
-    if ((!normalAttribute || normalAttribute.count === 0) && normalValueCount > 0) {
+    if ((replaceExistingGeometry || !normalAttribute || normalAttribute.count === 0) && normalValueCount > 0) {
       const normalsSource = resolveFloatSource(
         (blob as any).normalsPtr,
         normalValueCount,
@@ -2446,8 +2630,19 @@ class HydraMesh {
       }
       this._hasCompletedProtoSync = true;
     };
-    const finalStageOverride = this._interface?._finalStageOverrideBatchCache?.get?.(this._id) || null;
-    if (finalStageOverride?.valid === true) {
+    const finalStageOverride = (
+      this._interface?._finalStageOverrideBatchCache?.get?.(this._id)
+      || (this.isVisualProtoMesh() ? this._interface?.getVisualProtoOverride?.(this._id) : null)
+      || (this.isCollisionProtoMesh() ? this._interface?.getCollisionProtoOverride?.(this._id) : null)
+      || null
+    );
+    const protoForSkipDecision = this.isVisualProtoMesh() ? parseProtoMeshIdentifier(this._id) : null;
+    const shouldSkipVisualFinalStageOverride = (
+      this.isVisualProtoMesh()
+      && protoForSkipDecision?.protoType === 'mesh'
+      && !this._hasEverReceivedTransform
+    );
+    if (finalStageOverride?.valid === true && !shouldSkipVisualFinalStageOverride) {
       const applied = this.applyFinalStageOverrideFromDriver(finalStageOverride, {
         skipTransformFallback: true,
         skipCollisionRotationFallback: true,
@@ -2524,6 +2719,22 @@ class HydraMesh {
   // keep transform/collision alignment up to date without re-running proto geometry hydration.
   resyncProtoTransformOnly() {
     if (!this._id.includes(".proto_")) return;
+    if (this.isVisualProtoMesh()) {
+      const finalStageOverride = this._interface?._finalStageOverrideBatchCache?.get?.(this._id) || null;
+      // Some visual primitives (e.g. torso marker spheres on H1) may never receive
+      // a Hydra transform callback, so their descriptor geometry must be applied
+      // from final-stage overrides during post-draw resync.
+      if (finalStageOverride?.valid === true) {
+        const applied = this.applyFinalStageOverrideFromDriver(finalStageOverride, {
+          skipTransformFallback: true,
+          skipCollisionRotationFallback: true,
+        }) === true;
+        if (applied) {
+          this._hasCompletedProtoSync = true;
+          return;
+        }
+      }
+    }
     if (this.isCollisionProtoMesh() && !this._appliedCollisionOverride) {
       if (this.applyCollisionGeometryFromOverrides()) {
         this.syncProtoTransformFromFallback();

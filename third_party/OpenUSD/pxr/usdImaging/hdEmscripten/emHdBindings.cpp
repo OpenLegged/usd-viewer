@@ -22,6 +22,7 @@ EMSCRIPTEN_BINDINGS(test_usd_imaging_emscripten) {
     .function("GetPhysicsJointRecords", &pxr::HdWebSyncDriver::GetPhysicsJointRecords)
     .function("GetPhysicsLinkDynamicsRecords", &pxr::HdWebSyncDriver::GetPhysicsLinkDynamicsRecords)
     .function("GetRobotMetadataSnapshot", &pxr::HdWebSyncDriver::GetRobotMetadataSnapshot)
+    .function("GetRuntimeBootstrapSnapshot", &pxr::HdWebSyncDriver::GetRuntimeBootstrapSnapshot)
     .function("GetPrimTransforms", &pxr::HdWebSyncDriver::GetPrimTransforms)
     .function("GetProtoDataBlob", &pxr::HdWebSyncDriver::GetProtoDataBlob)
     .function("GetAllProtoDataBlobs", &pxr::HdWebSyncDriver::GetAllProtoDataBlobs)

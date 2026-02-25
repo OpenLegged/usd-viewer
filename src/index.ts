@@ -29,7 +29,7 @@ type GetUsdModuleFn = (options: Record<string, unknown>) => Promise<UsdModule>;
 
 // Keep this cache key aligned with the bindings build generation so JS/WASM/data
 // are always fetched from the same build.
-const EMHD_BINDINGS_CACHE_KEY = "20260224d";
+const EMHD_BINDINGS_CACHE_KEY = "20260225a";
 const withEmHdBindingsCacheKey = (resourcePath: string): string => {
   if (!resourcePath) return resourcePath;
   return resourcePath.includes("?")
@@ -188,6 +188,9 @@ class ViewerApp {
   // Keep first paint responsive by default; metadata truth alignment is loaded
   // asynchronously after the primary mesh pass.
   private readonly truthFirst = parseBooleanFlag(this.params.get("truthFirst"), false);
+  // Strict one-shot keeps load completion aligned with interactivity: no heavy
+  // background upgrade/warmup tails after the first visible frame.
+  private readonly strictOneShot = parseBooleanFlag(this.params.get("strictOneShot"), true);
   private readonly wasmThreadCap = this.getWasmThreadCap();
   private readonly wasmThreadCount = this.getPreferredWasmThreadCount();
   private readonly prewarmWorkers = parseBooleanFlag(this.params.get("prewarmWorkers"), true);
@@ -222,10 +225,14 @@ class ViewerApp {
   private readStageMetadata = true;
   private preferredPrimaryLoadKind: "visual" | "collision" = "visual";
   private readonly visualProxyFirst = parseBooleanFlag(this.params.get("visualProxyFirst"), true);
-  private readonly twoPassSelectionUpgrade = parseBooleanFlag(this.params.get("twoPassSelectionUpgrade"), true);
+  private readonly twoPassSelectionUpgrade = this.strictOneShot
+    ? false
+    : parseBooleanFlag(this.params.get("twoPassSelectionUpgrade"), true);
   private readonly forceFullPrimPreload = parseBooleanFlag(this.params.get("forceFullPrimPreload"), false);
   // Default to full preload so visual/collision toggles do not trigger stage reloads.
-  private readonly preloadHiddenPrims = parseBooleanFlag(this.params.get("preloadHiddenPrims"), true);
+  private readonly preloadHiddenPrims = this.strictOneShot
+    ? true
+    : parseBooleanFlag(this.params.get("preloadHiddenPrims"), true);
   private readonly silentBackgroundUpgradeUi = parseBooleanFlag(this.params.get("silentBackgroundUpgradeUi"), true);
   private readonly throttleBackgroundUpgrade = parseBooleanFlag(this.params.get("throttleBackgroundUpgrade"), true);
   private stageReloadProxyRoot: any = null;
@@ -876,11 +883,6 @@ class ViewerApp {
           const linkName = jointInfo.linkPath.split("/").pop() || jointInfo.linkPath;
           this.messageLog.textContent = `${linkName}: ${jointInfo.angleDeg.toFixed(1)}° (limit ${jointInfo.lowerLimitDeg.toFixed(1)}° ~ ${jointInfo.upperLimitDeg.toFixed(1)}°)`;
         }
-        if (!this.showLinkDynamics || !window.renderInterface) return;
-        const changed = this.linkDynamicsController.syncLinkDynamicsTransforms(window.renderInterface);
-        if (changed) {
-          this.render();
-        }
       },
     });
     this.jointPanelController.initialize();
@@ -994,7 +996,9 @@ class ViewerApp {
     if (this.showLinkDynamics && window.renderInterface) {
       void this.linkDynamicsController.syncLinkDynamicsTransforms(window.renderInterface);
     }
-    this.render();
+    window.requestAnimationFrame(() => {
+      this.render();
+    });
   }
 
   private clearLinkDynamics(): void {
@@ -1061,6 +1065,9 @@ class ViewerApp {
     if (loadParams.get("threads") === null) {
       loadParams.set("threads", String(this.wasmThreadCount));
     }
+    if (loadParams.get("strictOneShot") === null) {
+      loadParams.set("strictOneShot", this.strictOneShot ? "1" : "0");
+    }
     if (loadParams.get("prewarmWorkers") === null) {
       loadParams.set("prewarmWorkers", this.prewarmWorkers ? "1" : "0");
     }
@@ -1102,6 +1109,23 @@ class ViewerApp {
     if (loadParams.get("warmupRobotMetadata") === null) {
       loadParams.set("warmupRobotMetadata", "1");
     }
+    if (this.strictOneShot) {
+      loadParams.set("deferStageOverrides", "0");
+      loadParams.set("applyVisualStageOverrides", "0");
+      loadParams.set("resolveRobotMetadataBeforeReady", "1");
+      loadParams.set("requireCompleteRobotMetadata", "1");
+      loadParams.set("warmupRuntimeBridge", "1");
+      loadParams.set("warmupRuntimeBridgeBeforeDraw", "1");
+      loadParams.set("warmupRuntimeBridgeAfterDraw", "1");
+      loadParams.set("prefetchProtoDataBlobs", "1");
+      loadParams.set("prefetchProtoDataBlobsBeforeDraw", "1");
+      loadParams.set("prefetchProtoDataBlobsMode", "immediate");
+      loadParams.set("prefetchProtoDataBlobsStartDelayMs", "0");
+      loadParams.set("prefetchStageTransformsBeforeDraw", "1");
+      loadParams.set("allowJsRobotMetadataFallback", "0");
+      loadParams.set("allowStageJointCatalogFallback", "0");
+      loadParams.set("allowStageLinkDynamicsFallback", "0");
+    }
     if (this.truthFirst && loadParams.get("stageMetadataBudgetMs") === null) {
       loadParams.set("stageMetadataBudgetMs", "2200");
     }
@@ -1127,7 +1151,7 @@ class ViewerApp {
     if (typeof options.directStageMeshRead === "boolean") {
       loadParams.set("directStageMeshRead", options.directStageMeshRead ? "1" : "0");
     }
-    if (options.lowPriorityBackground) {
+    if (options.lowPriorityBackground && !this.strictOneShot) {
       // Keep background upgrade non-intrusive: avoid aggressive draw bursts and
       // defer expensive override work in small chunks.
       loadParams.set("fastLoad", "0");
@@ -1180,8 +1204,9 @@ class ViewerApp {
     }
 
     if (!loadState) return false;
+    const readyAfterLoad = loadState.ready;
     this.driver = loadState.driver;
-    this.ready = loadState.ready;
+    this.ready = false;
     this.drawFailed = loadState.drawFailed;
     this.timeout = loadState.timeout;
     this.endTimeCode = loadState.endTimeCode;
@@ -1193,10 +1218,82 @@ class ViewerApp {
     this.linkRotationController.setStageSourcePath(loadState.normalizedPath || this.filename);
     this.linkRotationController.setRenderInterface(window.renderInterface || null);
     this.linkDynamicsController.setStageSourcePath(loadState.normalizedPath || this.filename);
+    if (this.strictOneShot) {
+      await this.prewarmInteractiveControllers(loadToken);
+      if (!this.isLoadTokenActive(loadToken)) return false;
+    }
+    this.ready = readyAfterLoad;
+    if (this.strictOneShot) {
+      await this.refreshJointPanelSynchronously(loadToken);
+      if (!this.isLoadTokenActive(loadToken)) return false;
+      await this.prepareLinkDynamicsForOneShot(loadToken);
+      if (!this.isLoadTokenActive(loadToken)) return false;
+      return true;
+    }
+
+    this.scheduleInteractiveMetadataWarmup(loadToken);
     this.beginInitialUiAnimationBlock();
     this.scheduleImmediateJointPanelRefresh(loadToken);
     this.schedulePostLoadUiRefresh(loadToken);
     return true;
+  }
+
+  private async prewarmInteractiveControllers(loadToken: number): Promise<void> {
+    if (!this.isLoadTokenActive(loadToken)) return;
+    try {
+      await this.linkRotationController.prewarmJointCatalog();
+      this.linkRotationController.prewarmInteractivePoseCaches();
+    } catch {
+      // Keep one-shot preload resilient; panel refresh has fallback paths.
+    }
+    if (!this.isLoadTokenActive(loadToken)) return;
+    const renderInterface = window.renderInterface;
+    if (!renderInterface) return;
+    try {
+      await this.linkDynamicsController.prewarmCatalogForInteractive(renderInterface);
+    } catch {
+      // Keep one-shot preload resilient; runtime rebuild path remains.
+    }
+  }
+
+  private async refreshJointPanelSynchronously(loadToken: number): Promise<void> {
+    if (!this.jointPanelController) return;
+    try {
+      await this.jointPanelController.refresh();
+      if (!this.isLoadTokenActive(loadToken)) return;
+      if (this.isJointPanelMissingRows()) {
+        await this.refreshJointPanelWithRetries(loadToken);
+      }
+    } catch (error) {
+      console.warn("Failed to refresh joint panel in strict one-shot mode.", error);
+    }
+  }
+
+  private async prepareLinkDynamicsForOneShot(loadToken: number): Promise<void> {
+    if (!this.isLoadTokenActive(loadToken)) return;
+    const renderInterface = window.renderInterface;
+    if (!window.usdRoot || !renderInterface) return;
+    if (this.showLinkDynamics) {
+      await this.rebuildLinkDynamics();
+      return;
+    }
+    try {
+      await this.linkDynamicsController.prebuildHiddenOverlay(window.usdRoot, renderInterface);
+    } catch {
+      // Keep one-shot preload resilient when hidden overlay prebuild fails.
+    }
+  }
+
+  private scheduleInteractiveMetadataWarmup(loadToken: number): void {
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        if (!this.isLoadTokenActive(loadToken)) return;
+        if (!this.ready) return;
+        const renderInterface = window.renderInterface;
+        if (!renderInterface) return;
+        this.linkDynamicsController.prewarmCatalog(renderInterface);
+      }, 0);
+    });
   }
 
   private scheduleImmediateJointPanelRefresh(loadToken: number): void {
@@ -1288,6 +1385,7 @@ class ViewerApp {
     loadToken: number,
     options: { keepProxyVisibleDuringReload?: boolean } = {},
   ): void {
+    if (this.strictOneShot) return;
     if (this.backgroundUpgradePending || this.backgroundUpgradeActive) return;
     const scheduledGeneration = this.asyncUpgradeGeneration;
     const initialTargetSelection = this.getBackgroundUpgradeTargetSelection();

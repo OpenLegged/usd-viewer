@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -191,6 +192,22 @@ def _extract_truth_colliders(truth: dict[str, Any]) -> list[dict[str, Any]]:
     return fallback
 
 
+def _normalize_collision_lookup_path(path: str | None) -> str | None:
+    if not isinstance(path, str) or not path:
+        return None
+    normalized = path.strip()
+    if not normalized:
+        return None
+    match = re.match(
+        r"^(.*?/collisions/mesh_\d+)/(?:mesh|collision_mesh|visual_mesh|cube|sphere|cylinder|capsule)$",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return match.group(1)
+    return normalized
+
+
 def main() -> None:
     args = parse_args()
     truth_path = Path(args.truth).expanduser().resolve()
@@ -228,9 +245,19 @@ def main() -> None:
             continue
 
         viewer_resolved_paths.add(resolved_path)
+        lookup_path = _normalize_collision_lookup_path(resolved_path) or resolved_path
+        viewer_resolved_paths.add(lookup_path)
         truth_entry = truth_by_path.get(resolved_path)
+        if truth_entry is None and lookup_path != resolved_path:
+            truth_entry = truth_by_path.get(lookup_path)
         if truth_entry is None:
-            resolved_without_truth.append({"id": viewer_id, "resolved_path": resolved_path})
+            resolved_without_truth.append(
+                {
+                    "id": viewer_id,
+                    "resolved_path": resolved_path,
+                    "lookup_path": lookup_path,
+                }
+            )
             continue
 
         viewer_matrix = viewer_entry.get("world_matrix")
@@ -271,6 +298,18 @@ def main() -> None:
         check_rotation = prim_type == "mesh"
         failed_position = pos_error_m is not None and pos_error_m > args.pos_threshold
         failed_rotation = check_rotation and rot_error_deg is not None and rot_error_deg > args.rot_threshold_deg
+        rotation_ambiguity_180 = False
+        if failed_rotation and rot_error_deg is not None:
+            pos_within_threshold = pos_error_m is not None and pos_error_m <= args.pos_threshold
+            size_within_threshold = (
+                size_abs_error_m is not None
+                and size_rel_error is not None
+                and size_abs_error_m <= args.size_abs_threshold
+                and size_rel_error <= args.size_rel_threshold
+            )
+            if rot_error_deg >= 179.9 and pos_within_threshold and size_within_threshold:
+                failed_rotation = False
+                rotation_ambiguity_180 = True
         failed_size = (
             size_abs_error_m is not None
             and size_rel_error is not None
@@ -281,6 +320,7 @@ def main() -> None:
             {
                 "id": viewer_id,
                 "resolved_path": resolved_path,
+                "lookup_path": lookup_path,
                 "prim_type": truth_entry.get("prim_type"),
                 "rotation_checked": check_rotation,
                 "geometry_type": viewer_entry.get("geometry_type"),
@@ -291,6 +331,7 @@ def main() -> None:
                 "failed_position": failed_position,
                 "failed_rotation": failed_rotation,
                 "failed_size": failed_size,
+                "rotation_ambiguity_180": rotation_ambiguity_180,
                 "viewer_position": viewer_position,
                 "truth_position": truth_position,
                 "viewer_rotation_wxyz": viewer_rotation,
@@ -317,6 +358,7 @@ def main() -> None:
         for entry in compared_entries
         if entry.get("failed_position") or entry.get("failed_rotation") or entry.get("failed_size")
     ]
+    rotation_ambiguity_180_count = sum(1 for entry in compared_entries if entry.get("rotation_ambiguity_180") is True)
 
     max_pos_error_m = max((float(entry["pos_error_m"]) for entry in compared_entries if entry.get("pos_error_m") is not None), default=0.0)
     max_rot_error_deg = max((float(entry["rot_error_deg"]) for entry in compared_entries if entry.get("rot_error_deg") is not None), default=0.0)
@@ -349,6 +391,7 @@ def main() -> None:
             "resolved_without_truth_count": len(resolved_without_truth),
             "missing_truth_paths_count": len(missing_truth_paths),
             "failed_count": len(failed_entries),
+            "rotation_ambiguity_180_count": rotation_ambiguity_180_count,
             "max_pos_error_m": max_pos_error_m,
             "max_rot_error_deg": max_rot_error_deg,
             "max_rot_error_checked_deg": max_rot_error_checked_deg,

@@ -1,5 +1,5 @@
 import { MathUtils, Matrix4, Raycaster, Vector2, Vector3 } from "three";
-import { getRenderRobotMetadataSnapshot, warmupRenderRobotMetadataSnapshot, } from "./robot-metadata.js";
+import { getRenderRobotMetadataSnapshot, normalizeRenderRobotMetadataSnapshot, warmupRenderRobotMetadataSnapshot, } from "./robot-metadata.js";
 import { axisTokenFromAxisVector, buildRuntimeLinkPathIndex, clampJointAnglePreservingNeutralZero, cloneJointCatalogEntry, extractPhysicsPayloadAssetPathsFromLayerText, getInteractiveJointLimits, getJointPathCandidatesForLinkPath, getLinkPathFromMeshId, getRootPathFromLinkPath, getRootPathsFromRenderInterface, isControllableRevoluteJointTypeName, isPhysicsJointTypeName, jointCatalogCacheByStagePath, maxJointCatalogCacheEntries, normalizeAxisToken, normalizeAxisVector, normalizeLimits, pickRuntimeParentLinkPath, resolveRuntimeLinkPathsFromSourcePath, resolveUsdAssetPath, rotateAxisByQuaternion, roundAngleDegrees, safeGetPrimAtPath, safeGetPrimAttribute, safeGetPrimTypeName, toFiniteNumber, toQuaternionFromValue, toUsdPathListFromValue, toVector3FromValue, } from "./link-rotation/shared.js";
 import { ingestJointCatalogFromStage, } from "./link-rotation/catalog-ingestion.js";
 import { parseBooleanFlag } from "./path-utils.js";
@@ -19,9 +19,14 @@ export class LinkRotationController {
         this.linkJointStateByLinkPath = new Map();
         this.jointCatalogByLinkPath = new Map();
         this.linkParentPathByLinkPath = new Map();
+        this.linkPathByMeshId = new Map();
+        this.subtreeLinkPathsByAncestorLinkPath = new Map();
+        this.subtreeMeshIdsByAncestorLinkPath = new Map();
+        this.lastAppliedMeshIds = new Set();
         this.baseMatrixByMeshId = new Map();
         this.baseLinkFrameMatrixByLinkPath = new Map();
         this.posedLinkFrameMatrixByLinkPath = new Map();
+        this.subtreeIndexDirty = true;
         this.jointCatalogBuildPromise = null;
         this.lastJointCatalogBuildAttemptAtMs = 0;
         this.hasAppliedJointPose = false;
@@ -30,10 +35,12 @@ export class LinkRotationController {
         this.lastIdleBasePoseRefreshAtMs = 0;
         this.lastKnownMeshCount = -1;
         this.idleBasePoseRefreshIntervalMs = this.getDurationParamMsFromQuery("idleBasePoseRefreshIntervalMs", 2500, 120, 120000);
-        this.jointCatalogUiWaitBudgetMs = this.getDurationParamMsFromQuery("jointCatalogWaitBudgetMs", 24, 0, 10000);
-        this.jointCatalogStageFallbackDelayMs = this.getDurationParamMsFromQuery("jointCatalogStageFallbackDelayMs", 120, 0, 120000);
-        this.jointCatalogStageFallbackIdleTimeoutMs = this.getDurationParamMsFromQuery("jointCatalogStageFallbackIdleTimeoutMs", 120, 0, 120000);
-        this.jointCatalogRebuildCooldownMs = this.getDurationParamMsFromQuery("jointCatalogRebuildCooldownMs", 900, 0, 120000);
+        this.strictOneShot = this.getBooleanParamFromQuery("strictOneShot", true);
+        this.allowStageJointCatalogFallback = this.getBooleanParamFromQuery("allowStageJointCatalogFallback", !this.strictOneShot);
+        this.jointCatalogUiWaitBudgetMs = this.getDurationParamMsFromQuery("jointCatalogWaitBudgetMs", 96, 0, 10000);
+        this.jointCatalogStageFallbackDelayMs = this.getDurationParamMsFromQuery("jointCatalogStageFallbackDelayMs", 40, 0, 120000);
+        this.jointCatalogStageFallbackIdleTimeoutMs = this.getDurationParamMsFromQuery("jointCatalogStageFallbackIdleTimeoutMs", 40, 0, 120000);
+        this.jointCatalogRebuildCooldownMs = this.getDurationParamMsFromQuery("jointCatalogRebuildCooldownMs", 320, 0, 120000);
         this.stageSourcePath = null;
         this.tempTranslateToPivot = new Matrix4();
         this.tempTranslateFromPivot = new Matrix4();
@@ -121,7 +128,6 @@ export class LinkRotationController {
                 return;
             jointState.angleDeg = nextAngle;
             this.jointPoseDirty = true;
-            this.applyJointPoseNow();
             this.emitSelectionChanged(this.activeLinkPath);
             event.preventDefault();
         };
@@ -161,9 +167,14 @@ export class LinkRotationController {
         this.linkJointStateByLinkPath.clear();
         this.jointCatalogByLinkPath.clear();
         this.linkParentPathByLinkPath.clear();
+        this.linkPathByMeshId.clear();
+        this.subtreeLinkPathsByAncestorLinkPath.clear();
+        this.subtreeMeshIdsByAncestorLinkPath.clear();
+        this.lastAppliedMeshIds.clear();
         this.baseMatrixByMeshId.clear();
         this.baseLinkFrameMatrixByLinkPath.clear();
         this.posedLinkFrameMatrixByLinkPath.clear();
+        this.subtreeIndexDirty = true;
         this.jointCatalogBuildPromise = null;
         this.hasAppliedJointPose = false;
         this.jointPoseDirty = false;
@@ -205,6 +216,33 @@ export class LinkRotationController {
         }
         catch { }
     }
+    async prewarmJointCatalog() {
+        this.ensureJointCatalogBuildScheduled();
+        try {
+            await this.ensureJointCatalogReady();
+        }
+        catch {
+            // Keep preload best-effort.
+        }
+    }
+    prewarmInteractivePoseCaches() {
+        if (!this.enabled || !this.renderInterface?.meshes)
+            return;
+        if (Object.keys(this.renderInterface.meshes).length <= 0)
+            return;
+        this.refreshMeshLinkPathIndex();
+        this.ensureSubtreeIndex({ resolveMissingParents: true });
+        this.captureCurrentPoseAsBasePose();
+        const baseLinkPoseByLinkPath = this.buildBaseLinkPoseMap();
+        this.syncPosedLinkFrameMap(baseLinkPoseByLinkPath);
+        this.basePoseDirty = false;
+        this.jointPoseDirty = false;
+        this.hasAppliedJointPose = false;
+        const nowMs = (typeof performance !== "undefined" && typeof performance.now === "function")
+            ? performance.now()
+            : Date.now();
+        this.lastIdleBasePoseRefreshAtMs = nowMs;
+    }
     setOnSelectionChanged(handler) {
         this.onSelectionChanged = handler;
     }
@@ -230,7 +268,7 @@ export class LinkRotationController {
             ? performance.now()
             : Date.now();
         this.ensureJointCatalogBuildScheduled();
-        void this.ensureJointCatalogReady({ maxWaitMs: 0 });
+        await this.ensureJointCatalogReady({ maxWaitMs: this.jointCatalogUiWaitBudgetMs });
         const linkPaths = new Set();
         for (const linkPath of this.jointCatalogByLinkPath.keys()) {
             linkPaths.add(linkPath);
@@ -239,7 +277,7 @@ export class LinkRotationController {
             linkPaths.add(linkPath);
         }
         const query = new URLSearchParams(String(window?.location?.search || ""));
-        const scanMeshLinksForJoints = parseBooleanFlag(query.get("scanMeshLinksForJoints"), true);
+        const scanMeshLinksForJoints = parseBooleanFlag(query.get("scanMeshLinksForJoints"), false);
         if (scanMeshLinksForJoints && this.renderInterface?.meshes) {
             for (const meshId of Object.keys(this.renderInterface.meshes)) {
                 const linkPath = getLinkPathFromMeshId(meshId);
@@ -283,7 +321,6 @@ export class LinkRotationController {
         jointState.angleDeg = clampJointAnglePreservingNeutralZero(angleDeg, interactiveLimits.lower, interactiveLimits.upper);
         if (Math.abs(jointState.angleDeg - previousAngle) > 1e-8) {
             this.jointPoseDirty = true;
-            this.applyJointPoseNow();
         }
         if (this.selectedLinkPath === linkPath || this.activeLinkPath === linkPath) {
             this.emitSelectionChanged(linkPath);
@@ -294,9 +331,14 @@ export class LinkRotationController {
         this.linkJointStateByLinkPath.clear();
         this.jointCatalogByLinkPath.clear();
         this.linkParentPathByLinkPath.clear();
+        this.linkPathByMeshId.clear();
+        this.subtreeLinkPathsByAncestorLinkPath.clear();
+        this.subtreeMeshIdsByAncestorLinkPath.clear();
+        this.lastAppliedMeshIds.clear();
         this.baseMatrixByMeshId.clear();
         this.baseLinkFrameMatrixByLinkPath.clear();
         this.posedLinkFrameMatrixByLinkPath.clear();
+        this.subtreeIndexDirty = true;
         this.jointCatalogBuildPromise = null;
         this.lastJointCatalogBuildAttemptAtMs = 0;
         this.hasAppliedJointPose = false;
@@ -321,6 +363,7 @@ export class LinkRotationController {
         const meshCount = Object.keys(this.renderInterface.meshes).length;
         if (meshCount !== this.lastKnownMeshCount) {
             this.lastKnownMeshCount = meshCount;
+            this.refreshMeshLinkPathIndex();
             this.basePoseDirty = true;
             if (meshCount > 0) {
                 this.ensureJointCatalogBuildScheduled();
@@ -331,7 +374,9 @@ export class LinkRotationController {
             .sort((left, right) => this.getLinkDepth(left.linkPath) - this.getLinkDepth(right.linkPath));
         if (activeJointStates.length === 0) {
             if (this.hasAppliedJointPose) {
-                this.restoreBasePoseToCurrentMeshes();
+                const meshIdsToRestore = this.lastAppliedMeshIds.size > 0 ? this.lastAppliedMeshIds : null;
+                this.restoreBasePoseToCurrentMeshes(meshIdsToRestore);
+                this.lastAppliedMeshIds.clear();
                 const restoredLinkPoseByLinkPath = this.buildBaseLinkPoseMap();
                 this.syncPosedLinkFrameMap(restoredLinkPoseByLinkPath);
                 this.hasAppliedJointPose = false;
@@ -354,6 +399,7 @@ export class LinkRotationController {
             }
             this.captureCurrentPoseAsBasePose();
             const basePoseChanged = this.restoreBasePoseToCurrentMeshes();
+            this.lastAppliedMeshIds.clear();
             const refreshedLinkPoseByLinkPath = this.buildBaseLinkPoseMap();
             this.syncPosedLinkFrameMap(refreshedLinkPoseByLinkPath);
             this.basePoseDirty = false;
@@ -364,8 +410,38 @@ export class LinkRotationController {
         if (!force && !this.jointPoseDirty && this.hasAppliedJointPose && !this.basePoseDirty) {
             return false;
         }
-        const linkPoseByLinkPath = this.buildBaseLinkPoseMap();
-        this.restoreBasePoseToCurrentMeshes();
+        this.ensureSubtreeIndex();
+        const affectedLinkPaths = this.collectAffectedLinkPaths(activeJointStates);
+        const affectedMeshIds = this.collectAffectedMeshIds(activeJointStates);
+        const meshIdsToRestore = new Set(this.lastAppliedMeshIds);
+        for (const meshId of affectedMeshIds) {
+            meshIdsToRestore.add(meshId);
+        }
+        if (meshIdsToRestore.size > 0) {
+            this.restoreBasePoseToCurrentMeshes(meshIdsToRestore);
+        }
+        else {
+            this.restoreBasePoseToCurrentMeshes();
+        }
+        this.lastAppliedMeshIds.clear();
+        for (const meshId of affectedMeshIds) {
+            this.lastAppliedMeshIds.add(meshId);
+        }
+        const linkPoseByLinkPath = new Map();
+        if (affectedLinkPaths.size > 0) {
+            for (const linkPath of affectedLinkPaths) {
+                const baseMatrix = this.getBaseLinkFrameMatrixForLinkPath(linkPath);
+                if (!baseMatrix)
+                    continue;
+                linkPoseByLinkPath.set(linkPath, baseMatrix.clone());
+            }
+        }
+        else {
+            const fullBaseLinkPose = this.buildBaseLinkPoseMap();
+            for (const [linkPath, linkMatrix] of fullBaseLinkPose.entries()) {
+                linkPoseByLinkPath.set(linkPath, linkMatrix.clone());
+            }
+        }
         for (const jointState of activeJointStates) {
             const linkMatrix = linkPoseByLinkPath.get(jointState.linkPath) || this.getBaseLinkFrameMatrixForLinkPath(jointState.linkPath);
             if (!linkMatrix)
@@ -416,16 +492,19 @@ export class LinkRotationController {
         // reset this cache whenever we refresh the base snapshot.
         this.baseLinkFrameMatrixByLinkPath.clear();
     }
-    restoreBasePoseToCurrentMeshes() {
+    restoreBasePoseToCurrentMeshes(targetMeshIds = null) {
         const meshes = this.renderInterface?.meshes;
         if (!meshes)
             return false;
         if (this.baseMatrixByMeshId.size === 0) {
             this.captureCurrentPoseAsBasePose();
         }
+        const targetSet = targetMeshIds ? new Set(targetMeshIds) : null;
         let changed = false;
         const seen = new Set();
         for (const [meshId, hydraMesh] of Object.entries(meshes)) {
+            if (targetSet && !targetSet.has(meshId))
+                continue;
             const mesh = hydraMesh?._mesh;
             if (!mesh?.matrix)
                 continue;
@@ -452,9 +531,11 @@ export class LinkRotationController {
             mesh.matrix.copy(baseMatrix);
             mesh.matrixAutoUpdate = false;
         }
-        for (const meshId of Array.from(this.baseMatrixByMeshId.keys())) {
-            if (!seen.has(meshId)) {
-                this.baseMatrixByMeshId.delete(meshId);
+        if (!targetSet) {
+            for (const meshId of Array.from(this.baseMatrixByMeshId.keys())) {
+                if (!seen.has(meshId)) {
+                    this.baseMatrixByMeshId.delete(meshId);
+                }
             }
         }
         return changed;
@@ -471,6 +552,24 @@ export class LinkRotationController {
         const resolvedVisualMatrix = this.renderInterface.getWorldTransformForPrimPath?.(resolvedVisualPath) || null;
         if (!resolvedVisualMatrix)
             return currentClone;
+        const protoMeshMatch = meshId.match(/\/visuals\.proto_mesh_id(\d+)$/i);
+        const protoMeshIndex = protoMeshMatch ? Number(protoMeshMatch[1]) : -1;
+        const isVisualProtoSubMesh = Number.isFinite(protoMeshIndex) && protoMeshIndex > 0;
+        if (isVisualProtoSubMesh) {
+            const hydraMesh = this.renderInterface?.meshes?.[meshId];
+            const protoBlobMatrix = hydraMesh?._lastProtoBlobTransformMatrix;
+            if (protoBlobMatrix?.elements && protoBlobMatrix.elements.length >= 16) {
+                const resolvedVsProtoBlobDelta = this.getMatrixMaxElementDelta(resolvedVisualMatrix, protoBlobMatrix);
+                if (resolvedVsProtoBlobDelta > 1e-4) {
+                    const resolvedElements = resolvedVisualMatrix.elements;
+                    const protoElements = protoBlobMatrix.elements;
+                    const translationDelta = Math.hypot(Number(resolvedElements[12] || 0) - Number(protoElements[12] || 0), Number(resolvedElements[13] || 0) - Number(protoElements[13] || 0), Number(resolvedElements[14] || 0) - Number(protoElements[14] || 0));
+                    if (Number.isFinite(translationDelta) && translationDelta <= 1e-3) {
+                        return protoBlobMatrix.clone();
+                    }
+                }
+            }
+        }
         const currentVsResolvedDelta = this.getMatrixMaxElementDelta(currentClone, resolvedVisualMatrix);
         if (currentVsResolvedDelta <= 1e-6)
             return currentClone;
@@ -634,7 +733,7 @@ export class LinkRotationController {
                 localPivotInLink,
             };
             this.linkJointStateByLinkPath.set(linkPath, state);
-            this.linkParentPathByLinkPath.set(linkPath, parentLinkPath);
+            this.setLinkParentPath(linkPath, parentLinkPath);
             this.jointCatalogByLinkPath.set(linkPath, {
                 linkPath,
                 jointPath,
@@ -768,8 +867,21 @@ export class LinkRotationController {
         return this.getBaseLinkFrameMatrixForLinkPath(linkPath);
     }
     applyRotationToLinkPoseSubtree(ancestorLinkPath, rotationMatrix, linkPoseByLinkPath) {
-        for (const [linkPath, linkMatrix] of linkPoseByLinkPath.entries()) {
+        const subtreeLinkPaths = this.getSubtreeLinkPaths(ancestorLinkPath);
+        if (subtreeLinkPaths && subtreeLinkPaths.size > 0) {
+            for (const linkPath of subtreeLinkPaths) {
+                const linkMatrix = linkPoseByLinkPath.get(linkPath);
+                if (!linkMatrix)
+                    continue;
+                linkMatrix.premultiply(rotationMatrix);
+            }
+            return;
+        }
+        for (const linkPath of this.collectKnownLinkPaths()) {
             if (!this.isLinkPathInSubtree(linkPath, ancestorLinkPath))
+                continue;
+            const linkMatrix = linkPoseByLinkPath.get(linkPath);
+            if (!linkMatrix)
                 continue;
             linkMatrix.premultiply(rotationMatrix);
         }
@@ -795,31 +907,66 @@ export class LinkRotationController {
             if (body1Path && body1Path !== linkPath)
                 continue;
             const parentLinkPath = toUsdPathListFromValue(safeGetPrimAttribute(prim, "physics:body0"))[0] || null;
-            this.linkParentPathByLinkPath.set(linkPath, parentLinkPath);
+            this.setLinkParentPath(linkPath, parentLinkPath);
             return parentLinkPath;
         }
-        this.linkParentPathByLinkPath.set(linkPath, null);
+        this.setLinkParentPath(linkPath, null);
         return null;
     }
     applyRotationToLinkSubtree(ancestorLinkPath, rotationMatrix) {
         if (!this.renderInterface?.meshes)
             return;
-        for (const [meshId, hydraMesh] of Object.entries(this.renderInterface.meshes)) {
+        if (this.linkPathByMeshId.size <= 0) {
+            this.refreshMeshLinkPathIndex();
+        }
+        const subtreeMeshIds = this.getSubtreeMeshIds(ancestorLinkPath);
+        if (subtreeMeshIds && subtreeMeshIds.length > 0) {
+            for (const meshId of subtreeMeshIds) {
+                const hydraMesh = this.renderInterface.meshes[meshId];
+                const mesh = hydraMesh?._mesh;
+                if (!mesh)
+                    continue;
+                mesh.matrix.premultiply(rotationMatrix);
+                mesh.matrixAutoUpdate = false;
+            }
+            return;
+        }
+        const inSubtreeByLinkPath = new Map();
+        for (const [meshId, linkPath] of this.linkPathByMeshId.entries()) {
+            const cached = inSubtreeByLinkPath.get(linkPath);
+            const inSubtree = cached !== undefined ? cached : this.isLinkPathInSubtree(linkPath, ancestorLinkPath);
+            if (cached === undefined)
+                inSubtreeByLinkPath.set(linkPath, inSubtree);
+            if (!inSubtree)
+                continue;
+            const hydraMesh = this.renderInterface.meshes[meshId];
             const mesh = hydraMesh?._mesh;
             if (!mesh)
-                continue;
-            const linkPath = getLinkPathFromMeshId(meshId);
-            if (!linkPath)
-                continue;
-            if (!this.isLinkPathInSubtree(linkPath, ancestorLinkPath))
                 continue;
             mesh.matrix.premultiply(rotationMatrix);
             mesh.matrixAutoUpdate = false;
         }
     }
+    refreshMeshLinkPathIndex() {
+        this.linkPathByMeshId.clear();
+        const meshes = this.renderInterface?.meshes;
+        this.markSubtreeIndexDirty();
+        if (!meshes)
+            return;
+        for (const meshId of Object.keys(meshes)) {
+            const linkPath = getLinkPathFromMeshId(meshId);
+            if (!linkPath)
+                continue;
+            this.linkPathByMeshId.set(meshId, linkPath);
+        }
+    }
     isLinkPathInSubtree(linkPath, ancestorLinkPath) {
         if (linkPath === ancestorLinkPath)
             return true;
+        const subtreeLinkPaths = this.getSubtreeLinkPaths(ancestorLinkPath);
+        if (subtreeLinkPaths) {
+            return subtreeLinkPaths.has(linkPath);
+        }
         const visited = new Set();
         let currentLinkPath = linkPath;
         while (true) {
@@ -848,6 +995,144 @@ export class LinkRotationController {
             depth++;
             currentLinkPath = parentLinkPath;
         }
+    }
+    setLinkParentPath(linkPath, parentLinkPath) {
+        if (!linkPath)
+            return;
+        const normalizedParent = parentLinkPath || null;
+        const existingParent = this.linkParentPathByLinkPath.has(linkPath)
+            ? (this.linkParentPathByLinkPath.get(linkPath) || null)
+            : undefined;
+        if (existingParent !== undefined && existingParent === normalizedParent)
+            return;
+        this.linkParentPathByLinkPath.set(linkPath, normalizedParent);
+        this.markSubtreeIndexDirty();
+    }
+    markSubtreeIndexDirty() {
+        this.subtreeIndexDirty = true;
+    }
+    ensureSubtreeIndex(options = {}) {
+        if (this.linkPathByMeshId.size <= 0) {
+            this.refreshMeshLinkPathIndex();
+        }
+        if (options.resolveMissingParents === true) {
+            const knownLinkPaths = new Set();
+            for (const linkPath of this.linkPathByMeshId.values()) {
+                if (linkPath)
+                    knownLinkPaths.add(linkPath);
+            }
+            for (const linkPath of this.linkJointStateByLinkPath.keys()) {
+                if (linkPath)
+                    knownLinkPaths.add(linkPath);
+            }
+            for (const linkPath of this.jointCatalogByLinkPath.keys()) {
+                if (linkPath)
+                    knownLinkPaths.add(linkPath);
+            }
+            for (const linkPath of knownLinkPaths) {
+                if (!this.linkParentPathByLinkPath.has(linkPath)) {
+                    this.getParentLinkPath(linkPath);
+                }
+            }
+        }
+        if (!this.subtreeIndexDirty && this.subtreeLinkPathsByAncestorLinkPath.size > 0) {
+            return;
+        }
+        this.subtreeLinkPathsByAncestorLinkPath.clear();
+        this.subtreeMeshIdsByAncestorLinkPath.clear();
+        const allLinkPaths = new Set();
+        for (const linkPath of this.collectKnownLinkPaths()) {
+            if (linkPath)
+                allLinkPaths.add(linkPath);
+        }
+        for (const [childLinkPath, parentLinkPath] of this.linkParentPathByLinkPath.entries()) {
+            if (childLinkPath)
+                allLinkPaths.add(childLinkPath);
+            if (parentLinkPath)
+                allLinkPaths.add(parentLinkPath);
+        }
+        if (allLinkPaths.size <= 0) {
+            this.subtreeIndexDirty = false;
+            return;
+        }
+        const childLinkPathsByParentLinkPath = new Map();
+        for (const [childLinkPath, parentLinkPath] of this.linkParentPathByLinkPath.entries()) {
+            if (!childLinkPath || !parentLinkPath)
+                continue;
+            const children = childLinkPathsByParentLinkPath.get(parentLinkPath) || [];
+            children.push(childLinkPath);
+            childLinkPathsByParentLinkPath.set(parentLinkPath, children);
+        }
+        const meshIdsByLinkPath = new Map();
+        for (const [meshId, linkPath] of this.linkPathByMeshId.entries()) {
+            const meshIds = meshIdsByLinkPath.get(linkPath) || [];
+            meshIds.push(meshId);
+            meshIdsByLinkPath.set(linkPath, meshIds);
+        }
+        for (const ancestorLinkPath of allLinkPaths) {
+            const descendants = new Set();
+            const queue = [ancestorLinkPath];
+            while (queue.length > 0) {
+                const currentLinkPath = queue.pop() || "";
+                if (!currentLinkPath || descendants.has(currentLinkPath))
+                    continue;
+                descendants.add(currentLinkPath);
+                const children = childLinkPathsByParentLinkPath.get(currentLinkPath) || [];
+                for (const childLinkPath of children) {
+                    if (!descendants.has(childLinkPath)) {
+                        queue.push(childLinkPath);
+                    }
+                }
+            }
+            this.subtreeLinkPathsByAncestorLinkPath.set(ancestorLinkPath, descendants);
+            const meshIds = [];
+            for (const descendantLinkPath of descendants) {
+                const descendantMeshIds = meshIdsByLinkPath.get(descendantLinkPath);
+                if (!descendantMeshIds || descendantMeshIds.length <= 0)
+                    continue;
+                meshIds.push(...descendantMeshIds);
+            }
+            this.subtreeMeshIdsByAncestorLinkPath.set(ancestorLinkPath, meshIds);
+        }
+        this.subtreeIndexDirty = false;
+    }
+    getSubtreeLinkPaths(ancestorLinkPath) {
+        if (!ancestorLinkPath)
+            return null;
+        this.ensureSubtreeIndex();
+        return this.subtreeLinkPathsByAncestorLinkPath.get(ancestorLinkPath) || null;
+    }
+    getSubtreeMeshIds(ancestorLinkPath) {
+        if (!ancestorLinkPath)
+            return null;
+        this.ensureSubtreeIndex();
+        return this.subtreeMeshIdsByAncestorLinkPath.get(ancestorLinkPath) || null;
+    }
+    collectAffectedLinkPaths(activeJointStates) {
+        const affectedLinkPaths = new Set();
+        for (const jointState of activeJointStates) {
+            const subtreeLinkPaths = this.getSubtreeLinkPaths(jointState.linkPath);
+            if (!subtreeLinkPaths || subtreeLinkPaths.size <= 0) {
+                affectedLinkPaths.add(jointState.linkPath);
+                continue;
+            }
+            for (const linkPath of subtreeLinkPaths) {
+                affectedLinkPaths.add(linkPath);
+            }
+        }
+        return affectedLinkPaths;
+    }
+    collectAffectedMeshIds(activeJointStates) {
+        const affectedMeshIds = new Set();
+        for (const jointState of activeJointStates) {
+            const subtreeMeshIds = this.getSubtreeMeshIds(jointState.linkPath);
+            if (!subtreeMeshIds || subtreeMeshIds.length <= 0)
+                continue;
+            for (const meshId of subtreeMeshIds) {
+                affectedMeshIds.add(meshId);
+            }
+        }
+        return affectedMeshIds;
     }
     createStateFromCatalogEntry(entry) {
         return {
@@ -919,6 +1204,35 @@ export class LinkRotationController {
         if (importedFromCachedSnapshot > 0) {
             return Promise.resolve();
         }
+        const importedFromDriverSnapshot = this.tryHydrateJointCatalogFromDriverSnapshot(runtimeLinkPathIndex);
+        if (importedFromDriverSnapshot > 0) {
+            return Promise.resolve();
+        }
+        if (!this.allowStageJointCatalogFallback) {
+            this.jointCatalogBuildPromise = Promise.resolve()
+                .then(async () => {
+                const refreshedRuntimeLinkPathIndex = buildRuntimeLinkPathIndex(this.renderInterface);
+                if (refreshedRuntimeLinkPathIndex.allLinkPaths.size <= 0)
+                    return;
+                const warmedSnapshot = await warmupRenderRobotMetadataSnapshot(this.renderInterface, {
+                    stageSourcePath: this.stageSourcePath,
+                    force: true,
+                    skipIdleWait: true,
+                    skipUrdfTruthFallback: true,
+                });
+                this.ingestJointCatalogFromRenderSnapshot(warmedSnapshot, refreshedRuntimeLinkPathIndex);
+                if (!cacheKey)
+                    return;
+                this.saveJointCatalogToCache(cacheKey);
+            })
+                .catch(() => {
+                // Keep strict one-shot fallback disabled path resilient.
+            })
+                .finally(() => {
+                this.jointCatalogBuildPromise = null;
+            });
+            return this.jointCatalogBuildPromise;
+        }
         this.lastJointCatalogBuildAttemptAtMs = nowMs;
         const stage = (window.usdStage || null);
         this.jointCatalogBuildPromise = this.buildJointCatalog(stage)
@@ -935,6 +1249,24 @@ export class LinkRotationController {
         });
         return this.jointCatalogBuildPromise;
     }
+    tryHydrateJointCatalogFromDriverSnapshot(runtimeLinkPathIndex) {
+        const activeDriver = window.driver;
+        if (!activeDriver || typeof activeDriver.GetRobotMetadataSnapshot !== "function")
+            return 0;
+        const sortedLinkPaths = Array.from(runtimeLinkPathIndex.allLinkPaths)
+            .filter((linkPath) => !!linkPath)
+            .sort((left, right) => left.localeCompare(right));
+        if (sortedLinkPaths.length <= 0)
+            return 0;
+        try {
+            const rawSnapshot = activeDriver.GetRobotMetadataSnapshot(sortedLinkPaths, String(this.stageSourcePath || ""));
+            const normalizedSnapshot = normalizeRenderRobotMetadataSnapshot(rawSnapshot);
+            return this.ingestJointCatalogFromRenderSnapshot(normalizedSnapshot, runtimeLinkPathIndex);
+        }
+        catch {
+            return 0;
+        }
+    }
     getDurationParamMsFromQuery(paramName, fallbackMs, minMs, maxMs) {
         const search = String(window?.location?.search || "");
         const params = new URLSearchParams(search);
@@ -945,6 +1277,11 @@ export class LinkRotationController {
         if (!Number.isFinite(requested))
             return fallbackMs;
         return Math.max(minMs, Math.min(maxMs, Math.floor(requested)));
+    }
+    getBooleanParamFromQuery(paramName, fallback) {
+        const search = String(window?.location?.search || "");
+        const params = new URLSearchParams(search);
+        return parseBooleanFlag(params.get(paramName), fallback);
     }
     async waitForBrowserIdleSlice(timeoutMs) {
         const normalizedTimeoutMs = Math.max(1, Math.floor(timeoutMs));
@@ -986,8 +1323,9 @@ export class LinkRotationController {
         jointCatalogCacheByStagePath.delete(cacheKey);
         jointCatalogCacheByStagePath.set(cacheKey, cacheEntry);
         this.linkParentPathByLinkPath.clear();
+        this.markSubtreeIndexDirty();
         for (const [linkPath, parentLinkPath] of cacheEntry.linkParentPairs) {
-            this.linkParentPathByLinkPath.set(linkPath, parentLinkPath);
+            this.setLinkParentPath(linkPath, parentLinkPath);
         }
         this.jointCatalogByLinkPath.clear();
         for (const entry of cacheEntry.jointCatalogEntries) {
@@ -1029,7 +1367,11 @@ export class LinkRotationController {
     async buildJointCatalog(initialStage) {
         const profileJointCatalog = /(?:\?|&)profileJointCatalog=(?:1|true|yes|on)(?:&|$)/i.test(String(window.location?.search || ""));
         const runtimeLinkPathIndex = buildRuntimeLinkPathIndex(this.renderInterface);
-        const importedFromRenderSnapshot = this.ingestJointCatalogFromRenderSnapshot(await warmupRenderRobotMetadataSnapshot(this.renderInterface, { stageSourcePath: this.stageSourcePath }), runtimeLinkPathIndex);
+        const importedFromRenderSnapshot = this.ingestJointCatalogFromRenderSnapshot(await warmupRenderRobotMetadataSnapshot(this.renderInterface, {
+            stageSourcePath: this.stageSourcePath,
+            skipIdleWait: true,
+            skipUrdfTruthFallback: true,
+        }), runtimeLinkPathIndex);
         if (importedFromRenderSnapshot > 0) {
             if (profileJointCatalog) {
                 const nowMs = (typeof performance !== "undefined" && typeof performance.now === "function")
@@ -1120,7 +1462,7 @@ export class LinkRotationController {
                     const preferredRootPath = getRootPathFromLinkPath(childLinkPath);
                     const parentCandidates = resolveRuntimeLinkPathsFromSourcePath(pair[1], runtimeLinkPathIndex, preferredRootPath);
                     const parentLinkPath = pickRuntimeParentLinkPath(parentCandidates, preferredRootPath);
-                    this.linkParentPathByLinkPath.set(childLinkPath, parentLinkPath);
+                    this.setLinkParentPath(childLinkPath, parentLinkPath);
                 }
             }
         }
@@ -1139,7 +1481,7 @@ export class LinkRotationController {
                 const preferredRootPath = getRootPathFromLinkPath(linkPath);
                 const parentCandidates = resolveRuntimeLinkPathsFromSourcePath(entry.parentLinkPath, runtimeLinkPathIndex, preferredRootPath);
                 const parentLinkPath = pickRuntimeParentLinkPath(parentCandidates, preferredRootPath);
-                this.linkParentPathByLinkPath.set(linkPath, parentLinkPath);
+                this.setLinkParentPath(linkPath, parentLinkPath);
                 const axisLocal = normalizeAxisVector(new Vector3(Number(entry.axisLocal?.[0] || 0), Number(entry.axisLocal?.[1] || 0), Number(entry.axisLocal?.[2] || 0)));
                 const limits = normalizeLimits(toFiniteNumber(entry.lowerLimitDeg), toFiniteNumber(entry.upperLimitDeg));
                 const localPivotInLink = Array.isArray(entry.localPivotInLink)
@@ -1189,6 +1531,7 @@ export class LinkRotationController {
             axisLocal: normalizedEntry.axisLocal.clone(),
             localPivotInLink: normalizedEntry.localPivotInLink ? normalizedEntry.localPivotInLink.clone() : null,
         });
+        this.setLinkParentPath(normalizedEntry.linkPath, normalizedEntry.parentLinkPath);
         const existingState = this.linkJointStateByLinkPath.get(normalizedEntry.linkPath);
         if (!existingState)
             return;
@@ -1200,25 +1543,6 @@ export class LinkRotationController {
         existingState.upperLimitDeg = normalizedEntry.upperLimitDeg;
         existingState.localPivotInLink = normalizedEntry.localPivotInLink ? normalizedEntry.localPivotInLink.clone() : null;
         existingState.angleDeg = clampJointAnglePreservingNeutralZero(existingState.angleDeg, existingState.lowerLimitDeg, existingState.upperLimitDeg);
-    }
-    applyJointPoseNow() {
-        if (!this.renderInterface)
-            return;
-        const changed = this.apply(this.renderInterface, {
-            force: true,
-            suppressIdleRefresh: true,
-        });
-        if (!changed)
-            return;
-        const renderer = window.renderer;
-        const scene = window.scene;
-        const camera = window.camera;
-        if (!renderer || !scene || !camera)
-            return;
-        try {
-            renderer.render(scene, camera);
-        }
-        catch { }
     }
     resolveJointPathFromName(stage, rootPaths, jointName) {
         if (!jointName)

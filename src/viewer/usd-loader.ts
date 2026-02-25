@@ -124,14 +124,19 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
   } = args;
   const fastLoad = parseBooleanFlag(params.get("fastLoad"), true);
   const truthFirst = parseBooleanFlag(params.get("truthFirst"), false);
+  // Strict one-shot mode: complete all critical metadata/cache prep during load,
+  // then enter interactive state without deferred background tails.
+  const strictOneShot = parseBooleanFlag(params.get("strictOneShot"), true);
   const directStageMeshRead = parseBooleanFlag(params.get("directStageMeshRead"), true);
-  // Stage override scans are the longest blocking phase on large Unitree assets.
-  // Truth-first mode keeps this synchronous so initial visible pose/collision
-  // state matches stage-authored transforms.
-  const deferStageOverrides = parseBooleanFlag(
-    params.get("deferStageOverrides"),
-    truthFirst ? false : fastLoad,
-  );
+  // Stage override scans are one of the heaviest post-load tasks on large robot
+  // assets. Keep the default synchronous so interaction (joint panel / COM
+  // toggle) is not starved by long deferred background chunks.
+  const deferStageOverrides = strictOneShot
+    ? false
+    : parseBooleanFlag(
+      params.get("deferStageOverrides"),
+      false,
+    );
   const primeFinalStageOverrideBatchBeforeDraw = parseBooleanFlag(
     params.get("primeFinalStageOverrideBatchBeforeDraw"),
     truthFirst,
@@ -144,19 +149,34 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
   })();
   const deferredStageOverridesChunkSize = (() => {
     const requested = Number(params.get("deferStageOverridesChunkSize"));
-    if (!Number.isFinite(requested)) return fastLoad ? 1 : 2;
+    // A single-mesh chunk keeps UI ultra-smooth but can create very long
+    // completion tails on large robot stages.
+    if (!Number.isFinite(requested)) return fastLoad ? 4 : 2;
     return Math.max(1, Math.min(256, Math.floor(requested)));
   })();
   const deferredStageOverridesChunkDelayMs = (() => {
     const requested = Number(params.get("deferStageOverridesChunkDelayMs"));
-    if (!Number.isFinite(requested)) return fastLoad ? 8 : 16;
+    if (!Number.isFinite(requested)) return fastLoad ? 2 : 16;
     return Math.max(0, Math.min(5000, Math.floor(requested)));
+  })();
+  const deferStageOverridesUseIdle = parseBooleanFlag(params.get("deferStageOverridesUseIdle"), !fastLoad);
+  const deferredStageOverridesWorkBudgetMs = (() => {
+    const requested = Number(params.get("deferStageOverridesWorkBudgetMs"));
+    // Run multiple chunks per tick to reduce scheduling overhead while keeping
+    // each slice bounded.
+    if (!Number.isFinite(requested)) return fastLoad ? 10 : 6;
+    return Math.max(1, Math.min(200, Math.floor(requested)));
   })();
   const forceDependencyPreload = parseBooleanFlag(params.get("forceDependencyPreload"), false);
   const autoLoadDependencies = parseBooleanFlag(params.get("autoLoadDependencies"), true);
-  const defaultIncludeSensorDependency = String(pathToLoad || "").toLowerCase().includes("/unitree_model/");
+  const normalizedPathForDependencyDefaults = String(pathToLoad || "").toLowerCase();
+  const defaultIncludeSensorDependency = normalizedPathForDependencyDefaults.includes("/unitree_model/")
+    || normalizedPathForDependencyDefaults.includes("/robots/");
   const includeSensorDependency = parseBooleanFlag(params.get("includeSensorDependency"), defaultIncludeSensorDependency);
   const allowDriverStageLookup = parseBooleanFlag(params.get("allowDriverStageLookup"), truthFirst || readStageMetadata);
+  // Visual proto transforms from Hydra/proto blobs are already truth-aligned for
+  // the common robot assets. Keep visual stage overrides opt-in so strict
+  // one-shot mode does not overwrite per-submesh authored orientation.
   const applyVisualStageOverrides = parseBooleanFlag(params.get("applyVisualStageOverrides"), false);
   const legacyPrefetchStageTransformsRaw = params.get("prefetchStageTransforms");
   const hasLegacyPrefetchStageTransformsFlag = legacyPrefetchStageTransformsRaw !== null;
@@ -170,12 +190,16 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     ? legacyPrefetchStageTransforms
     : parseBooleanFlag(params.get("prefetchStageTransformsPostDraw"), true);
   const prefetchProtoDataBlobs = parseBooleanFlag(params.get("prefetchProtoDataBlobs"), true);
-  const prefetchProtoDataBlobsBeforeDraw = parseBooleanFlag(params.get("prefetchProtoDataBlobsBeforeDraw"), truthFirst);
+  const prefetchProtoDataBlobsBeforeDraw = strictOneShot
+    ? true
+    : parseBooleanFlag(params.get("prefetchProtoDataBlobsBeforeDraw"), truthFirst);
   const prefetchProtoDataBlobsMode = (() => {
+    if (strictOneShot) return "immediate" as const;
     const rawMode = String(params.get("prefetchProtoDataBlobsMode") || "").trim().toLowerCase();
     return rawMode === "immediate" ? "immediate" : "idle";
   })();
   const prefetchProtoDataBlobsStartDelayMs = (() => {
+    if (strictOneShot) return 0;
     const requested = Number(params.get("prefetchProtoDataBlobsStartDelayMs"));
     const fallback = fastLoad ? 300 : 120;
     if (!Number.isFinite(requested)) return fallback;
@@ -195,6 +219,33 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     primeFinalStageOverrideBatchBeforeDraw,
   );
   const warmupRobotMetadata = parseBooleanFlag(params.get("warmupRobotMetadata"), true);
+  // Ensure joint + COM/inertia metadata is fully resolved before reporting
+  // load completion. This keeps first interaction behavior aligned with
+  // collision meshes (no long tail metadata warmup after first frame).
+  const resolveRobotMetadataBeforeReady = strictOneShot
+    ? true
+    : parseBooleanFlag(
+      params.get("resolveRobotMetadataBeforeReady"),
+      true,
+    );
+  const eagerRobotMetadataWarmup = parseBooleanFlag(params.get("eagerRobotMetadataWarmup"), true);
+  const skipUrdfTruthDuringEagerWarmup = parseBooleanFlag(params.get("skipUrdfTruthDuringEagerWarmup"), true);
+  const allowJsRobotMetadataFallback = parseBooleanFlag(
+    params.get("allowJsRobotMetadataFallback"),
+    !strictOneShot,
+  );
+  const requireCompleteRobotMetadata = parseBooleanFlag(
+    params.get("requireCompleteRobotMetadata"),
+    strictOneShot,
+  );
+  const robotMetadataResolveBudgetMs = (() => {
+    const requested = Number(params.get("robotMetadataResolveBudgetMs"));
+    // Strict one-shot blocks interactivity until metadata is ready, so avoid
+    // timing out by default and leaving heavy work to first interaction.
+    const fallback = strictOneShot ? 0 : (fastLoad ? 4_000 : 8_000);
+    if (!Number.isFinite(requested)) return fallback;
+    return Math.max(0, Math.min(120_000, Math.floor(requested)));
+  })();
   const maxCpuDraw = parseBooleanFlag(params.get("maxCpuDraw"), false);
   // Favor full-scene readiness during the loading phase to avoid long tail mesh hydration.
   const aggressiveInitialDraw = parseBooleanFlag(params.get("aggressiveInitialDraw"), true);
@@ -256,7 +307,7 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
   const forcePostDrawProtoResync = parseBooleanFlag(params.get("forcePostDrawProtoResync"), false);
   const postDrawProtoResyncChunk = (() => {
     const requested = Number(params.get("postDrawProtoResyncChunk"));
-    if (!Number.isFinite(requested)) return 8;
+    if (!Number.isFinite(requested)) return 16;
     return Math.max(1, Math.min(64, Math.floor(requested)));
   })();
   const loadVisualPrims = typeof requestedLoadVisualPrims === "boolean"
@@ -465,10 +516,12 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     try {
       if (usdFsHelper.hasVirtualFilePath(normalizedVirtualPath)) {
         usdModule.FS_unlink(normalizedVirtualPath);
+        usdFsHelper.untrackVirtualFilePath(normalizedVirtualPath);
       }
     } catch {}
     try {
       usdModule.FS_createDataFile(directory, fileName, binaryData, true, true, true);
+      usdFsHelper.trackVirtualFilePath(normalizedVirtualPath);
     } catch {
       // Keep load path resilient; missing optional dependency files are tolerated.
     }
@@ -615,6 +668,9 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     // During high-frequency Hydra sync callbacks, avoid fallback driver.GetStage()
     // lookups before window.usdStage is ready to prevent first-sync stalls.
     deferDriverStageLookupInSyncHotPath: parseBooleanFlag(params.get("deferDriverStageLookupInSyncHotPath"), true),
+    // In strict one-shot mode, prefer C++ metadata snapshot and avoid heavy JS
+    // stage text fallback unless explicitly requested.
+    allowJsRobotMetadataFallback,
     // For fast interactive loads, avoid synchronous driver.GetStage() fallback unless
     // metadata access is explicitly enabled.
     allowDriverStageLookup,
@@ -723,8 +779,12 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     options: { force?: boolean; includeRobotMetadata?: boolean } = {},
   ): Record<string, unknown> | null => {
     if (!warmupRuntimeBridge) return null;
+    const forceRefresh = options.force === true;
     const shouldWarmInPhase = (phaseLabel === "driver-init" && warmupRuntimeBridgeBeforeDraw)
-      || (phaseLabel === "post-initial-draw" && warmupRuntimeBridgeAfterDraw);
+      || (phaseLabel === "post-initial-draw" && warmupRuntimeBridgeAfterDraw)
+      // Strict one-shot must be able to force one post-draw refresh so early
+      // bootstrap caches (captured before meshes settle) do not remain stale.
+      || (phaseLabel === "post-initial-draw" && strictOneShot && forceRefresh);
     if (!shouldWarmInPhase) return null;
     const activeRenderInterface = window.renderInterface as any;
     if (!activeRenderInterface || typeof activeRenderInterface.warmupRuntimeBridgeFromDriver !== "function") return null;
@@ -734,7 +794,7 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
       || (phaseLabel === "post-initial-draw" && prefetchStageTransformsPostDraw);
     try {
       const summary = activeRenderInterface.warmupRuntimeBridgeFromDriver(state.driver, {
-        force: options.force === true,
+        force: forceRefresh,
         // Avoid duplicate GetPrimTransforms bridge calls when this phase already
         // runs a dedicated prefetch step via refreshPrefetchedStageTransforms().
         includePrimTransforms: !hasDedicatedTransformPrefetchInPhase,
@@ -742,6 +802,8 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
         includeCollisionProtoOverrides: true,
         includeResolvedPrimPathIndex: true,
         includeRobotMetadata: warmupRobotMetadata && options.includeRobotMetadata === true,
+        robotMetadataSkipIdleWait: eagerRobotMetadataWarmup,
+        robotMetadataSkipUrdfTruthFallback: skipUrdfTruthDuringEagerWarmup,
       });
       const warmedTransforms = Number((summary as any)?.transformTotalCount || 0);
       const warmedProtoBlobs = Number((summary as any)?.protoBlobCount || 0);
@@ -756,14 +818,19 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
       return null;
     }
   };
-  const refreshPrefetchedStageTransforms = (phaseLabel: string): { world: number; local: number; total: number } => {
+  const refreshPrefetchedStageTransforms = (
+    phaseLabel: string,
+    options: { force?: boolean } = {},
+  ): { world: number; local: number; total: number } => {
     const shouldPrefetchInPhase = (phaseLabel === "driver-init" && prefetchStageTransformsBeforeDraw)
       || (phaseLabel === "post-initial-draw" && prefetchStageTransformsPostDraw);
     if (!shouldPrefetchInPhase || !window.renderInterface || typeof window.renderInterface.prefetchPrimTransformsFromDriver !== "function") {
       return { world: 0, local: 0, total: 0 };
     }
     try {
-      const transformPrefetchSummary = window.renderInterface.prefetchPrimTransformsFromDriver(state.driver);
+      const transformPrefetchSummary = window.renderInterface.prefetchPrimTransformsFromDriver(state.driver, {
+        force: options.force === true,
+      });
       const worldCount = Number(transformPrefetchSummary?.world || 0);
       const localCount = Number(transformPrefetchSummary?.local || 0);
       const totalCount = Number(transformPrefetchSummary?.total || Math.max(worldCount, localCount));
@@ -791,8 +858,10 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     phaseLabel: "driver-init" | "post-initial-draw",
     options: { force?: boolean } = {},
   ): Record<string, unknown> | null => {
+    const forceRefresh = options.force === true;
     const shouldPrefetchInPhase = (phaseLabel === "driver-init" && prefetchFinalStageOverrideBatchBeforeDraw)
-      || (phaseLabel === "post-initial-draw" && primeFinalStageOverrideBatchBeforeDraw);
+      || (phaseLabel === "post-initial-draw" && primeFinalStageOverrideBatchBeforeDraw)
+      || (phaseLabel === "post-initial-draw" && strictOneShot && forceRefresh);
     if (!shouldPrefetchInPhase) return null;
     const activeRenderInterface = window.renderInterface as any;
     if (!activeRenderInterface || typeof activeRenderInterface.prefetchFinalStageOverrideBatchFromDriver !== "function") {
@@ -802,7 +871,7 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     if (window.driver !== state.driver) return null;
     try {
       const summary = activeRenderInterface.prefetchFinalStageOverrideBatchFromDriver(state.driver, {
-        force: options.force === true,
+        force: forceRefresh,
       });
       const prefetchedCount = Number((summary as any)?.count || 0);
       if (prefetchedCount > 0) {
@@ -846,9 +915,159 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     }, startDelayMs);
   };
 
-  runRuntimeBridgeWarmup("driver-init", { force: true, includeRobotMetadata: false });
+  const getRobotMetadataSnapshotStats = (): {
+    hasSnapshot: boolean;
+    jointCount: number;
+    dynamicsCount: number;
+    linkParentCount: number;
+  } => {
+    const activeRenderInterface = window.renderInterface as any;
+    if (!activeRenderInterface || typeof activeRenderInterface.getCachedRobotMetadataSnapshot !== "function") {
+      return {
+        hasSnapshot: false,
+        jointCount: 0,
+        dynamicsCount: 0,
+        linkParentCount: 0,
+      };
+    }
+    try {
+      const stageSourcePath = String(activeRenderInterface.getStageSourcePath?.() || "").trim() || null;
+      const snapshot = activeRenderInterface.getCachedRobotMetadataSnapshot(stageSourcePath);
+      if (!snapshot || typeof snapshot !== "object") {
+        return {
+          hasSnapshot: false,
+          jointCount: 0,
+          dynamicsCount: 0,
+          linkParentCount: 0,
+        };
+      }
+      const jointCount = Array.isArray((snapshot as any).jointCatalogEntries)
+        ? (snapshot as any).jointCatalogEntries.length
+        : 0;
+      const dynamicsCount = Array.isArray((snapshot as any).linkDynamicsEntries)
+        ? (snapshot as any).linkDynamicsEntries.length
+        : 0;
+      const linkParentCount = Array.isArray((snapshot as any).linkParentPairs)
+        ? (snapshot as any).linkParentPairs.length
+        : 0;
+      return {
+        hasSnapshot: true,
+        jointCount,
+        dynamicsCount,
+        linkParentCount,
+      };
+    } catch {
+      return {
+        hasSnapshot: false,
+        jointCount: 0,
+        dynamicsCount: 0,
+        linkParentCount: 0,
+      };
+    }
+  };
+
+  const hasResolvedRobotMetadataSnapshot = (options: { requireComplete?: boolean } = {}): boolean => {
+    const stats = getRobotMetadataSnapshotStats();
+    if (!stats.hasSnapshot) return false;
+    const hasAnyMetadata = stats.jointCount > 0 || stats.dynamicsCount > 0 || stats.linkParentCount > 0;
+    if (!hasAnyMetadata) return false;
+    if (options.requireComplete !== true) return true;
+    // Strict one-shot: keep interaction blocked until both joint and
+    // COM/inertia metadata are ready, preventing first-click long stalls.
+    return stats.jointCount > 0 && stats.dynamicsCount > 0;
+  };
+
+  const isRobotMetadataReady = (): boolean => {
+    return hasResolvedRobotMetadataSnapshot({
+      requireComplete: requireCompleteRobotMetadata,
+    });
+  };
+
+  const buildRobotMetadataWarmupOptions = (force: boolean) => {
+    return {
+      force,
+      // Force the C++ snapshot path now; avoid waiting for idle slices.
+      skipIdleWait: true,
+      skipUrdfTruthFallback: skipUrdfTruthDuringEagerWarmup,
+      requireComplete: requireCompleteRobotMetadata,
+      allowStageFallback: !strictOneShot || allowJsRobotMetadataFallback,
+    };
+  };
+
+  const awaitRobotMetadataWarmup = async (
+    activeRenderInterface: any,
+    options: {
+      force: boolean;
+      honorBudget: boolean;
+    },
+  ): Promise<void> => {
+    try {
+      const maybePromise = activeRenderInterface.startRobotMetadataWarmupForStage(
+        buildRobotMetadataWarmupOptions(options.force),
+      );
+      if (!maybePromise || typeof maybePromise.then !== "function") {
+        return;
+      }
+      if (strictOneShot || !options.honorBudget) {
+        await maybePromise;
+        return;
+      }
+      if (robotMetadataResolveBudgetMs > 0) {
+        let timeoutHandle: number | null = null;
+        try {
+          await Promise.race([
+            maybePromise,
+            new Promise<void>((resolve) => {
+              timeoutHandle = window.setTimeout(resolve, robotMetadataResolveBudgetMs);
+            }),
+          ]);
+        } finally {
+          if (timeoutHandle !== null) {
+            window.clearTimeout(timeoutHandle);
+          }
+        }
+        return;
+      }
+      await maybePromise;
+    } catch {
+      // Keep load resilient; fallback UI refresh path remains active.
+    }
+  };
+
+  const ensureRobotMetadataReadyBeforeInteractive = async (): Promise<void> => {
+    if (!warmupRobotMetadata) return;
+    if (!resolveRobotMetadataBeforeReady) return;
+    if (!isLoadStillActive()) return;
+    if (window.driver !== state.driver) return;
+    if (isRobotMetadataReady()) return;
+
+    const activeRenderInterface = window.renderInterface as any;
+    if (!activeRenderInterface || typeof activeRenderInterface.startRobotMetadataWarmupForStage !== "function") return;
+
+    await awaitRobotMetadataWarmup(activeRenderInterface, {
+      force: strictOneShot,
+      honorBudget: true,
+    });
+    if (strictOneShot && !isRobotMetadataReady()) {
+      await awaitRobotMetadataWarmup(activeRenderInterface, {
+        force: true,
+        honorBudget: false,
+      });
+    }
+    if (isRobotMetadataReady()) {
+      markLoadPhase("robot-metadata-ready-before-interactive");
+    }
+  };
+
+  runRuntimeBridgeWarmup("driver-init", {
+    force: true,
+    // Driver-init runs before first draw; runtime link paths are often incomplete.
+    // Defer metadata snapshot fetch to post-draw/ready stage to avoid caching
+    // empty metadata and causing delayed first interaction.
+    includeRobotMetadata: false,
+  });
   runFinalStageOverrideBatchPrefetch("driver-init", { force: false });
-  refreshPrefetchedStageTransforms("driver-init");
+  refreshPrefetchedStageTransforms("driver-init", { force: false });
   if (prefetchProtoDataBlobsBeforeDraw && !protoBlobPrefetchedBeforeDraw) {
     const prefetched = runProtoBlobPrefetch({ force: true });
     protoBlobPrefetchedBeforeDraw = prefetched > 0;
@@ -1023,23 +1242,36 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
   }
   markLoadPhase("initial-draw-done");
   runRuntimeBridgeWarmup("post-initial-draw", {
-    force: false,
-    // Keep robot metadata build off the current critical path; schedule it
-    // separately on idle to reduce post-first-frame main-thread stalls.
-    includeRobotMetadata: false,
+    // Strict one-shot refreshes bridge caches after first draw so staged proto
+    // overrides/transforms are not locked to pre-draw provisional values.
+    force: strictOneShot,
+    includeRobotMetadata: strictOneShot && warmupRobotMetadata,
   });
-  runFinalStageOverrideBatchPrefetch("post-initial-draw", { force: false });
-  if (warmupRobotMetadata) {
+  runFinalStageOverrideBatchPrefetch("post-initial-draw", { force: strictOneShot });
+  if (warmupRobotMetadata && !resolveRobotMetadataBeforeReady) {
     const scheduleRobotMetadataWarmup = (): void => {
       const runWarmup = (): void => {
         const renderInterface = window.renderInterface as any;
         if (!renderInterface || typeof renderInterface.startRobotMetadataWarmupForStage !== "function") return;
         if (!isLoadStillActive()) return;
         if (window.driver !== state.driver) return;
-        void Promise.resolve(renderInterface.startRobotMetadataWarmupForStage({ force: false })).catch(() => {
+        void Promise.resolve(renderInterface.startRobotMetadataWarmupForStage({
+          force: false,
+          skipIdleWait: eagerRobotMetadataWarmup,
+          skipUrdfTruthFallback: skipUrdfTruthDuringEagerWarmup,
+        })).catch(() => {
           // Robot metadata warmup is best-effort.
         });
       };
+
+      if (eagerRobotMetadataWarmup) {
+        // Prioritize joint metadata readiness: use the WASM snapshot path
+        // immediately after the first frame instead of waiting for deep idle.
+        window.requestAnimationFrame(() => {
+          window.setTimeout(() => runWarmup(), 0);
+        });
+        return;
+      }
 
       const requestIdle = (window as any).requestIdleCallback as
         | ((callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void, options?: { timeout?: number }) => number)
@@ -1095,7 +1327,9 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
 
   // A second transform prefetch after the first draw burst avoids stale
   // early-stage matrices and fixes proto links that rely on GfQuatd xform ops.
-  const postDrawTransformSummary = refreshPrefetchedStageTransforms("post-initial-draw");
+  const postDrawTransformSummary = refreshPrefetchedStageTransforms("post-initial-draw", {
+    force: strictOneShot,
+  });
   const postDrawPrefetchedTransformCount = Number(postDrawTransformSummary.total || 0);
   const shouldRunPostDrawProtoResync = (postDrawProtoResyncEnabled || forcePostDrawProtoResync) && (
     forcePostDrawProtoResync
@@ -1174,7 +1408,15 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
       }
       return resolvedStage || null;
     })();
-    if (stageMetadataBudgetMs > 0) {
+    if (strictOneShot) {
+      try {
+        stage = await resolveStagePromise;
+        stageResolvedWithinBudget = true;
+        window.usdStage = stage || null;
+      } catch {
+        stageResolvedWithinBudget = false;
+      }
+    } else if (stageMetadataBudgetMs > 0) {
       let timeoutHandle: number | null = null;
       try {
         const stageResult = await Promise.race([
@@ -1246,13 +1488,24 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
       // Prime the final-stage override batch once before chunked refresh.
       // This avoids expensive per-mesh proto blob fallback work on the main
       // thread while still keeping stage overrides deferred/off critical path.
+      let allowPerMeshFallbackDuringDeferredChunks = true;
       if (typeof currentRenderInterface.prefetchFinalStageOverrideBatchFromDriver === "function") {
         try {
           const resolvedDriver = state.driver || window.driver || null;
           if (resolvedDriver) {
-            currentRenderInterface.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
+            const batchSummary = currentRenderInterface.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
               force: false,
-            });
+            }) || {};
+            const batchCount = Number(batchSummary?.count || 0);
+            const batchProtoMeshCount = Number(batchSummary?.protoMeshCount || 0);
+            if (
+              Number.isFinite(batchCount)
+              && Number.isFinite(batchProtoMeshCount)
+              && batchProtoMeshCount > 0
+              && batchCount >= batchProtoMeshCount
+            ) {
+              allowPerMeshFallbackDuringDeferredChunks = false;
+            }
           }
         } catch {
           // Keep deferred overrides best-effort.
@@ -1264,10 +1517,11 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
         const requestIdle = (window as any).requestIdleCallback as
           | ((callback: () => void, options?: { timeout?: number }) => number)
           | undefined;
+        const shouldUseIdle = deferStageOverridesUseIdle && typeof requestIdle === "function";
         window.setTimeout(() => {
-          if (typeof requestIdle === "function") {
+          if (shouldUseIdle) {
             try {
-              requestIdle(() => next(), { timeout: Math.max(160, delayMs + 140) });
+              requestIdle(() => next(), { timeout: Math.max(120, delayMs + 120) });
               return;
             } catch {
               // Fall through to immediate callback.
@@ -1281,31 +1535,41 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
         if (!isLoadStillActive()) return;
         if ((window.renderInterface || null) !== currentRenderInterface) return;
 
-        let summary: any = null;
-        try {
-          summary = currentRenderInterface.refreshMeshStageOverrides({
-            includeCollision: !!loadCollisionPrims,
-            includeVisual: !!loadVisualPrims && !!applyVisualStageOverrides,
-            startIndex: nextIndex,
-            chunkSize: deferredStageOverridesChunkSize,
-            prefetchFinalStageBatch: false,
-          });
-        } catch {
-          return;
+        const tickStartedAtMs = profileNow();
+        let done = false;
+        while (!done) {
+          let summary: any = null;
+          try {
+            summary = currentRenderInterface.refreshMeshStageOverrides({
+              includeCollision: !!loadCollisionPrims,
+              includeVisual: !!loadVisualPrims && !!applyVisualStageOverrides,
+              startIndex: nextIndex,
+              chunkSize: deferredStageOverridesChunkSize,
+              prefetchFinalStageBatch: false,
+              allowPerMeshFallback: allowPerMeshFallbackDuringDeferredChunks,
+              reuseProtoMeshCache: true,
+            });
+          } catch {
+            return;
+          }
+
+          done = summary && typeof summary === "object"
+            ? summary.done === true
+            : true;
+          const reportedNextIndex = Number(summary?.nextIndex);
+          nextIndex = Number.isFinite(reportedNextIndex)
+            ? Math.max(0, Math.floor(reportedNextIndex))
+            : (nextIndex + deferredStageOverridesChunkSize);
+          if (done) break;
+
+          const elapsedMs = Math.max(0, profileNow() - tickStartedAtMs);
+          if (elapsedMs >= deferredStageOverridesWorkBudgetMs) break;
         }
 
-        const done = summary && typeof summary === "object"
-          ? summary.done === true
-          : true;
-        const reportedNextIndex = Number(summary?.nextIndex);
-        nextIndex = Number.isFinite(reportedNextIndex)
-          ? Math.max(0, Math.floor(reportedNextIndex))
-          : (nextIndex + deferredStageOverridesChunkSize);
-
-        if (!done) {
-          scheduleChunk(runChunk, deferredStageOverridesChunkDelayMs);
-        } else {
+        if (done) {
           applyMeshFilters();
+        } else {
+          scheduleChunk(runChunk, deferredStageOverridesChunkDelayMs);
         }
       };
 
@@ -1346,6 +1610,16 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     scheduleCameraRefit(window.camera!, window._controls!, [window.usdRoot], params);
   }
 
+  await ensureRobotMetadataReadyBeforeInteractive();
+  if (!isLoadStillActive()) return state;
+  if (strictOneShot && prefetchProtoDataBlobs && !protoBlobPrefetchedBeforeDraw) {
+    const prefetchedNow = runProtoBlobPrefetch({ force: true });
+    if (prefetchedNow > 0) {
+      protoBlobPrefetchedBeforeDraw = true;
+      markLoadPhase("proto-blob-prefetch-before-ready");
+    }
+  }
+
   state.ready = true;
   rebuildLinkAxes();
   markLoadPhase("camera-and-link-axes-done");
@@ -1375,10 +1649,12 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
   runEagerRender("pre-complete", { forceRender: true });
   setProgress(100, true);
   hideProgress();
-  scheduleProtoBlobPrefetch();
+  if (!strictOneShot) {
+    scheduleProtoBlobPrefetch();
+  }
   flushLoadProfile("ok");
 
-  if (resolveStagePromise && !stageResolvedWithinBudget) {
+  if (!strictOneShot && resolveStagePromise && !stageResolvedWithinBudget) {
     const activeRenderInterface = window.renderInterface || null;
     const activeDriver = state.driver;
     const fallbackUpAxis = stageUpAxis;

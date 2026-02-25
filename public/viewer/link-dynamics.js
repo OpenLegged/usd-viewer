@@ -1,21 +1,30 @@
 import { BoxGeometry, BufferGeometry, Group, Line, LineBasicMaterial, Matrix4, Mesh, MeshBasicMaterial, Quaternion, SphereGeometry, Vector3, } from "three";
 import { getRenderRobotMetadataSnapshot, warmupRenderRobotMetadataSnapshot, } from "./robot-metadata.js";
+import { parseBooleanFlag } from "./path-utils.js";
 const linkDynamicsCacheByStagePath = new Map();
 const maxLinkDynamicsCacheEntries = 8;
 function getLinkPathFromMeshId(meshId) {
     if (!meshId)
         return null;
-    const marker = ".proto_";
-    const markerIndex = meshId.indexOf(marker);
-    if (markerIndex <= 0)
+    const normalized = String(meshId || "").trim();
+    if (!normalized)
         return null;
-    let linkPath = meshId.substring(0, markerIndex);
-    if (linkPath.endsWith("/visuals") || linkPath.endsWith("/collisions")) {
-        const parentSlash = linkPath.lastIndexOf("/");
-        if (parentSlash > 0)
-            linkPath = linkPath.substring(0, parentSlash);
+    const marker = ".proto_";
+    const markerIndex = normalized.indexOf(marker);
+    if (markerIndex > 0) {
+        let linkPath = normalized.substring(0, markerIndex);
+        if (linkPath.endsWith("/visuals") || linkPath.endsWith("/collisions")) {
+            const parentSlash = linkPath.lastIndexOf("/");
+            if (parentSlash > 0)
+                linkPath = linkPath.substring(0, parentSlash);
+        }
+        return linkPath || null;
     }
-    return linkPath || null;
+    const authoredPathMatch = normalized.match(/^(.*?)(?:\/(?:visuals?|collisions?))(?:$|[/.])/i);
+    if (authoredPathMatch && authoredPathMatch[1]) {
+        return authoredPathMatch[1];
+    }
+    return null;
 }
 function toFiniteNumber(value) {
     const numeric = Number(value);
@@ -470,6 +479,8 @@ export class LinkDynamicsController {
         this.stageSourcePath = null;
         this.linkDynamicsByLinkPath = new Map();
         this.markerGroupByLinkPath = new Map();
+        this.strictOneShot = this.getBooleanParamFromQuery("strictOneShot", true);
+        this.allowStageLinkDynamicsFallback = this.getBooleanParamFromQuery("allowStageLinkDynamicsFallback", !this.strictOneShot);
         this.preferredDynamicsFrameMode = null;
         this.linkDynamicsBuildPromise = null;
         this.rebuildRequestId = 0;
@@ -485,8 +496,10 @@ export class LinkDynamicsController {
         this.preferredDynamicsFrameMode = null;
         this.linkDynamicsBuildPromise = null;
     }
-    clear(usdRoot) {
-        this.rebuildRequestId++;
+    clear(usdRoot, options = {}) {
+        if (options.invalidateRequestId !== false) {
+            this.rebuildRequestId++;
+        }
         this.markerGroupByLinkPath.clear();
         this.preferredDynamicsFrameMode = null;
         if (!this.linkDynamicsGroup)
@@ -504,15 +517,81 @@ export class LinkDynamicsController {
         });
         this.linkDynamicsGroup = null;
     }
+    prewarmCatalog(renderInterface) {
+        if (!renderInterface?.meshes)
+            return;
+        window.setTimeout(() => {
+            this.prefetchLinkWorldTransforms(renderInterface, { force: false });
+        }, 0);
+        const buildPromise = this.startLinkDynamicsCatalogBuildIfNeeded(renderInterface);
+        if (!buildPromise)
+            return;
+        void buildPromise.catch(() => {
+            // Keep prewarm best-effort.
+        });
+    }
+    async prewarmCatalogForInteractive(renderInterface) {
+        if (!renderInterface?.meshes)
+            return;
+        this.prefetchLinkWorldTransforms(renderInterface, { force: true });
+        const buildPromise = this.startLinkDynamicsCatalogBuildIfNeeded(renderInterface);
+        if (!buildPromise)
+            return;
+        try {
+            await buildPromise;
+        }
+        catch {
+            // Keep one-shot preload resilient.
+        }
+    }
+    async prebuildHiddenOverlay(usdRoot, renderInterface) {
+        if (!usdRoot || !renderInterface?.meshes)
+            return;
+        await this.prewarmCatalogForInteractive(renderInterface);
+        await this.rebuild(usdRoot, renderInterface, true);
+        if (this.linkDynamicsGroup) {
+            this.linkDynamicsGroup.visible = false;
+        }
+    }
     async rebuild(usdRoot, renderInterface, showLinkDynamics) {
-        this.clear(usdRoot);
-        if (!showLinkDynamics || !renderInterface?.meshes)
-            return;
         const requestId = ++this.rebuildRequestId;
-        await this.ensureLinkDynamicsCatalogReady(renderInterface);
-        if (requestId !== this.rebuildRequestId)
+        if (!showLinkDynamics) {
+            if (this.linkDynamicsGroup) {
+                this.linkDynamicsGroup.visible = false;
+            }
             return;
-        this.prefetchLinkWorldTransforms(renderInterface);
+        }
+        if (!renderInterface?.meshes)
+            return;
+        if (this.linkDynamicsGroup
+            && this.markerGroupByLinkPath.size > 0
+            && this.markerGroupByLinkPath.size === this.linkDynamicsByLinkPath.size) {
+            this.linkDynamicsGroup.visible = true;
+            this.syncLinkDynamicsTransforms(renderInterface);
+            return;
+        }
+        this.clear(usdRoot, { invalidateRequestId: false });
+        window.setTimeout(() => {
+            if (requestId !== this.rebuildRequestId)
+                return;
+            this.prefetchLinkWorldTransforms(renderInterface, { force: false });
+        }, 0);
+        const buildPromise = this.startLinkDynamicsCatalogBuildIfNeeded(renderInterface);
+        if (this.linkDynamicsByLinkPath.size <= 0) {
+            if (buildPromise) {
+                void buildPromise.then(() => {
+                    if (requestId !== this.rebuildRequestId)
+                        return;
+                    if (this.linkDynamicsByLinkPath.size <= 0)
+                        return;
+                    void this.rebuild(usdRoot, renderInterface, true);
+                }).catch(() => {
+                    // Keep rebuild path resilient when warmup fails.
+                });
+            }
+            return;
+        }
+        const renderedRecordCount = this.linkDynamicsByLinkPath.size;
         const group = new Group();
         group.name = "Link Dynamics";
         this.markerGroupByLinkPath.clear();
@@ -539,13 +618,24 @@ export class LinkDynamicsController {
             return;
         this.linkDynamicsGroup = group;
         usdRoot.add(group);
+        if (buildPromise) {
+            void buildPromise.then(() => {
+                if (requestId !== this.rebuildRequestId)
+                    return;
+                if (this.linkDynamicsByLinkPath.size <= renderedRecordCount)
+                    return;
+                void this.rebuild(usdRoot, renderInterface, true);
+            }).catch(() => {
+                // Keep rebuild path resilient when warmup fails.
+            });
+        }
     }
     /**
      * Warm up stage transform caches in one bridge call.
      * Without this, first COM/inertia enable can fall back to per-prim transform
      * reads and block the main thread for several seconds on large stages.
      */
-    prefetchLinkWorldTransforms(renderInterface) {
+    prefetchLinkWorldTransforms(renderInterface, options = {}) {
         const prefetch = renderInterface?.prefetchPrimTransformsFromDriver;
         if (typeof prefetch !== "function")
             return;
@@ -563,9 +653,7 @@ export class LinkDynamicsController {
         if (!driver)
             return;
         try {
-            // Force-refresh avoids stale "primed but empty" transform cache states
-            // and keeps first COM/inertia toggle responsive.
-            prefetch.call(renderInterface, driver, { force: true });
+            prefetch.call(renderInterface, driver, { force: options.force === true });
         }
         catch {
             // Keep overlay rebuild resilient; fallback path remains available.
@@ -636,12 +724,34 @@ export class LinkDynamicsController {
             return Promise.resolve();
         }
         const stage = renderInterface?.getStage?.() || null;
-        if (!stage)
-            return null;
         const cacheKey = this.getLinkDynamicsCacheKey(renderInterface, stage);
         if (cacheKey && this.restoreLinkDynamicsFromCache(cacheKey)) {
             return Promise.resolve();
         }
+        if (!this.allowStageLinkDynamicsFallback) {
+            this.linkDynamicsBuildPromise = Promise.resolve()
+                .then(async () => {
+                const warmedSnapshot = await warmupRenderRobotMetadataSnapshot(renderInterface, {
+                    stageSourcePath: this.stageSourcePath,
+                    force: true,
+                    skipIdleWait: true,
+                    skipUrdfTruthFallback: true,
+                });
+                this.ingestLinkDynamicsFromRenderSnapshot(warmedSnapshot, renderInterface);
+                if (!cacheKey)
+                    return;
+                this.saveLinkDynamicsToCache(cacheKey);
+            })
+                .catch(() => {
+                // Keep strict one-shot warmup resilient.
+            })
+                .finally(() => {
+                this.linkDynamicsBuildPromise = null;
+            });
+            return this.linkDynamicsBuildPromise;
+        }
+        if (!stage)
+            return null;
         this.linkDynamicsBuildPromise = this.buildLinkDynamicsCatalog(stage, renderInterface)
             .then(() => {
             if (!cacheKey)
@@ -674,6 +784,15 @@ export class LinkDynamicsController {
         }
         catch {
             return null;
+        }
+    }
+    getBooleanParamFromQuery(paramName, fallback) {
+        try {
+            const params = new URLSearchParams(String(window?.location?.search || ""));
+            return parseBooleanFlag(params.get(paramName), fallback);
+        }
+        catch {
+            return fallback;
         }
     }
     restoreLinkDynamicsFromCache(cacheKey) {
@@ -725,7 +844,11 @@ export class LinkDynamicsController {
     }
     async buildLinkDynamicsCatalog(stage, renderInterface) {
         this.linkDynamicsByLinkPath.clear();
-        const importedFromRenderSnapshot = this.ingestLinkDynamicsFromRenderSnapshot(await warmupRenderRobotMetadataSnapshot(renderInterface), renderInterface);
+        const importedFromRenderSnapshot = this.ingestLinkDynamicsFromRenderSnapshot(await warmupRenderRobotMetadataSnapshot(renderInterface, {
+            stageSourcePath: this.stageSourcePath,
+            skipIdleWait: true,
+            skipUrdfTruthFallback: true,
+        }), renderInterface);
         if (importedFromRenderSnapshot > 0) {
             return;
         }

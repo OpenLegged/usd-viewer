@@ -127,17 +127,12 @@ export class JointPanelController {
       slider.step = "0.1";
       slider.value = String(rowJoint.angleDeg);
       slider.title = `${joint.lowerLimitDeg.toFixed(1)}° ~ ${joint.upperLimitDeg.toFixed(1)}°`;
-
-      let pendingApplyFrameHandle: number | null = null;
-      let hasQueuedAngle = false;
-      let queuedAngleDeg = rowJoint.angleDeg;
-      const flushQueuedAngle = (): void => {
-        if (!hasQueuedAngle) return;
-        hasQueuedAngle = false;
-        const updated = this.setJointAngle(rowJoint.linkPath, queuedAngleDeg);
+      const applyAngle = (targetAngle: number): void => {
+        if (!Number.isFinite(targetAngle)) return;
+        const updated = this.setJointAngle(rowJoint.linkPath, targetAngle);
         const nextInfo = updated || {
           ...rowJoint,
-          angleDeg: queuedAngleDeg,
+          angleDeg: targetAngle,
         };
         rowJoint = nextInfo;
         slider.value = String(nextInfo.angleDeg);
@@ -146,32 +141,47 @@ export class JointPanelController {
           this.onJointChanged(updated);
         }
       };
-      const cancelPendingApplyFrame = (): void => {
-        if (pendingApplyFrameHandle === null) return;
-        window.cancelAnimationFrame(pendingApplyFrameHandle);
+      let pendingAngleDeg: number | null = null;
+      let pendingApplyFrameHandle: number | null = null;
+      const commitPendingAngle = (): void => {
         pendingApplyFrameHandle = null;
+        if (pendingAngleDeg === null) return;
+        const targetAngle = pendingAngleDeg;
+        pendingAngleDeg = null;
+        applyAngle(targetAngle);
       };
-      const scheduleQueuedAngleApply = (): void => {
-        if (pendingApplyFrameHandle !== null) return;
-        pendingApplyFrameHandle = window.requestAnimationFrame(() => {
-          pendingApplyFrameHandle = null;
-          flushQueuedAngle();
-        });
-      };
-      this.sliderInputCleanupHandlers.push(cancelPendingApplyFrame);
-
-      slider.addEventListener("input", () => {
+      const handleSliderInput = (): void => {
         const targetAngle = Number(slider.value);
         if (!Number.isFinite(targetAngle)) return;
-        queuedAngleDeg = targetAngle;
-        hasQueuedAngle = true;
-        value.textContent = formatAngle(targetAngle);
-        scheduleQueuedAngleApply();
-      });
-
-      slider.addEventListener("change", () => {
-        cancelPendingApplyFrame();
-        flushQueuedAngle();
+        pendingAngleDeg = targetAngle;
+        if (pendingApplyFrameHandle !== null) return;
+        pendingApplyFrameHandle = window.requestAnimationFrame(() => {
+          commitPendingAngle();
+        });
+      };
+      const flushSliderInput = (): void => {
+        if (pendingApplyFrameHandle !== null) {
+          window.cancelAnimationFrame(pendingApplyFrameHandle);
+          pendingApplyFrameHandle = null;
+        }
+        if (pendingAngleDeg !== null) {
+          const targetAngle = pendingAngleDeg;
+          pendingAngleDeg = null;
+          applyAngle(targetAngle);
+          return;
+        }
+        applyAngle(Number(slider.value));
+      };
+      slider.addEventListener("input", handleSliderInput);
+      slider.addEventListener("change", flushSliderInput);
+      this.sliderInputCleanupHandlers.push(() => {
+        slider.removeEventListener("input", handleSliderInput);
+        slider.removeEventListener("change", flushSliderInput);
+        if (pendingApplyFrameHandle !== null) {
+          window.cancelAnimationFrame(pendingApplyFrameHandle);
+          pendingApplyFrameHandle = null;
+        }
+        pendingAngleDeg = null;
       });
 
       row.appendChild(title);

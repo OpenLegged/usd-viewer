@@ -61,6 +61,7 @@ function buildConfigurationFileIndex(rootDir: string) {
 const unitreeModelRoot = path.join(__dirname, "unitree_model");
 const configurationFileIndex = buildConfigurationFileIndex(unitreeModelRoot);
 const piperIsaacSimRoot = path.join(__dirname, "piper_isaac_sim");
+const robotsRoot = path.join(__dirname, "Robots");
 
 fastify.register(require("@fastify/compress"), {
   // Prioritize smaller transfer size for large WASM/data assets.
@@ -86,6 +87,13 @@ fastify.register(require("@fastify/static"), {
 fastify.register(require("@fastify/static"), {
   root: piperIsaacSimRoot,
   prefix: "/piper_isaac_sim",
+  setHeaders,
+  decorateReply: false,
+});
+
+fastify.register(require("@fastify/static"), {
+  root: robotsRoot,
+  prefix: "/Robots",
   setHeaders,
   decorateReply: false,
 });

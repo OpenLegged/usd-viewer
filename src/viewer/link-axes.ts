@@ -13,15 +13,26 @@ const LABEL_OFFSET_BASE = 0.02;
 
 function getLinkPathFromMeshId(meshId: string): string | null {
   if (!meshId) return null;
+  const normalized = String(meshId || "").trim();
+  if (!normalized) return null;
+
   const marker = ".proto_";
-  const markerIndex = meshId.indexOf(marker);
-  if (markerIndex <= 0) return null;
-  let linkPath = meshId.substring(0, markerIndex);
-  if (linkPath.endsWith("/visuals") || linkPath.endsWith("/collisions")) {
-    const parentSlash = linkPath.lastIndexOf("/");
-    if (parentSlash > 0) linkPath = linkPath.substring(0, parentSlash);
+  const markerIndex = normalized.indexOf(marker);
+  if (markerIndex > 0) {
+    let linkPath = normalized.substring(0, markerIndex);
+    if (linkPath.endsWith("/visuals") || linkPath.endsWith("/collisions")) {
+      const parentSlash = linkPath.lastIndexOf("/");
+      if (parentSlash > 0) linkPath = linkPath.substring(0, parentSlash);
+    }
+    return linkPath || null;
   }
-  return linkPath;
+
+  const authoredPathMatch = normalized.match(/^(.*?)(?:\/(?:visuals?|collisions?))(?:$|[/.])/i);
+  if (authoredPathMatch && authoredPathMatch[1]) {
+    return authoredPathMatch[1];
+  }
+
+  return null;
 }
 
 function getRootPathFromLinkPath(linkPath: string): string | null {

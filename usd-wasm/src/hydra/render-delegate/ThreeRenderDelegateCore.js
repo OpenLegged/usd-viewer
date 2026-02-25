@@ -49,6 +49,7 @@ export class ThreeRenderDelegateCore {
         this.autoBatchPrimTransformsOnFirstAccess = safeConfig.autoBatchPrimTransformsOnFirstAccess !== false;
         this.autoBatchCollisionProtoOverridesOnFirstAccess = safeConfig.autoBatchCollisionProtoOverridesOnFirstAccess !== false;
         this.autoBatchVisualProtoOverridesOnFirstAccess = safeConfig.autoBatchVisualProtoOverridesOnFirstAccess !== false;
+        this.allowJsRobotMetadataFallback = safeConfig.allowJsRobotMetadataFallback !== false;
         // Avoid expensive driver.GetStage() calls inside high-frequency Hydra sync callbacks.
         // Stage-dependent fallback passes still run later once stage metadata is ready.
         this.deferDriverStageLookupInSyncHotPath = safeConfig.deferDriverStageLookupInSyncHotPath !== false;
@@ -72,8 +73,12 @@ export class ThreeRenderDelegateCore {
         this.meshes = {};
         this.instancers = {};
         this.skeletons = {};
+        this._meshMutationVersion = 0;
         this._localXformCache = new Map();
+        this._localXformResetsStackCache = new Map();
+        this._localXformAuthoredOpsCache = new Map();
         this._worldXformCache = new Map();
+        this._worldXformCacheSourceByPath = new Map();
         this._primPathExistenceCache = new Map();
         this._knownPrimPathSet = null;
         this._knownPrimPathSetPrimed = false;
@@ -100,6 +105,8 @@ export class ThreeRenderDelegateCore {
         this._visualProtoOverrideBatchPrimed = false;
         this._finalStageOverrideBatchCache = new Map();
         this._finalStageOverrideBatchPrimed = false;
+        this._finalStageOverrideBatchProtoMeshCount = 0;
+        this._stageOverrideProtoMeshCache = null;
         this._primOverrideDataCache = new Map();
         this._urdfTruthByStageSource = new Map();
         this._urdfTruthLoadPromisesByStageSource = new Map();
@@ -471,7 +478,7 @@ export class ThreeRenderDelegateCore {
     buildRobotMetadataSnapshotForStage(stageSourcePath, truth) {
         const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0] || null;
         const stage = this.getStage?.() || null;
-        const metadataLayerTexts = this.getStageMetadataLayerTexts(stage);
+        let metadataLayerTexts = [];
         const meshCountsByLinkPath = {};
         const linkPathSet = new Set();
         const normalizeVector3 = (value, fallback = [0, 0, 0]) => {
@@ -589,8 +596,60 @@ export class ThreeRenderDelegateCore {
                 return 'box';
             return normalizedType;
         };
+        const parseLegacyRuntimeMeshDescriptor = (meshId) => {
+            const normalizedMeshPath = normalizeUsdPathToken(meshId);
+            if (!normalizedMeshPath || !normalizedMeshPath.startsWith('/'))
+                return null;
+            const sectionMatch = normalizedMeshPath.match(/^(.*)\/(visuals|collisions)(?:([/.])(.*))?$/i);
+            if (!sectionMatch)
+                return null;
+            const linkPath = normalizeUsdPathToken(sectionMatch[1]);
+            if (!linkPath || linkPath === '/')
+                return null;
+            const sectionName = String(sectionMatch[2] || '').toLowerCase();
+            const suffix = String(sectionMatch[4] || '').trim().toLowerCase();
+            const inferProtoType = () => {
+                if (!suffix)
+                    return 'mesh';
+                if (suffix.includes('box') || suffix.includes('cube'))
+                    return 'box';
+                if (suffix.includes('sphere'))
+                    return 'sphere';
+                if (suffix.includes('cylinder'))
+                    return 'cylinder';
+                if (suffix.includes('capsule'))
+                    return 'capsule';
+                return 'mesh';
+            };
+            const inferProtoIndex = () => {
+                const suffixIndexMatch = suffix.match(/(?:^|[^a-z0-9])(?:id|mesh_)(\d+)(?:[^a-z0-9]|$)/i);
+                if (suffixIndexMatch) {
+                    const parsed = Number(suffixIndexMatch[1]);
+                    if (Number.isFinite(parsed) && parsed >= 0)
+                        return parsed;
+                }
+                return 0;
+            };
+            return {
+                containerPath: `${linkPath}/${sectionName}`,
+                linkPath,
+                linkName: getPathBasename(linkPath),
+                sectionName,
+                protoType: inferProtoType(),
+                protoIndex: inferProtoIndex(),
+            };
+        };
+        const parseRuntimeMeshDescriptor = (meshId) => {
+            const cached = this._protoMeshMetadataByMeshId.get(meshId);
+            if (cached?.linkPath)
+                return cached;
+            const parsedProto = parseProtoMeshIdentifier(meshId);
+            if (parsedProto?.linkPath)
+                return parsedProto;
+            return parseLegacyRuntimeMeshDescriptor(meshId);
+        };
         for (const meshId of Object.keys(this.meshes || {})) {
-            const proto = this._protoMeshMetadataByMeshId.get(meshId) || parseProtoMeshIdentifier(meshId);
+            const proto = parseRuntimeMeshDescriptor(meshId);
             if (!proto?.linkPath)
                 continue;
             this._protoMeshMetadataByMeshId.set(meshId, proto);
@@ -616,10 +675,36 @@ export class ThreeRenderDelegateCore {
         }
         const sortedLinkPaths = Array.from(linkPathSet).sort((left, right) => left.localeCompare(right));
         if (!truth) {
+            const allowJsStageFallback = this.allowJsRobotMetadataFallback === true;
             const cxxSnapshot = this.tryBuildRobotMetadataSnapshotFromDriver(normalizedStagePath, sortedLinkPaths, meshCountsByLinkPath);
             if (cxxSnapshot) {
-                return cxxSnapshot;
+                const cxxLinkParentCount = Array.isArray(cxxSnapshot.linkParentPairs)
+                    ? cxxSnapshot.linkParentPairs.length
+                    : 0;
+                const cxxJointCount = Array.isArray(cxxSnapshot.jointCatalogEntries)
+                    ? cxxSnapshot.jointCatalogEntries.length
+                    : 0;
+                const cxxDynamicsCount = Array.isArray(cxxSnapshot.linkDynamicsEntries)
+                    ? cxxSnapshot.linkDynamicsEntries.length
+                    : 0;
+                const cxxHasCompleteStageMetadata = cxxJointCount > 0 && cxxDynamicsCount > 0;
+                const cxxHasAnyStageMetadata = cxxLinkParentCount > 0 || cxxJointCount > 0 || cxxDynamicsCount > 0;
+                if (cxxHasCompleteStageMetadata || (!stage && cxxHasAnyStageMetadata) || !allowJsStageFallback) {
+                    return cxxSnapshot;
+                }
             }
+            if (!allowJsStageFallback) {
+                return {
+                    stageSourcePath: normalizedStagePath,
+                    generatedAtMs: this._nowPerfMs(),
+                    source: 'mesh-only',
+                    linkParentPairs: [],
+                    jointCatalogEntries: [],
+                    linkDynamicsEntries: [],
+                    meshCountsByLinkPath,
+                };
+            }
+            metadataLayerTexts = this.getStageMetadataLayerTexts(stage);
         }
         const jointCatalogEntries = [];
         const linkDynamicsEntries = [];
@@ -948,11 +1033,17 @@ export class ThreeRenderDelegateCore {
                 : {};
         }
         const force = options?.force === true;
+        const skipIdleWait = options?.skipIdleWait === true;
+        const skipUrdfTruthFallback = options?.skipUrdfTruthFallback === true;
         const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0];
         if (!normalizedStagePath)
             return Promise.resolve(null);
         if (!force && this._robotMetadataSnapshotByStageSource.has(normalizedStagePath)) {
-            return Promise.resolve(this._robotMetadataSnapshotByStageSource.get(normalizedStagePath) || null);
+            const cachedSnapshot = this._robotMetadataSnapshotByStageSource.get(normalizedStagePath) || null;
+            const hasCachedMetadata = (Array.isArray(cachedSnapshot?.jointCatalogEntries) && cachedSnapshot.jointCatalogEntries.length > 0) || (Array.isArray(cachedSnapshot?.linkDynamicsEntries) && cachedSnapshot.linkDynamicsEntries.length > 0) || (Array.isArray(cachedSnapshot?.linkParentPairs) && cachedSnapshot.linkParentPairs.length > 0);
+            if (hasCachedMetadata) {
+                return Promise.resolve(cachedSnapshot);
+            }
         }
         if (this._robotMetadataBuildPromisesByStageSource.has(normalizedStagePath)) {
             return this._robotMetadataBuildPromisesByStageSource.get(normalizedStagePath);
@@ -1011,16 +1102,21 @@ export class ThreeRenderDelegateCore {
         };
         const buildPromise = Promise.resolve()
             .then(async () => {
-            await waitForIdleSlice({ minBudgetMs: 6, maxPasses: 8, timeoutMs: 360 });
+            if (!skipIdleWait) {
+                await waitForIdleSlice({ minBudgetMs: 6, maxPasses: 8, timeoutMs: 360 });
+            }
             let snapshot = this.buildRobotMetadataSnapshotForStage(normalizedStagePath, null);
-            const needsUrdfTruth = (this.shouldAllowUrdfHttpFallback()
+            const needsUrdfTruth = (!skipUrdfTruthFallback
+                && this.shouldAllowUrdfHttpFallback()
                 && (!snapshot
                     || ((!Array.isArray(snapshot.jointCatalogEntries) || snapshot.jointCatalogEntries.length <= 0)
                         && (!Array.isArray(snapshot.linkDynamicsEntries) || snapshot.linkDynamicsEntries.length <= 0))));
             if (needsUrdfTruth) {
                 const truthPromise = this.startUrdfTruthLoadForStage(normalizedStagePath);
                 const truth = truthPromise ? await truthPromise.catch(() => null) : null;
-                await waitForIdleSlice({ minBudgetMs: 4, maxPasses: 6, timeoutMs: 420 });
+                if (!skipIdleWait) {
+                    await waitForIdleSlice({ minBudgetMs: 4, maxPasses: 6, timeoutMs: 420 });
+                }
                 snapshot = this.buildRobotMetadataSnapshotForStage(normalizedStagePath, truth || null);
             }
             if (!snapshot)

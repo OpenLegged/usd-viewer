@@ -819,6 +819,37 @@ public:
         return snapshot;
     }
 
+    // One-shot runtime bootstrap payload for JS/WASM bridge warmup.
+    // This consolidates high-cost startup reads into a single call to reduce
+    // cross-boundary overhead and avoid staggered background tails.
+    emscripten::val GetRuntimeBootstrapSnapshot(
+        emscripten::val runtimeLinkPaths,
+        std::string const& stageSourcePath = std::string()) {
+        emscripten::val snapshot = emscripten::val::object();
+        snapshot.set("generatedAtMs", 0.0);
+        snapshot.set("primPathSet", emscripten::val::array());
+        snapshot.set("primTransforms", emscripten::val::object());
+        snapshot.set("protoDataBlobs", emscripten::val::object());
+        snapshot.set("finalStageOverrideBatch", emscripten::val::object());
+        snapshot.set("robotMetadataSnapshot", emscripten::val::object());
+        if (!_stage) return snapshot;
+
+        const auto now = std::chrono::steady_clock::now().time_since_epoch();
+        const double nowMs = std::chrono::duration<double, std::milli>(now).count();
+        snapshot.set("generatedAtMs", nowMs);
+
+        snapshot.set("primPathSet", GetPrimPathSet());
+        snapshot.set("primTransforms", GetPrimTransforms());
+        snapshot.set("protoDataBlobs", GetAllProtoDataBlobs());
+        // Final stage override batch supersedes per-section proto overrides and
+        // carries collision/visual split + prim override data in one payload.
+        snapshot.set("finalStageOverrideBatch", GetFinalStageOverrideBatch());
+        snapshot.set(
+            "robotMetadataSnapshot",
+            GetRobotMetadataSnapshot(runtimeLinkPaths, stageSourcePath));
+        return snapshot;
+    }
+
     emscripten::val GetProtoDataBlob(std::string const& protoPath) {
         emscripten::val result = emscripten::val::object();
         result.set("valid", false);
@@ -979,6 +1010,7 @@ public:
         bundle.set("count", 0.0);
         bundle.set("collisionCount", 0.0);
         bundle.set("visualCount", 0.0);
+        bundle.set("protoMeshCount", 0.0);
         if (!_stage) return bundle;
 
         const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
@@ -989,11 +1021,14 @@ public:
         size_t totalCount = 0;
         size_t collisionCount = 0;
         size_t visualCount = 0;
+        size_t protoMeshCount = 0;
         _renderDelegate.ReadAllProtoDataBlobs(
             [&](std::string const& rprimPath, WebRenderDelegate::ProtoDataBlobRecord const&) {
                 if (rprimPath.find(".proto_") == std::string::npos) return;
                 const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(rprimPath);
                 if (!proto.valid) return;
+                if (proto.sectionName != "collisions" && proto.sectionName != "visuals") return;
+                ++protoMeshCount;
 
                 emscripten::val overrideData = emscripten::val::object();
                 if (proto.sectionName == "collisions") {
@@ -1047,6 +1082,7 @@ public:
         bundle.set("count", static_cast<double>(totalCount));
         bundle.set("collisionCount", static_cast<double>(collisionCount));
         bundle.set("visualCount", static_cast<double>(visualCount));
+        bundle.set("protoMeshCount", static_cast<double>(protoMeshCount));
         return bundle;
     }
 

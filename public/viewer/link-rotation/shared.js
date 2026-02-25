@@ -4,17 +4,25 @@ export const maxJointCatalogCacheEntries = 8;
 export function getLinkPathFromMeshId(meshId) {
     if (!meshId)
         return null;
-    const marker = ".proto_";
-    const markerIndex = meshId.indexOf(marker);
-    if (markerIndex <= 0)
+    const normalized = String(meshId || "").trim();
+    if (!normalized)
         return null;
-    let linkPath = meshId.substring(0, markerIndex);
-    if (linkPath.endsWith("/visuals") || linkPath.endsWith("/collisions")) {
-        const parentSlash = linkPath.lastIndexOf("/");
-        if (parentSlash > 0)
-            linkPath = linkPath.substring(0, parentSlash);
+    const marker = ".proto_";
+    const markerIndex = normalized.indexOf(marker);
+    if (markerIndex > 0) {
+        let linkPath = normalized.substring(0, markerIndex);
+        if (linkPath.endsWith("/visuals") || linkPath.endsWith("/collisions")) {
+            const parentSlash = linkPath.lastIndexOf("/");
+            if (parentSlash > 0)
+                linkPath = linkPath.substring(0, parentSlash);
+        }
+        return linkPath || null;
     }
-    return linkPath || null;
+    const authoredPathMatch = normalized.match(/^(.*?)(?:\/(?:visuals?|collisions?))(?:$|[/.])/i);
+    if (authoredPathMatch && authoredPathMatch[1]) {
+        return authoredPathMatch[1];
+    }
+    return null;
 }
 export function getRootPathFromLinkPath(linkPath) {
     if (!linkPath.startsWith("/"))

@@ -75,6 +75,15 @@ function createViewerUrl(options: DumpOptions): string {
   url.searchParams.set("file", options.file);
   url.searchParams.set("showVisuals", options.showVisuals ? "1" : "0");
   url.searchParams.set("showCollisions", options.showCollisions ? "1" : "0");
+  // Force deterministic one-shot load path to avoid async reload/upgrades while dumping metadata.
+  url.searchParams.set("strictOneShot", "1");
+  url.searchParams.set("twoPassSelectionUpgrade", "0");
+  url.searchParams.set("preloadHiddenPrims", "1");
+  url.searchParams.set("deferStageOverrides", "0");
+  url.searchParams.set("resolveRobotMetadataBeforeReady", "1");
+  url.searchParams.set("prefetchProtoDataBlobsBeforeDraw", "1");
+  url.searchParams.set("prefetchProtoDataBlobsMode", "immediate");
+  url.searchParams.set("prefetchProtoDataBlobsStartDelayMs", "0");
   url.searchParams.set("showLinkAxes", "0");
   url.searchParams.set("showDynamics", "0");
   url.searchParams.set("showRobotInspector", "0");
@@ -82,9 +91,15 @@ function createViewerUrl(options: DumpOptions): string {
   return url.toString();
 }
 
+function isExecutionContextDestroyed(error: unknown): boolean {
+  const message = error instanceof Error ? (error.stack || error.message) : String(error || "");
+  return message.includes("Execution context was destroyed");
+}
+
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const viewerUrl = createViewerUrl(options);
+  const terminalMessagePattern = /(?:loaded\s+\d+\s+meshes|no geometry loaded|contains no renderable meshes|both visual and collision meshes are disabled|failed to initialize usd renderer|cannot find usd file)/i;
 
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
@@ -94,60 +109,64 @@ async function main(): Promise<void> {
     await page.goto(viewerUrl, { waitUntil: "domcontentloaded", timeout: options.timeoutMs });
 
     await page.waitForFunction(
-      ({ expectVisuals, expectCollisions }) => {
+      ({ terminalPatternSource }) => {
         const renderInterface = (window as any).renderInterface;
-        if (!renderInterface?.meshes) return false;
-        const meshEntries = Object.entries(renderInterface.meshes || {});
-        if (meshEntries.length === 0) return false;
-
-        const classifyCategory = (meshId: string): "visual" | "collision" | "other" => {
-          const lowered = String(meshId || "").toLowerCase();
-          if (lowered.includes("/collisions.") || lowered.includes("/collisions/")) return "collision";
-          if (lowered.includes("/visuals.") || lowered.includes("/visuals/")) return "visual";
-          return "other";
-        };
-
-        const visualEntries = meshEntries.filter(([meshId]) => classifyCategory(meshId) === "visual");
-        const collisionEntries = meshEntries.filter(([meshId]) => classifyCategory(meshId) === "collision");
-        if (expectVisuals && visualEntries.length === 0) return false;
-        if (expectCollisions && collisionEntries.length === 0) return false;
-        return true;
+        if (!renderInterface) return false;
+        const stageSourcePath = String(renderInterface?.getStageSourcePath?.() || "").trim();
+        const message = String((document.querySelector("#message-log") as HTMLElement | null)?.textContent || "").trim();
+        const terminalPattern = new RegExp(terminalPatternSource, "i");
+        if (terminalPattern.test(message)) return true;
+        if (!!(window as any).usdStage && stageSourcePath.length > 0) return true;
+        const meshEntries = Object.entries(renderInterface?.meshes || {});
+        return meshEntries.length > 0;
       },
-      { expectVisuals: options.showVisuals, expectCollisions: options.showCollisions },
+      { terminalPatternSource: terminalMessagePattern.source },
       { timeout: options.timeoutMs },
     );
 
-    await page.evaluate(async () => {
-      const renderInterface = (window as any).renderInterface;
-      if (!renderInterface) return;
-      const stageSourcePath = renderInterface?.getStageSourcePath?.() || null;
-      const starter = renderInterface?.startRobotMetadataWarmupForStage;
-      if (typeof starter === "function") {
-        try {
-          const maybePromise = stageSourcePath
-            ? starter.call(renderInterface, stageSourcePath, { force: true })
-            : starter.call(renderInterface, { force: true });
-          if (maybePromise && typeof maybePromise.then === "function") {
-            await maybePromise;
+    const maxSnapshotAttempts = 3;
+    for (let attempt = 1; attempt <= maxSnapshotAttempts; attempt++) {
+      try {
+        await page.evaluate(async () => {
+          const renderInterface = (window as any).renderInterface;
+          if (!renderInterface) return;
+          const stageSourcePath = renderInterface?.getStageSourcePath?.() || null;
+          const starter = renderInterface?.startRobotMetadataWarmupForStage;
+          if (typeof starter === "function") {
+            try {
+              const maybePromise = stageSourcePath
+                ? starter.call(renderInterface, stageSourcePath, { force: true, skipIdleWait: true, skipUrdfTruthFallback: true })
+                : starter.call(renderInterface, { force: true, skipIdleWait: true, skipUrdfTruthFallback: true });
+              if (maybePromise && typeof maybePromise.then === "function") {
+                await maybePromise;
+              }
+            } catch {}
           }
-        } catch {}
-      }
-    });
+        });
 
-    await page.waitForFunction(
-      () => {
-        const renderInterface = (window as any).renderInterface;
-        const getter = renderInterface?.getCachedRobotMetadataSnapshot;
-        if (typeof getter !== "function") return false;
-        const stageSourcePath = renderInterface?.getStageSourcePath?.() || null;
-        const snapshot = stageSourcePath
-          ? getter.call(renderInterface, stageSourcePath)
-          : getter.call(renderInterface, null);
-        return !!snapshot;
-      },
-      undefined,
-      { timeout: options.timeoutMs },
-    );
+        await page.waitForFunction(
+          () => {
+            const renderInterface = (window as any).renderInterface;
+            const getter = renderInterface?.getCachedRobotMetadataSnapshot;
+            if (typeof getter !== "function") return false;
+            const stageSourcePath = renderInterface?.getStageSourcePath?.() || null;
+            const snapshot = stageSourcePath
+              ? getter.call(renderInterface, stageSourcePath)
+              : getter.call(renderInterface, null);
+            return !!snapshot;
+          },
+          undefined,
+          { timeout: options.timeoutMs },
+        );
+        break;
+      } catch (error) {
+        if (!isExecutionContextDestroyed(error) || attempt >= maxSnapshotAttempts) {
+          throw error;
+        }
+        await page.waitForLoadState("domcontentloaded", { timeout: options.timeoutMs });
+        await page.waitForTimeout(250);
+      }
+    }
 
     if (options.settleMs > 0) {
       await page.waitForTimeout(options.settleMs);

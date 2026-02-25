@@ -12,9 +12,7 @@ usd-wasm/
 │   │   ├── emHdBindings.wasm
 │   │   ├── emHdBindings.worker.js
 │   │   └── emHdBindings.data
-│   ├── hydra/                 # Hydra 渲染相关 TypeScript 代码
-│   ├── index.ts               # 模块入口
-│   └── plugins/               # 插件系统
+│   └── hydra/                 # Hydra 渲染相关 TypeScript/JavaScript 代码
 ├── tsconfig.hydra.json        # TypeScript 配置
 └── README.md
 ```

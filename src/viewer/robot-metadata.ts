@@ -198,7 +198,12 @@ export function getRenderRobotMetadataSnapshot(
 
 export async function warmupRenderRobotMetadataSnapshot(
   renderInterface: any,
-  options: { force?: boolean; stageSourcePath?: string | null } = {},
+  options: {
+    force?: boolean;
+    stageSourcePath?: string | null;
+    skipIdleWait?: boolean;
+    skipUrdfTruthFallback?: boolean;
+  } = {},
 ): Promise<RenderRobotMetadataSnapshot | null> {
   const starter = renderInterface?.startRobotMetadataWarmupForStage;
   const stageSourcePath = String(options.stageSourcePath || "").trim() || null;

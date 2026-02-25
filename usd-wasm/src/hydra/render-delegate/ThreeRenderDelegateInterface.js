@@ -1196,6 +1196,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 count: 0,
                 collisionCount: 0,
                 visualCount: 0,
+                protoMeshCount: Number(this._finalStageOverrideBatchProtoMeshCount || 0),
                 source: "none",
                 entries: this._finalStageOverrideBatchCache,
             };
@@ -1207,6 +1208,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     count: cachedCount,
                     collisionCount: Number(this._collisionProtoOverrideCache?.size || 0),
                     visualCount: Number(this._visualProtoOverrideCache?.size || 0),
+                    protoMeshCount: Number(this._finalStageOverrideBatchProtoMeshCount || 0),
                     source: "cache",
                     entries: this._finalStageOverrideBatchCache,
                 };
@@ -1218,6 +1220,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             this._primOverrideDataCache?.clear?.();
             this._resolvedProtoPrimPathCache?.clear?.();
             this._resolvedVisualPrimPathCache?.clear?.();
+            this._finalStageOverrideBatchProtoMeshCount = 0;
         }
         this._finalStageOverrideBatchPrimed = true;
         this._finalStageOverrideBatchCache?.clear?.();
@@ -1226,6 +1229,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 count: 0,
                 collisionCount: 0,
                 visualCount: 0,
+                protoMeshCount: 0,
                 source: "single-only",
                 entries: this._finalStageOverrideBatchCache,
             };
@@ -1239,19 +1243,26 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 count: 0,
                 collisionCount: 0,
                 visualCount: 0,
+                protoMeshCount: 0,
                 source: "error",
                 entries: this._finalStageOverrideBatchCache,
             };
         }
         if (!payload || typeof payload !== 'object') {
+            this._finalStageOverrideBatchProtoMeshCount = 0;
             return {
                 count: 0,
                 collisionCount: 0,
                 visualCount: 0,
+                protoMeshCount: 0,
                 source: "empty",
                 entries: this._finalStageOverrideBatchCache,
             };
         }
+        const payloadProtoMeshCount = Number(payload.protoMeshCount);
+        this._finalStageOverrideBatchProtoMeshCount = Number.isFinite(payloadProtoMeshCount)
+            ? Math.max(0, Math.floor(payloadProtoMeshCount))
+            : 0;
         const rawEntries = (payload.entries && typeof payload.entries === 'object')
             ? payload.entries
             : {};
@@ -1306,6 +1317,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             count: Number(this._finalStageOverrideBatchCache?.size || (collisionCount + visualCount)),
             collisionCount,
             visualCount,
+            protoMeshCount: Number(this._finalStageOverrideBatchProtoMeshCount || 0),
             primOverrideCount: primOverridePaths.size,
             source: forceRefresh ? "batch-refresh" : "batch",
             entries: this._finalStageOverrideBatchCache,
@@ -1736,9 +1748,190 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             source: forceRefresh ? "batch-refresh" : "batch",
         };
     }
+    collectRuntimeLinkPathsForBootstrap() {
+        const linkPathSet = new Set();
+        const legacyLinkPathRegex = /^(.*?)(?:\/(?:visuals?|collisions?))(?:$|[/.])/i;
+        for (const meshId of Object.keys(this.meshes || {})) {
+            if (!meshId)
+                continue;
+            const proto = this.registerMeshLinkPathIndex(meshId) || parseProtoMeshIdentifier(meshId);
+            if (proto?.linkPath) {
+                const normalizedProtoLinkPath = normalizeHydraPath(proto.linkPath);
+                if (normalizedProtoLinkPath && normalizedProtoLinkPath.startsWith('/')) {
+                    linkPathSet.add(normalizedProtoLinkPath);
+                }
+            }
+            const normalizedMeshId = normalizeHydraPath(meshId);
+            if (!normalizedMeshId)
+                continue;
+            const legacyMatch = normalizedMeshId.match(legacyLinkPathRegex);
+            if (!legacyMatch?.[1])
+                continue;
+            const legacyLinkPath = normalizeHydraPath(legacyMatch[1]);
+            if (!legacyLinkPath || !legacyLinkPath.startsWith('/'))
+                continue;
+            linkPathSet.add(legacyLinkPath);
+        }
+        return Array.from(linkPathSet).sort((left, right) => left.localeCompare(right));
+    }
+    ingestRobotMetadataSnapshotFromBootstrapPayload(rawSnapshot, options = {}) {
+        if (!rawSnapshot || typeof rawSnapshot !== 'object') {
+            return {
+                source: "none",
+                ready: false,
+                jointCount: 0,
+                dynamicsCount: 0,
+            };
+        }
+        const toPlainArray = (value) => (Array.isArray(value)
+            ? value.slice()
+            : (value && typeof value.length === 'number' ? Array.from(value) : []));
+        const toPlainObject = (value) => {
+            if (!value || typeof value !== 'object')
+                return {};
+            return Object.fromEntries(Object.entries(value));
+        };
+        const resolvedStageSourcePath = String(options?.stageSourcePath
+            || rawSnapshot.stageSourcePath
+            || this.getStageSourcePath()
+            || '').trim().split('?')[0];
+        const generatedAtMs = Number(rawSnapshot.generatedAtMs);
+        const normalizedSnapshot = {
+            stageSourcePath: resolvedStageSourcePath || null,
+            generatedAtMs: Number.isFinite(generatedAtMs) ? generatedAtMs : Date.now(),
+            source: String(rawSnapshot.source || 'usd-stage-cpp') || 'usd-stage-cpp',
+            linkParentPairs: toPlainArray(rawSnapshot.linkParentPairs),
+            jointCatalogEntries: toPlainArray(rawSnapshot.jointCatalogEntries),
+            linkDynamicsEntries: toPlainArray(rawSnapshot.linkDynamicsEntries),
+            meshCountsByLinkPath: toPlainObject(rawSnapshot.meshCountsByLinkPath),
+        };
+        const jointCount = normalizedSnapshot.jointCatalogEntries.length;
+        const dynamicsCount = normalizedSnapshot.linkDynamicsEntries.length;
+        const hasMetadata = jointCount > 0 || dynamicsCount > 0;
+        if (!normalizedSnapshot.stageSourcePath) {
+            return {
+                source: "empty",
+                ready: hasMetadata,
+                jointCount,
+                dynamicsCount,
+            };
+        }
+        if (!hasMetadata && options?.allowEmptySnapshot !== true) {
+            // Driver-init bootstrap can run before runtime link paths are fully
+            // discovered. Avoid caching empty metadata snapshots, otherwise later
+            // warmup calls may incorrectly treat metadata as already ready.
+            return {
+                source: "empty",
+                ready: false,
+                jointCount,
+                dynamicsCount,
+            };
+        }
+        this._robotMetadataSnapshotByStageSource.set(normalizedSnapshot.stageSourcePath, normalizedSnapshot);
+        if (options?.emitEvent === true && typeof this.emitRobotMetadataSnapshotReady === 'function') {
+            try {
+                this.emitRobotMetadataSnapshotReady(normalizedSnapshot);
+            }
+            catch { }
+        }
+        return {
+            source: "bootstrap",
+            ready: hasMetadata,
+            jointCount,
+            dynamicsCount,
+        };
+    }
+    prefetchRuntimeBootstrapSnapshotFromDriver(driver, options = {}) {
+        const forceRefresh = options?.force === true;
+        const includeRobotMetadata = options?.includeRobotMetadata !== false;
+        const resolvedDriver = driver || this.config?.driver?.();
+        const emptySummary = {
+            source: "none",
+            used: false,
+            primPathCount: 0,
+            primPathSource: "none",
+            worldTransformCount: 0,
+            localTransformCount: 0,
+            transformTotalCount: 0,
+            transformSource: "none",
+            protoBlobCount: 0,
+            protoBlobSource: "none",
+            collisionOverrideCount: 0,
+            visualOverrideCount: 0,
+            primOverrideCount: 0,
+            protoOverrideSource: "none",
+            protoMeshCount: 0,
+            robotMetadataReady: false,
+            robotMetadataSource: "none",
+            robotMetadataJointCount: 0,
+            robotMetadataDynamicsCount: 0,
+        };
+        if (!resolvedDriver || typeof resolvedDriver.GetRuntimeBootstrapSnapshot !== 'function') {
+            return {
+                ...emptySummary,
+                source: "unsupported",
+            };
+        }
+        const runtimeLinkPaths = this.collectRuntimeLinkPathsForBootstrap();
+        const stageSourcePath = String(options?.stageSourcePath || this.getStageSourcePath() || '').trim().split('?')[0];
+        let payload = null;
+        try {
+            payload = resolvedDriver.GetRuntimeBootstrapSnapshot(runtimeLinkPaths, stageSourcePath);
+        }
+        catch {
+            return {
+                ...emptySummary,
+                source: "error",
+            };
+        }
+        if (!payload || typeof payload !== 'object') {
+            return {
+                ...emptySummary,
+                source: "empty",
+            };
+        }
+        const nextSummary = { ...emptySummary, source: "bootstrap", used: true };
+        if (payload.primPathSet !== undefined) {
+            const primPathSummary = this.prefetchPrimPathSetFromDriver({ GetPrimPathSet: () => payload.primPathSet }, { force: forceRefresh }) || {};
+            nextSummary.primPathCount = Number(primPathSummary.count || 0);
+            nextSummary.primPathSource = String(primPathSummary.source || "batch");
+        }
+        if (payload.primTransforms !== undefined) {
+            const transformSummary = this.prefetchPrimTransformsFromDriver({ GetPrimTransforms: () => payload.primTransforms }, { force: forceRefresh }) || {};
+            nextSummary.worldTransformCount = Number(transformSummary.world || 0);
+            nextSummary.localTransformCount = Number(transformSummary.local || 0);
+            nextSummary.transformTotalCount = Number(transformSummary.total || 0);
+            nextSummary.transformSource = String(transformSummary.source || "batch");
+        }
+        if (payload.protoDataBlobs !== undefined) {
+            const protoBlobSummary = this.prefetchProtoDataBlobsFromDriver({ GetAllProtoDataBlobs: () => payload.protoDataBlobs }, { force: forceRefresh }) || {};
+            nextSummary.protoBlobCount = Number(protoBlobSummary.count || 0);
+            nextSummary.protoBlobSource = String(protoBlobSummary.source || "batch");
+        }
+        if (payload.finalStageOverrideBatch !== undefined) {
+            const finalStageSummary = this.prefetchFinalStageOverrideBatchFromDriver({ GetFinalStageOverrideBatch: () => payload.finalStageOverrideBatch }, { force: forceRefresh }) || {};
+            nextSummary.collisionOverrideCount = Number(finalStageSummary.collisionCount || 0);
+            nextSummary.visualOverrideCount = Number(finalStageSummary.visualCount || 0);
+            nextSummary.primOverrideCount = Number(finalStageSummary.primOverrideCount || 0);
+            nextSummary.protoOverrideSource = String(finalStageSummary.source || "batch");
+            nextSummary.protoMeshCount = Number(finalStageSummary.protoMeshCount || 0);
+        }
+        if (includeRobotMetadata && payload.robotMetadataSnapshot !== undefined) {
+            const robotMetadataSummary = this.ingestRobotMetadataSnapshotFromBootstrapPayload(payload.robotMetadataSnapshot, {
+                stageSourcePath,
+                emitEvent: options?.emitRobotMetadataEvent === true,
+            }) || {};
+            nextSummary.robotMetadataReady = robotMetadataSummary.ready === true;
+            nextSummary.robotMetadataSource = String(robotMetadataSummary.source || "none");
+            nextSummary.robotMetadataJointCount = Number(robotMetadataSummary.jointCount || 0);
+            nextSummary.robotMetadataDynamicsCount = Number(robotMetadataSummary.dynamicsCount || 0);
+        }
+        return nextSummary;
+    }
     warmupRuntimeBridgeFromDriver(driver, options = {}) {
         const resolvedDriver = driver || this.config?.driver?.();
         const forceRefresh = options?.force === true;
+        const includeBootstrapSnapshot = options?.includeBootstrapSnapshot !== false;
         const includePrimPathSet = options?.includePrimPathSet !== false;
         const includePrimTransforms = options?.includePrimTransforms !== false;
         const includeProtoDataBlobs = options?.includeProtoDataBlobs !== false;
@@ -1746,6 +1939,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         const includeVisualProtoOverrides = options?.includeVisualProtoOverrides !== false;
         const includeResolvedPrimPathIndex = options?.includeResolvedPrimPathIndex !== false;
         const includeRobotMetadata = options?.includeRobotMetadata === true;
+        const robotMetadataSkipIdleWait = options?.robotMetadataSkipIdleWait === true;
+        const robotMetadataSkipUrdfTruthFallback = options?.robotMetadataSkipUrdfTruthFallback === true;
         const summary = {
             driverReady: !!resolvedDriver,
             primPathCount: 0,
@@ -1766,13 +1961,69 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             resolvedCollisionPrimCount: 0,
             resolvedVisualPrimCount: 0,
             robotMetadataWarmupStarted: false,
+            bootstrapSource: "none",
+            robotMetadataSource: "none",
+            robotMetadataJointCount: 0,
+            robotMetadataDynamicsCount: 0,
         };
         if (!resolvedDriver)
             return summary;
+        let bootstrapSummary = null;
+        let bootstrapProvidedPrimPathSet = false;
+        let bootstrapProvidedPrimTransforms = false;
+        let bootstrapProvidedProtoDataBlobs = false;
+        let bootstrapProvidedProtoOverrides = false;
+        let bootstrapProvidedRobotMetadata = false;
+        if (includeBootstrapSnapshot) {
+            try {
+                const resolvedStageSourcePath = String(this.getStageSourcePath() || '').split('?')[0];
+                const maybeBootstrapSummary = this.prefetchRuntimeBootstrapSnapshotFromDriver(resolvedDriver, {
+                    force: forceRefresh,
+                    includeRobotMetadata,
+                    stageSourcePath: resolvedStageSourcePath,
+                    emitRobotMetadataEvent: false,
+                }) || null;
+                if (maybeBootstrapSummary && maybeBootstrapSummary.used === true) {
+                    bootstrapSummary = maybeBootstrapSummary;
+                    summary.bootstrapSource = String(maybeBootstrapSummary.source || "bootstrap");
+                    summary.primPathCount = Number(maybeBootstrapSummary.primPathCount || 0);
+                    summary.primPathSource = String(maybeBootstrapSummary.primPathSource || summary.primPathSource || "batch");
+                    summary.worldTransformCount = Number(maybeBootstrapSummary.worldTransformCount || 0);
+                    summary.localTransformCount = Number(maybeBootstrapSummary.localTransformCount || 0);
+                    summary.transformTotalCount = Number(maybeBootstrapSummary.transformTotalCount || 0);
+                    summary.transformSource = String(maybeBootstrapSummary.transformSource || summary.transformSource || "batch");
+                    summary.protoBlobCount = Number(maybeBootstrapSummary.protoBlobCount || 0);
+                    summary.protoBlobSource = String(maybeBootstrapSummary.protoBlobSource || summary.protoBlobSource || "batch");
+                    summary.collisionOverrideCount = Number(maybeBootstrapSummary.collisionOverrideCount || 0);
+                    summary.collisionOverrideSource = String(maybeBootstrapSummary.protoOverrideSource || "batch");
+                    summary.visualOverrideCount = Number(maybeBootstrapSummary.visualOverrideCount || 0);
+                    summary.visualOverrideSource = String(maybeBootstrapSummary.protoOverrideSource || "batch");
+                    summary.primOverrideCount = Number(maybeBootstrapSummary.primOverrideCount || 0);
+                    summary.primOverrideSource = String(maybeBootstrapSummary.protoOverrideSource || "batch");
+                    summary.robotMetadataSource = String(maybeBootstrapSummary.robotMetadataSource || "none");
+                    summary.robotMetadataJointCount = Number(maybeBootstrapSummary.robotMetadataJointCount || 0);
+                    summary.robotMetadataDynamicsCount = Number(maybeBootstrapSummary.robotMetadataDynamicsCount || 0);
+                    summary.robotMetadataWarmupStarted = maybeBootstrapSummary.robotMetadataReady === true;
+                    bootstrapProvidedPrimPathSet = summary.primPathCount > 0;
+                    bootstrapProvidedPrimTransforms = summary.transformTotalCount > 0;
+                    bootstrapProvidedProtoDataBlobs = summary.protoBlobCount > 0;
+                    bootstrapProvidedProtoOverrides = (summary.collisionOverrideCount > 0
+                        || summary.visualOverrideCount > 0
+                        || summary.primOverrideCount > 0);
+                    bootstrapProvidedRobotMetadata = maybeBootstrapSummary.robotMetadataReady === true;
+                }
+                else {
+                    summary.bootstrapSource = String(maybeBootstrapSummary?.source || "none");
+                }
+            }
+            catch {
+                summary.bootstrapSource = "error";
+            }
+        }
         const resolvedCollisionPrimPaths = [];
         let usedCombinedProtoOverridePrefetch = false;
         let combinedProtoOverrideSummary = null;
-        if (includePrimPathSet) {
+        if (includePrimPathSet && !bootstrapProvidedPrimPathSet) {
             try {
                 const pathSummary = this.prefetchPrimPathSetFromDriver(resolvedDriver, { force: forceRefresh }) || {};
                 summary.primPathCount = Number(pathSummary.count || 0);
@@ -1780,7 +2031,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             }
             catch { }
         }
-        if (includePrimTransforms) {
+        if (includePrimTransforms && !bootstrapProvidedPrimTransforms) {
             try {
                 const transformSummary = this.prefetchPrimTransformsFromDriver(resolvedDriver, { force: forceRefresh }) || {};
                 summary.worldTransformCount = Number(transformSummary.world || 0);
@@ -1790,7 +2041,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             }
             catch { }
         }
-        if (includeProtoDataBlobs) {
+        if (includeProtoDataBlobs && !bootstrapProvidedProtoDataBlobs) {
             try {
                 const protoSummary = this.prefetchProtoDataBlobsFromDriver(resolvedDriver, { force: forceRefresh }) || {};
                 summary.protoBlobCount = Number(protoSummary.count || 0);
@@ -1798,7 +2049,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             }
             catch { }
         }
-        if (includeCollisionProtoOverrides && includeVisualProtoOverrides) {
+        if (includeCollisionProtoOverrides && includeVisualProtoOverrides && !bootstrapProvidedProtoOverrides) {
             try {
                 const combinedSummary = this.prefetchProtoMeshOverridesFromDriver(resolvedDriver, { force: forceRefresh }) || {};
                 const combinedSource = String(combinedSummary.source || "none");
@@ -1815,7 +2066,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             }
             catch { }
         }
-        if (includeCollisionProtoOverrides && !usedCombinedProtoOverridePrefetch) {
+        if (includeCollisionProtoOverrides && !usedCombinedProtoOverridePrefetch && !bootstrapProvidedProtoOverrides) {
             try {
                 const collisionSummary = this.prefetchCollisionProtoOverridesFromDriver(resolvedDriver, { force: forceRefresh }) || {};
                 summary.collisionOverrideCount = Number(collisionSummary.count || 0);
@@ -1823,7 +2074,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             }
             catch { }
         }
-        if (includeVisualProtoOverrides && !usedCombinedProtoOverridePrefetch) {
+        if (includeVisualProtoOverrides && !usedCombinedProtoOverridePrefetch && !bootstrapProvidedProtoOverrides) {
             try {
                 const visualSummary = this.prefetchVisualProtoOverridesFromDriver(resolvedDriver, { force: forceRefresh }) || {};
                 summary.visualOverrideCount = Number(visualSummary.count || 0);
@@ -1857,7 +2108,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     summary.resolvedVisualPrimCount += 1;
             }
         }
-        if (!usedCombinedProtoOverridePrefetch && resolvedCollisionPrimPaths.length > 0) {
+        if (!usedCombinedProtoOverridePrefetch && resolvedCollisionPrimPaths.length > 0 && !bootstrapProvidedProtoOverrides) {
             try {
                 const primOverrideSummary = this.prefetchPrimOverrideDataFromDriver(resolvedDriver, resolvedCollisionPrimPaths, { force: forceRefresh }) || {};
                 summary.primOverrideCount = Number(primOverrideSummary.count || 0);
@@ -1873,14 +2124,21 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (resolvedStageSourcePath) {
             this._runtimeBridgeCacheStageKey = resolvedStageSourcePath;
         }
-        if (includeRobotMetadata && typeof this.startRobotMetadataWarmupForStage === 'function') {
+        if (includeRobotMetadata && !bootstrapProvidedRobotMetadata && typeof this.startRobotMetadataWarmupForStage === 'function') {
             try {
-                const maybePromise = this.startRobotMetadataWarmupForStage({ force: forceRefresh });
+                const maybePromise = this.startRobotMetadataWarmupForStage({
+                    force: forceRefresh,
+                    skipIdleWait: robotMetadataSkipIdleWait,
+                    skipUrdfTruthFallback: robotMetadataSkipUrdfTruthFallback,
+                });
                 summary.robotMetadataWarmupStarted = !!maybePromise;
             }
             catch {
                 summary.robotMetadataWarmupStarted = false;
             }
+        }
+        else if (includeRobotMetadata && bootstrapProvidedRobotMetadata) {
+            summary.robotMetadataWarmupStarted = true;
         }
         return summary;
     }
@@ -2079,12 +2337,47 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             return loaded;
         };
         this._localXformCache.clear();
+        if (this._localXformResetsStackCache instanceof Map) {
+            this._localXformResetsStackCache.clear();
+        }
+        if (this._localXformAuthoredOpsCache instanceof Map) {
+            this._localXformAuthoredOpsCache.clear();
+        }
         this._worldXformCache.clear();
+        if (this._worldXformCacheSourceByPath instanceof Map) {
+            this._worldXformCacheSourceByPath.clear();
+        }
         this._meshFallbackCache.clear();
         this._linkVisualTransformCache.clear();
         this._urdfLinkWorldTransformCacheByStageSource.clear();
         const world = ingestTransformMap(payload.world, this._worldXformCache);
+        if (this._worldXformCacheSourceByPath instanceof Map) {
+            for (const primPath of this._worldXformCache.keys()) {
+                this._worldXformCacheSourceByPath.set(primPath, 'driver');
+            }
+        }
         const local = ingestTransformMap(payload.local, this._localXformCache);
+        // Some stages expose both collision container paths (`.../collisions/mesh_N`)
+        // and concrete primitive child paths (`.../collisions/mesh_N/cylinder`).
+        // Driver world-transform batches can disagree between those two forms; prefer
+        // the concrete primitive pose to keep collision overlays and truth checks stable.
+        const collisionContainerRegex = /\/collisions\/mesh_\d+$/i;
+        const collisionPrimitiveLeafNames = ['mesh', 'collision_mesh', 'visual_mesh', 'cube', 'sphere', 'cylinder', 'capsule'];
+        for (const containerPath of Array.from(this._worldXformCache.keys())) {
+            if (!collisionContainerRegex.test(containerPath))
+                continue;
+            for (const primitiveLeafName of collisionPrimitiveLeafNames) {
+                const primitivePath = `${containerPath}/${primitiveLeafName}`;
+                const primitiveWorld = this._worldXformCache.get(primitivePath);
+                if (!primitiveWorld)
+                    continue;
+                this._worldXformCache.set(containerPath, primitiveWorld.clone());
+                if (this._worldXformCacheSourceByPath instanceof Map) {
+                    this._worldXformCacheSourceByPath.set(containerPath, 'driver');
+                }
+                break;
+            }
+        }
         const total = Number(payload.count);
         return {
             world,
@@ -2099,12 +2392,6 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (!primPath || !primPath.startsWith('/'))
             return null;
         const shouldClone = options?.clone !== false;
-        if (this._worldXformCache.has(primPath)) {
-            const cached = this._worldXformCache.get(primPath);
-            if (!cached)
-                return null;
-            return shouldClone ? cached.clone() : cached;
-        }
         if (this.autoBatchPrimTransformsOnFirstAccess === true && this._primTransformBatchPrimed !== true) {
             const driver = this.config?.driver?.();
             if (driver) {
@@ -2115,16 +2402,23 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     // Keep fallback path resilient.
                 }
             }
-            if (this._worldXformCache.has(primPath)) {
-                const batchCached = this._worldXformCache.get(primPath);
-                if (!batchCached)
-                    return null;
-                return shouldClone ? batchCached.clone() : batchCached;
-            }
+        }
+        const cachedWorld = this._worldXformCache.has(primPath)
+            ? (this._worldXformCache.get(primPath) || null)
+            : null;
+        const cachedWorldSource = (this._worldXformCacheSourceByPath instanceof Map)
+            ? String(this._worldXformCacheSourceByPath.get(primPath) || '')
+            : '';
+        const cachedWorldFromDriver = cachedWorld && cachedWorldSource === 'driver';
+        if (cachedWorld && !cachedWorldFromDriver) {
+            return shouldClone ? cachedWorld.clone() : cachedWorld;
         }
         const stage = this.getStage();
-        if (!stage)
-            return null;
+        if (!stage) {
+            if (!cachedWorld)
+                return null;
+            return shouldClone ? cachedWorld.clone() : cachedWorld;
+        }
         const pathSegments = primPath.split('/').filter(Boolean);
         const worldMatrix = new Matrix4().identity();
         let currentPath = '';
@@ -2134,16 +2428,142 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             const localMatrix = this.getLocalTransformForPrimPath(stage, currentPath, { clone: false });
             if (!localMatrix)
                 continue;
-            worldMatrix.multiply(localMatrix);
+            const resetsXformStack = this.getLocalTransformResetsXformStack(stage, currentPath);
+            if (resetsXformStack) {
+                worldMatrix.copy(localMatrix);
+            }
+            else {
+                worldMatrix.multiply(localMatrix);
+            }
             hasTransform = true;
         }
-        // For collision prims (and other prims) that may have only identity transforms,
-        // we should return the identity matrix instead of null.
-        // This ensures collision geometry gets proper transforms from parent nodes.
-        const result = hasTransform ? worldMatrix : new Matrix4().identity();
-        const cachedResult = result.clone();
+        // For prims with no explicit transform, keep identity so parent chain still
+        // resolves deterministically.
+        const recomposedWorld = hasTransform ? worldMatrix : new Matrix4().identity();
+        const leafHasAuthoredLocalOps = this.hasAuthoredLocalXformOpsForPrimPath(stage, primPath);
+        // Driver-batched world transforms can be inconsistent with local xform-chain
+        // composition on some stages. Prefer recomposed results for authored prims,
+        // but keep driver values for leaves with no authored xform ops (e.g. some
+        // instance-proxy meshes whose extra transform lives in prototype data).
+        let resolvedWorld = recomposedWorld;
+        if (cachedWorld && cachedWorldFromDriver) {
+            const maxDelta = getMatrixMaxElementDelta(cachedWorld, recomposedWorld);
+            if (Number.isFinite(maxDelta) && maxDelta <= transformEpsilon) {
+                resolvedWorld = cachedWorld;
+            }
+            else if (leafHasAuthoredLocalOps !== true) {
+                resolvedWorld = cachedWorld;
+            }
+        }
+        const cachedResult = resolvedWorld.clone();
         this._worldXformCache.set(primPath, cachedResult);
+        if (this._worldXformCacheSourceByPath instanceof Map) {
+            this._worldXformCacheSourceByPath.set(primPath, 'computed');
+        }
         return shouldClone ? cachedResult.clone() : cachedResult;
+    }
+    hasAuthoredLocalXformOpsForPrimPath(stage, primPath) {
+        if (!primPath || !primPath.startsWith('/'))
+            return false;
+        if (this._localXformAuthoredOpsCache instanceof Map && this._localXformAuthoredOpsCache.has(primPath)) {
+            return this._localXformAuthoredOpsCache.get(primPath) === true;
+        }
+        if (!stage || typeof stage.GetPrimAtPath !== 'function') {
+            if (this._localXformAuthoredOpsCache instanceof Map) {
+                this._localXformAuthoredOpsCache.set(primPath, false);
+            }
+            return false;
+        }
+        let hasAuthoredOps = false;
+        try {
+            const prim = stage.GetPrimAtPath(primPath);
+            if (!prim || typeof prim.GetAttribute !== 'function') {
+                hasAuthoredOps = false;
+            }
+            else {
+                let xformOrder = [];
+                const xformOpOrderAttr = prim.GetAttribute('xformOpOrder');
+                if (xformOpOrderAttr) {
+                    try {
+                        xformOrder = xformOpOrderAttr.Get() || [];
+                    }
+                    catch {
+                        xformOrder = [];
+                    }
+                }
+                if (!Array.isArray(xformOrder) && xformOrder && typeof xformOrder[Symbol.iterator] === 'function') {
+                    xformOrder = Array.from(xformOrder);
+                }
+                if (Array.isArray(xformOrder)) {
+                    const normalizedOrder = xformOrder
+                        .map((entry) => normalizeHydraPath(entry))
+                        .filter((entry) => !!entry);
+                    hasAuthoredOps = normalizedOrder.some((entry) => entry === '!resetXformStack!' || entry.startsWith('xformOp:'));
+                }
+                if (!hasAuthoredOps) {
+                    let propertyNames = [];
+                    try {
+                        propertyNames = prim.GetPropertyNames?.() || [];
+                    }
+                    catch {
+                        propertyNames = [];
+                    }
+                    propertyNames = Array.isArray(propertyNames) ? propertyNames : Array.from(propertyNames || []);
+                    hasAuthoredOps = propertyNames
+                        .map((name) => normalizeHydraPath(name))
+                        .some((name) => !!name && name.startsWith('xformOp:') && name !== 'xformOpOrder');
+                }
+                if (!hasAuthoredOps && this.enableXformOpFallbackFromLayerText === true) {
+                    const fallbackOpNames = this.getFallbackXformOpNamesForPrimPath(primPath);
+                    hasAuthoredOps = Array.isArray(fallbackOpNames) && fallbackOpNames.length > 0;
+                }
+            }
+        }
+        catch {
+            hasAuthoredOps = false;
+        }
+        if (this._localXformAuthoredOpsCache instanceof Map) {
+            this._localXformAuthoredOpsCache.set(primPath, hasAuthoredOps === true);
+        }
+        return hasAuthoredOps === true;
+    }
+    getLocalTransformResetsXformStack(stage, primPath) {
+        if (this._localXformResetsStackCache instanceof Map && this._localXformResetsStackCache.has(primPath)) {
+            return this._localXformResetsStackCache.get(primPath) === true;
+        }
+        if (!stage || typeof stage.GetPrimAtPath !== 'function') {
+            if (this._localXformResetsStackCache instanceof Map) {
+                this._localXformResetsStackCache.set(primPath, false);
+            }
+            return false;
+        }
+        let resetsXformStack = false;
+        try {
+            const prim = stage.GetPrimAtPath(primPath);
+            const xformOpOrderAttr = prim?.GetAttribute?.('xformOpOrder');
+            if (xformOpOrderAttr) {
+                let xformOrder = [];
+                try {
+                    xformOrder = xformOpOrderAttr.Get() || [];
+                }
+                catch {
+                    xformOrder = [];
+                }
+                if (!Array.isArray(xformOrder) && xformOrder && typeof xformOrder[Symbol.iterator] === 'function') {
+                    xformOrder = Array.from(xformOrder);
+                }
+                if (Array.isArray(xformOrder)) {
+                    resetsXformStack = xformOrder.some((entry) => normalizeHydraPath(entry) === '!resetXformStack!');
+                }
+            }
+        }
+        catch {
+            resetsXformStack = false;
+        }
+        if (this._localXformResetsStackCache instanceof Map) {
+            this._localXformResetsStackCache.set(primPath, resetsXformStack);
+        }
+        return resetsXformStack;
     }
     getLocalTransformForPrimPath(stage, primPath, options = {}) {
         if (!this || typeof this !== 'object')
@@ -2157,6 +2577,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         }
         if (!stage || typeof stage.GetPrimAtPath !== 'function') {
             this._localXformCache.set(primPath, null);
+            if (this._localXformResetsStackCache instanceof Map) {
+                this._localXformResetsStackCache.set(primPath, false);
+            }
             return null;
         }
         let prim = null;
@@ -2165,14 +2588,23 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         }
         catch {
             this._localXformCache.set(primPath, null);
+            if (this._localXformResetsStackCache instanceof Map) {
+                this._localXformResetsStackCache.set(primPath, false);
+            }
             return null;
         }
         if (!prim) {
             this._localXformCache.set(primPath, null);
+            if (this._localXformResetsStackCache instanceof Map) {
+                this._localXformResetsStackCache.set(primPath, false);
+            }
             return null;
         }
         if (typeof prim.GetAttribute !== 'function') {
             this._localXformCache.set(primPath, null);
+            if (this._localXformResetsStackCache instanceof Map) {
+                this._localXformResetsStackCache.set(primPath, false);
+            }
             return null;
         }
         const allowLayerTextXformFallback = this.enableXformOpFallbackFromLayerText === true;
@@ -2220,10 +2652,14 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             // This allows parent transforms to be properly applied through the hierarchy
             const identityMatrix = new Matrix4().identity();
             this._localXformCache.set(primPath, identityMatrix);
+            if (this._localXformResetsStackCache instanceof Map) {
+                this._localXformResetsStackCache.set(primPath, false);
+            }
             return shouldClone ? identityMatrix.clone() : identityMatrix;
         }
         const localMatrix = new Matrix4().identity();
         let hasTransform = false;
+        let resetsXformStack = false;
         const invertPrefix = '!invert!';
         for (const rawOpName of xformOrder) {
             const opToken = normalizeHydraPath(rawOpName);
@@ -2231,6 +2667,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 continue;
             if (opToken === '!resetXformStack!') {
                 localMatrix.identity();
+                resetsXformStack = true;
                 hasTransform = true;
                 continue;
             }
@@ -2287,6 +2724,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         const result = hasTransform ? localMatrix : null;
         const cachedResult = result ? result.clone() : null;
         this._localXformCache.set(primPath, cachedResult);
+        if (this._localXformResetsStackCache instanceof Map) {
+            this._localXformResetsStackCache.set(primPath, resetsXformStack === true);
+        }
         if (!cachedResult)
             return null;
         return shouldClone ? cachedResult.clone() : cachedResult;
@@ -2334,6 +2774,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             // console.log("Hiding prototype mesh:", id, "for instancer:", instancerId);
         }
         this.meshes[normalizedId] = mesh;
+        this._meshMutationVersion = Number(this._meshMutationVersion || 0) + 1;
+        this._stageOverrideProtoMeshCache = null;
         this.registerMeshLinkPathIndex(normalizedId);
         this.updateRepresentativeVisualTransformIndex(normalizedId, mesh?._mesh?.matrix);
         return wrapHydraCallbackObject(mesh, "RPrim");
