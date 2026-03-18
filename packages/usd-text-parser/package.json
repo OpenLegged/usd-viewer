@@ -1,0 +1,30 @@
+{
+  "name": "@openlegged/usd-text-parser",
+  "version": "0.1.0",
+  "description": "Pure text parsers for USD/USDA robot metadata extraction.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "pack:dry-run": "npm pack --dry-run"
+  },
+  "keywords": [
+    "usd",
+    "usda",
+    "parser",
+    "robotics"
+  ],
+  "license": "Apache-2.0"
+}

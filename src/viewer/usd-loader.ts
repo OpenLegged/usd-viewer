@@ -1,8 +1,10 @@
 // @ts-ignore runtime cache-busting query suffix is resolved by browser ESM loader.
-import { ThreeRenderDelegateInterface } from "/usd/hydra/ThreeJsRenderDelegate.js?v=20260224c";
+import { ThreeRenderDelegateInterface } from "/usd/hydra/ThreeJsRenderDelegate.js?v=20260318a";
 import { fitCameraToSelection, scheduleCameraRefit } from "./camera.js";
 import { getDirectoryFromVirtualPath, isLikelyNonRenderableUsdConfig, normalizeUsdPath, parseBooleanFlag } from "./path-utils.js";
 import { UsdFsHelper } from "./usd-fs.js";
+
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
 
 export interface LoadUsdFileArgs {
   USD: any;
@@ -56,21 +58,41 @@ async function yieldToMainThread(minDelayMs = 0): Promise<void> {
 function getMeshLoadStats(renderInterface: any): { total: number; ready: number; collisions: number; visuals: number } {
   const meshes = renderInterface?.meshes || {};
   const entries = Object.entries(meshes);
+  let total = 0;
   let ready = 0;
   let collisions = 0;
   let visuals = 0;
 
+  const shouldCountMesh = (id: string, mesh: any): boolean => {
+    const normalizedId = String(id || "");
+    if (!normalizedId) return false;
+
+    const positionCount = Number(mesh?._mesh?.geometry?.getAttribute?.("position")?.count || 0);
+    if (positionCount > 0) return true;
+    if (normalizedId.includes(".proto_")) return true;
+
+    const isTopLevelPlaceholderMesh = /^\/(?:meshes|visuals|colliders?|collision)\//i.test(normalizedId);
+    if (!isTopLevelPlaceholderMesh) return true;
+
+    const resolvedPath = renderInterface?.getResolvedPrimPathForMeshId?.(normalizedId)
+      || renderInterface?.getResolvedVisualTransformPrimPathForMeshId?.(normalizedId)
+      || null;
+    return !!resolvedPath;
+  };
+
   for (const [id, mesh] of entries) {
+    if (!shouldCountMesh(String(id || ""), mesh)) continue;
+    total += 1;
     const geometry = (mesh as any)?._mesh?.geometry;
     const positionAttribute = geometry?.getAttribute?.("position");
     if (positionAttribute && positionAttribute.count > 0) ready++;
 
-    if (/\/collisions\.|\/collisions\//i.test(id)) collisions++;
+    if (COLLISION_SEGMENT_PATTERN.test(id)) collisions++;
     else visuals++;
   }
 
   return {
-    total: entries.length,
+    total,
     ready,
     collisions,
     visuals,
@@ -82,6 +104,15 @@ function inferStageUpAxisFromPath(stagePath: string): "y" | "z" {
   if (normalized.includes("/unitree_model/")) return "z";
   if (normalized.includes("/piper_isaac_sim/")) return "z";
   return "y";
+}
+
+function inferDependencyStemForUsdPath(stagePath: string, fileName: string): string {
+  const normalizedPath = String(stagePath || "").toLowerCase();
+  const normalizedFileName = String(fileName || "").trim();
+  const inferredStem = normalizedFileName.replace(/\.usd[a-z]?$/i, "");
+  if (!inferredStem) return "";
+  if (!normalizedPath.includes("/configuration/")) return inferredStem;
+  return inferredStem.replace(/_(base|physics|robot|sensor)$/i, "");
 }
 
 async function ensureRootPathIsLoadable(pathToLoad: string, usdFsHelper: UsdFsHelper): Promise<boolean> {
@@ -123,139 +154,43 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     renderFrame,
   } = args;
   const fastLoad = parseBooleanFlag(params.get("fastLoad"), true);
-  const truthFirst = parseBooleanFlag(params.get("truthFirst"), false);
-  // Strict one-shot mode: complete all critical metadata/cache prep during load,
-  // then enter interactive state without deferred background tails.
-  const strictOneShot = parseBooleanFlag(params.get("strictOneShot"), true);
-  const directStageMeshRead = parseBooleanFlag(params.get("directStageMeshRead"), true);
-  // Stage override scans are one of the heaviest post-load tasks on large robot
-  // assets. Keep the default synchronous so interaction (joint panel / COM
-  // toggle) is not starved by long deferred background chunks.
-  const deferStageOverrides = strictOneShot
-    ? false
-    : parseBooleanFlag(
-      params.get("deferStageOverrides"),
-      false,
-    );
-  const primeFinalStageOverrideBatchBeforeDraw = parseBooleanFlag(
-    params.get("primeFinalStageOverrideBatchBeforeDraw"),
-    truthFirst,
-  );
-  const deferredStageOverridesStartDelayMs = (() => {
-    const requested = Number(params.get("deferStageOverridesStartDelayMs"));
-    const fallback = fastLoad ? 180 : 0;
-    if (!Number.isFinite(requested)) return fallback;
-    return Math.max(0, Math.min(120_000, Math.floor(requested)));
-  })();
-  const deferredStageOverridesChunkSize = (() => {
-    const requested = Number(params.get("deferStageOverridesChunkSize"));
-    // A single-mesh chunk keeps UI ultra-smooth but can create very long
-    // completion tails on large robot stages.
-    if (!Number.isFinite(requested)) return fastLoad ? 4 : 2;
-    return Math.max(1, Math.min(256, Math.floor(requested)));
-  })();
-  const deferredStageOverridesChunkDelayMs = (() => {
-    const requested = Number(params.get("deferStageOverridesChunkDelayMs"));
-    if (!Number.isFinite(requested)) return fastLoad ? 2 : 16;
-    return Math.max(0, Math.min(5000, Math.floor(requested)));
-  })();
-  const deferStageOverridesUseIdle = parseBooleanFlag(params.get("deferStageOverridesUseIdle"), !fastLoad);
-  const deferredStageOverridesWorkBudgetMs = (() => {
-    const requested = Number(params.get("deferStageOverridesWorkBudgetMs"));
-    // Run multiple chunks per tick to reduce scheduling overhead while keeping
-    // each slice bounded.
-    if (!Number.isFinite(requested)) return fastLoad ? 10 : 6;
-    return Math.max(1, Math.min(200, Math.floor(requested)));
-  })();
   const forceDependencyPreload = parseBooleanFlag(params.get("forceDependencyPreload"), false);
   const autoLoadDependencies = parseBooleanFlag(params.get("autoLoadDependencies"), true);
+  const strictOneShot = parseBooleanFlag(params.get("strictOneShot"), true);
   const normalizedPathForDependencyDefaults = String(pathToLoad || "").toLowerCase();
+  const isConfigurationUsdPath = normalizedPathForDependencyDefaults.includes("/configuration/");
+  const inferredSkipSensorPayloadsOnOpen = (
+    !isConfigurationUsdPath
+    && (
+      normalizedPathForDependencyDefaults.includes("/unitree_model/")
+      || normalizedPathForDependencyDefaults.includes("/robots/")
+    )
+  );
+  const hasExplicitIncludeSensorDependency = params.has("includeSensorDependency");
+  const includeSensorDependencyFallback = hasExplicitIncludeSensorDependency
+    ? parseBooleanFlag(params.get("includeSensorDependency"), false)
+    : !inferredSkipSensorPayloadsOnOpen;
+  const skipSensorPayloadsOnOpen = parseBooleanFlag(
+    params.get("skipSensorPayloadsOnOpen"),
+    hasExplicitIncludeSensorDependency
+      ? !includeSensorDependencyFallback
+      : inferredSkipSensorPayloadsOnOpen,
+  );
   const defaultIncludeSensorDependency = normalizedPathForDependencyDefaults.includes("/unitree_model/")
     || normalizedPathForDependencyDefaults.includes("/robots/");
-  const includeSensorDependency = parseBooleanFlag(params.get("includeSensorDependency"), defaultIncludeSensorDependency);
-  const allowDriverStageLookup = parseBooleanFlag(params.get("allowDriverStageLookup"), truthFirst || readStageMetadata);
-  // Visual proto transforms from Hydra/proto blobs are already truth-aligned for
-  // the common robot assets. Keep visual stage overrides opt-in so strict
-  // one-shot mode does not overwrite per-submesh authored orientation.
-  const applyVisualStageOverrides = parseBooleanFlag(params.get("applyVisualStageOverrides"), false);
-  const legacyPrefetchStageTransformsRaw = params.get("prefetchStageTransforms");
-  const hasLegacyPrefetchStageTransformsFlag = legacyPrefetchStageTransformsRaw !== null;
-  const legacyPrefetchStageTransforms = parseBooleanFlag(legacyPrefetchStageTransformsRaw, false);
-  // Keep first-paint path light by default: stage transform prefetch now runs
-  // post-initial-draw unless explicitly requested before draw.
-  const prefetchStageTransformsBeforeDraw = hasLegacyPrefetchStageTransformsFlag
-    ? legacyPrefetchStageTransforms
-    : parseBooleanFlag(params.get("prefetchStageTransformsBeforeDraw"), false);
-  const prefetchStageTransformsPostDraw = hasLegacyPrefetchStageTransformsFlag
-    ? legacyPrefetchStageTransforms
-    : parseBooleanFlag(params.get("prefetchStageTransformsPostDraw"), true);
-  const prefetchProtoDataBlobs = parseBooleanFlag(params.get("prefetchProtoDataBlobs"), true);
-  const prefetchProtoDataBlobsBeforeDraw = strictOneShot
-    ? true
-    : parseBooleanFlag(params.get("prefetchProtoDataBlobsBeforeDraw"), truthFirst);
-  const prefetchProtoDataBlobsMode = (() => {
-    if (strictOneShot) return "immediate" as const;
-    const rawMode = String(params.get("prefetchProtoDataBlobsMode") || "").trim().toLowerCase();
-    return rawMode === "immediate" ? "immediate" : "idle";
-  })();
-  const prefetchProtoDataBlobsStartDelayMs = (() => {
-    if (strictOneShot) return 0;
-    const requested = Number(params.get("prefetchProtoDataBlobsStartDelayMs"));
-    const fallback = fastLoad ? 300 : 120;
-    if (!Number.isFinite(requested)) return fallback;
-    return Math.max(0, Math.min(120_000, Math.floor(requested)));
-  })();
-  const warmupRuntimeBridge = parseBooleanFlag(params.get("warmupRuntimeBridge"), true);
-  const warmupRuntimeBridgeBeforeDraw = parseBooleanFlag(
-    params.get("warmupRuntimeBridgeBeforeDraw"),
-    truthFirst || !!loadCollisionPrims,
+  const includeSensorDependency = parseBooleanFlag(
+    params.get("includeSensorDependency"),
+    skipSensorPayloadsOnOpen ? false : defaultIncludeSensorDependency,
   );
-  const warmupRuntimeBridgeAfterDraw = parseBooleanFlag(
-    params.get("warmupRuntimeBridgeAfterDraw"),
-    warmupRuntimeBridge,
-  );
-  const prefetchFinalStageOverrideBatchBeforeDraw = parseBooleanFlag(
-    params.get("prefetchFinalStageOverrideBatchBeforeDraw"),
-    primeFinalStageOverrideBatchBeforeDraw,
-  );
-  const warmupRobotMetadata = parseBooleanFlag(params.get("warmupRobotMetadata"), true);
-  // Ensure joint + COM/inertia metadata is fully resolved before reporting
-  // load completion. This keeps first interaction behavior aligned with
-  // collision meshes (no long tail metadata warmup after first frame).
-  const resolveRobotMetadataBeforeReady = strictOneShot
-    ? true
-    : parseBooleanFlag(
-      params.get("resolveRobotMetadataBeforeReady"),
-      true,
-    );
-  const eagerRobotMetadataWarmup = parseBooleanFlag(params.get("eagerRobotMetadataWarmup"), true);
-  const skipUrdfTruthDuringEagerWarmup = parseBooleanFlag(params.get("skipUrdfTruthDuringEagerWarmup"), true);
-  const allowJsRobotMetadataFallback = parseBooleanFlag(
-    params.get("allowJsRobotMetadataFallback"),
-    !strictOneShot,
-  );
-  const requireCompleteRobotMetadata = parseBooleanFlag(
-    params.get("requireCompleteRobotMetadata"),
-    strictOneShot,
-  );
-  const robotMetadataResolveBudgetMs = (() => {
-    const requested = Number(params.get("robotMetadataResolveBudgetMs"));
-    // Strict one-shot blocks interactivity until metadata is ready, so avoid
-    // timing out by default and leaving heavy work to first interaction.
-    const fallback = strictOneShot ? 0 : (fastLoad ? 4_000 : 8_000);
-    if (!Number.isFinite(requested)) return fallback;
-    return Math.max(0, Math.min(120_000, Math.floor(requested)));
-  })();
+  const warmupRuntimeBridge = true;
+  const warmupRuntimeBridgeBeforeDraw = false;
+  const warmupRobotMetadata = true;
+  const resolveRobotMetadataBeforeReady = true;
+  const requireCompleteRobotMetadata = true;
   const maxCpuDraw = parseBooleanFlag(params.get("maxCpuDraw"), false);
   // Favor full-scene readiness during the loading phase to avoid long tail mesh hydration.
   const aggressiveInitialDraw = parseBooleanFlag(params.get("aggressiveInitialDraw"), true);
   const drawBurstRenderEveryDraw = parseBooleanFlag(params.get("drawBurstRenderEveryDraw"), aggressiveInitialDraw);
-  const stageMetadataBudgetMs = (() => {
-    const requested = Number(params.get("stageMetadataBudgetMs"));
-    const fallback = truthFirst ? (fastLoad ? 2_200 : 3_200) : (fastLoad ? 350 : 2_500);
-    if (!Number.isFinite(requested)) return fallback;
-    return Math.max(0, Math.min(120_000, Math.floor(requested)));
-  })();
   const hardwareConcurrency = Number((navigator as any)?.hardwareConcurrency || 4);
   const defaultThreadHint = 4;
   const requestedThreadHint = Number(params.get("threads"));
@@ -286,6 +221,14 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     if (!Number.isFinite(requested)) return fallback;
     return Math.max(0, Math.min(60_000, Math.floor(requested)));
   })();
+  const finalSceneDrainBudgetMs = (() => {
+    const requested = Number(params.get("finalSceneDrainBudgetMs"));
+    const fallback = strictOneShot
+      ? (maxCpuDraw ? 12_000 : 8_000)
+      : initialDrawBudgetMs;
+    if (!Number.isFinite(requested)) return fallback;
+    return Math.max(0, Math.min(120_000, Math.floor(requested)));
+  })();
   const initialDrawYieldMs = (() => {
     const requested = Number(params.get("initialDrawYieldMs"));
     const fallback = aggressiveInitialDraw ? 4 : 8;
@@ -299,16 +242,6 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
       : (maxCpuDraw ? 0.9 : 0.85);
     if (!Number.isFinite(requested)) return fallback;
     return Math.max(0.1, Math.min(1, requested));
-  })();
-  const postDrawProtoResyncEnabled = parseBooleanFlag(
-    params.get("postDrawProtoResync"),
-    truthFirst,
-  );
-  const forcePostDrawProtoResync = parseBooleanFlag(params.get("forcePostDrawProtoResync"), false);
-  const postDrawProtoResyncChunk = (() => {
-    const requested = Number(params.get("postDrawProtoResyncChunk"));
-    if (!Number.isFinite(requested)) return 16;
-    return Math.max(1, Math.min(64, Math.floor(requested)));
   })();
   const loadVisualPrims = typeof requestedLoadVisualPrims === "boolean"
     ? requestedLoadVisualPrims
@@ -526,6 +459,54 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
       // Keep load path resilient; missing optional dependency files are tolerated.
     }
   };
+  const buildPlaceholderUsdBinary = (defaultPrimName: string): Uint8Array | null => {
+    if (typeof TextEncoder === "undefined") return null;
+    const normalizedPrimName = String(defaultPrimName || "Config").trim() || "Config";
+    return new TextEncoder().encode(
+      [
+        "#usda 1.0",
+        "(",
+        `    defaultPrim = "${normalizedPrimName}"`,
+        ")",
+        "",
+        `def Xform "${normalizedPrimName}"`,
+        "{",
+        "}",
+        "",
+      ].join("\n"),
+    );
+  };
+  const shouldSeedMissingOptionalConfigurationPlaceholders = (
+    !isConfigurationUsdPath
+    && (
+      normalizedPathForDependencyDefaults.includes("/unitree_model/")
+      || normalizedPathForDependencyDefaults.includes("/robots/")
+    )
+  );
+  const seedMissingOptionalConfigurationPlaceholder = (
+    fileName: string,
+    defaultPrimName = "Config",
+  ): boolean => {
+    if (!canWriteVirtualFs) return false;
+    if (!fileName) return false;
+    const placeholderBinary = buildPlaceholderUsdBinary(defaultPrimName);
+    if (!placeholderBinary) return false;
+
+    const rootDirectory = getDirectoryFromVirtualPath(normalizedPath);
+    const configurationDirectory = rootDirectory.toLowerCase().endsWith("/configuration/")
+      ? rootDirectory
+      : normalizeUsdPath(`${rootDirectory}configuration/`);
+    const localConfigurationPath = normalizeUsdPath(`${configurationDirectory}${fileName}`);
+    const sharedConfigurationPath = normalizeUsdPath(`/configuration/${fileName}`);
+
+    if (!usdFsHelper.hasVirtualFilePath(localConfigurationPath)) {
+      writeBinaryToVirtualPath(localConfigurationPath, placeholderBinary);
+    }
+    if (sharedConfigurationPath !== localConfigurationPath && !usdFsHelper.hasVirtualFilePath(sharedConfigurationPath)) {
+      writeBinaryToVirtualPath(sharedConfigurationPath, placeholderBinary);
+    }
+    return true;
+  };
   const ensureVirtualFileFromCandidates = async (
     virtualPath: string,
     candidateFetchPaths: string[],
@@ -550,7 +531,10 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     const tryEnsureDependencyFile = async (fileName: string): Promise<void> => {
       if (!fileName) return;
       const rootDirectory = getDirectoryFromVirtualPath(normalizedPath);
-      const localConfigurationPath = normalizeUsdPath(`${rootDirectory}configuration/${fileName}`);
+      const configurationDirectory = rootDirectory.toLowerCase().endsWith("/configuration/")
+        ? rootDirectory
+        : normalizeUsdPath(`${rootDirectory}configuration/`);
+      const localConfigurationPath = normalizeUsdPath(`${configurationDirectory}${fileName}`);
       const sharedConfigurationPath = normalizeUsdPath(`/configuration/${fileName}`);
       const candidateFetchPaths = Array.from(new Set([
         localConfigurationPath,
@@ -573,7 +557,14 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
         loadedBinary = await loadFileAsBinary(candidatePath);
         if (loadedBinary) break;
       }
-      if (!loadedBinary) return;
+      if (!loadedBinary) {
+        const shouldSeedPlaceholder = shouldSeedMissingOptionalConfigurationPlaceholders
+          && /_(base|physics|robot)\.usd$/i.test(fileName);
+        if (shouldSeedPlaceholder) {
+          seedMissingOptionalConfigurationPlaceholder(fileName);
+        }
+        return;
+      }
 
       writeBinaryToVirtualPath(localConfigurationPath, loadedBinary);
       if (sharedConfigurationPath !== localConfigurationPath) {
@@ -592,6 +583,13 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
 
     await Promise.all(dependencyFileNames.map((dependencyFileName) => tryEnsureDependencyFile(dependencyFileName)));
   };
+  const seedOptionalSensorPlaceholder = (dependencyStem: string): void => {
+    if (!canWriteVirtualFs) return;
+    if (!dependencyStem) return;
+    if (includeSensorDependency) return;
+    if (!skipSensorPayloadsOnOpen) return;
+    seedMissingOptionalConfigurationPlaceholder(`${dependencyStem}_sensor.usd`, "Sensors");
+  };
 
   const shouldPreloadRootLayerToVirtualFs = normalizedPath.startsWith("/");
   if (shouldPreloadRootLayerToVirtualFs) {
@@ -602,40 +600,22 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
   }
 
   const normalizedFileName = normalizedPath.split("/").pop()?.toLowerCase() || "";
-  const inferredStem = normalizedFileName
-    ? normalizedFileName.replace(/\.usd[a-z]?$/i, "")
-    : "";
+  const inferredStem = inferDependencyStemForUsdPath(normalizedPath, normalizedFileName);
   const dependencyStem = unitreeDependencyStemByRootUsdFile[normalizedFileName] || inferredStem;
+  const normalizedPathLower = normalizedPath.toLowerCase();
   const shouldAutoLoadDependenciesFromVirtualFs = usdFsHelper.hasVirtualFilePath(normalizedPath);
-  const shouldAutoLoadDependenciesFromUnitreePath = normalizedPath.toLowerCase().startsWith("/unitree_model/");
+  const shouldAutoLoadDependenciesFromUnitreePath = normalizedPathLower.startsWith("/unitree_model/");
+  const isPiperSceneUsdPath = normalizedPathLower.startsWith("/piper_isaac_sim/usd/");
+  const shouldAutoLoadInferredRootDependencies = shouldAutoLoadDependenciesFromVirtualFs && !isPiperSceneUsdPath;
   if (
     autoLoadDependencies
     && dependencyStem
-    && (shouldAutoLoadDependenciesFromVirtualFs || shouldAutoLoadDependenciesFromUnitreePath || forceDependencyPreload)
+    && (shouldAutoLoadInferredRootDependencies || shouldAutoLoadDependenciesFromUnitreePath || forceDependencyPreload)
   ) {
     await autoLoadSublayers(dependencyStem);
   }
-  if (autoLoadDependencies && normalizedPath.toLowerCase().startsWith("/piper_isaac_sim/")) {
-    const piperCameraDependencyRoots = [
-      "/piper_isaac_sim/piper_description/urdf/piper_description_v100_realsense_camera_v2/piper_description_v100_realsense_camera_v2.usd",
-      "/piper_isaac_sim/piper_h_description/urdf/piper_h_description_d435_dark/piper_h_description_d435_dark.usd",
-      "/piper_isaac_sim/piper_l_description/urdf/piper_l_description_d435_dark/piper_l_description_d435_dark.usd",
-      "/piper_isaac_sim/piper_x_description/urdf/piper_x_description_d435/piper_x_description_d435.usd",
-    ];
-    const ensurePiperDependencyFileSet = async (rootUsdPath: string): Promise<void> => {
-      const normalizedRootPath = normalizeUsdPath(rootUsdPath).split("?")[0];
-      if (!normalizedRootPath) return;
-      const rootDirectory = getDirectoryFromVirtualPath(normalizedRootPath);
-      const rootFileName = normalizedRootPath.split("/").pop() || "";
-      if (!rootFileName) return;
-      const stem = rootFileName.replace(/\.usd[a-z]?$/i, "");
-      await ensureVirtualFileFromCandidates(normalizedRootPath, [normalizedRootPath]);
-      for (const suffix of ["base", "physics", "robot", "sensor"]) {
-        const dependencyPath = normalizeUsdPath(`${rootDirectory}configuration/${stem}_${suffix}.usd`);
-        await ensureVirtualFileFromCandidates(dependencyPath, [dependencyPath]);
-      }
-    };
-    await Promise.all(piperCameraDependencyRoots.map((dependencyRoot) => ensurePiperDependencyFileSet(dependencyRoot)));
+  if (dependencyStem) {
+    seedOptionalSensorPlaceholder(dependencyStem);
   }
   if (!isLoadStillActive()) return state;
   setProgress(22);
@@ -661,19 +641,23 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     ),
     // Skip heavy per-callback geometry copies when proto blob fast-path is enabled.
     preferProtoBlobOverHydraPayload: parseBooleanFlag(params.get("preferProtoBlobOverHydraPayload"), true),
-    // Bridge optimization: when first proto/blob or transform query arrives,
-    // pull a batch once and serve subsequent mesh requests from JS caches.
-    autoBatchProtoBlobsOnFirstAccess: parseBooleanFlag(params.get("autoBatchProtoBlobsOnFirstAccess"), true),
-    autoBatchPrimTransformsOnFirstAccess: parseBooleanFlag(params.get("autoBatchPrimTransformsOnFirstAccess"), true),
+    // In snapshot/one-shot mode, all heavy bridge payloads should arrive before
+    // ready; disable on-demand fallback pulls so interaction stays cache-only.
+    strictOneShotSceneLoad: strictOneShot,
+    autoBatchProtoBlobsOnFirstAccess: false,
+    autoBatchPrimTransformsOnFirstAccess: false,
+    autoBatchCollisionProtoOverridesOnFirstAccess: false,
+    autoBatchVisualProtoOverridesOnFirstAccess: false,
+    deferHiddenCollisionProtoSyncInCommit: false,
     // During high-frequency Hydra sync callbacks, avoid fallback driver.GetStage()
     // lookups before window.usdStage is ready to prevent first-sync stalls.
     deferDriverStageLookupInSyncHotPath: parseBooleanFlag(params.get("deferDriverStageLookupInSyncHotPath"), true),
-    // In strict one-shot mode, prefer C++ metadata snapshot and avoid heavy JS
-    // stage text fallback unless explicitly requested.
-    allowJsRobotMetadataFallback,
     // For fast interactive loads, avoid synchronous driver.GetStage() fallback unless
     // metadata access is explicitly enabled.
-    allowDriverStageLookup,
+    allowDriverStageLookup: false,
+    // Unitree root stages can skip optional sensor payloads during stage open.
+    // This avoids composing/fetching sensor-only payloads on the critical path.
+    skipSensorPayloadsOnOpen,
     // Low-noise phase instrumentation:
     //   1) WASM payload fetch/copy
     //   2) Three.js object/build work
@@ -773,146 +757,107 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
 
   state.driver = window.driver = driver;
   await yieldToMainThread();
-  let protoBlobPrefetchedBeforeDraw = false;
   const runRuntimeBridgeWarmup = (
     phaseLabel: "driver-init" | "post-initial-draw",
-    options: { force?: boolean; includeRobotMetadata?: boolean } = {},
+    options: { force?: boolean } = {},
   ): Record<string, unknown> | null => {
     if (!warmupRuntimeBridge) return null;
-    const forceRefresh = options.force === true;
-    const shouldWarmInPhase = (phaseLabel === "driver-init" && warmupRuntimeBridgeBeforeDraw)
-      || (phaseLabel === "post-initial-draw" && warmupRuntimeBridgeAfterDraw)
-      // Strict one-shot must be able to force one post-draw refresh so early
-      // bootstrap caches (captured before meshes settle) do not remain stale.
-      || (phaseLabel === "post-initial-draw" && strictOneShot && forceRefresh);
-    if (!shouldWarmInPhase) return null;
+    if (phaseLabel !== "post-initial-draw" && !warmupRuntimeBridgeBeforeDraw) return null;
     const activeRenderInterface = window.renderInterface as any;
-    if (!activeRenderInterface || typeof activeRenderInterface.warmupRuntimeBridgeFromDriver !== "function") return null;
+    if (!activeRenderInterface || typeof activeRenderInterface.warmupRobotSceneSnapshotFromDriver !== "function") return null;
     if (!isLoadStillActive()) return null;
     if (window.driver !== state.driver) return null;
-    const hasDedicatedTransformPrefetchInPhase = (phaseLabel === "driver-init" && prefetchStageTransformsBeforeDraw)
-      || (phaseLabel === "post-initial-draw" && prefetchStageTransformsPostDraw);
     try {
-      const summary = activeRenderInterface.warmupRuntimeBridgeFromDriver(state.driver, {
-        force: forceRefresh,
-        // Avoid duplicate GetPrimTransforms bridge calls when this phase already
-        // runs a dedicated prefetch step via refreshPrefetchedStageTransforms().
-        includePrimTransforms: !hasDedicatedTransformPrefetchInPhase,
-        includeProtoDataBlobs: prefetchProtoDataBlobs,
-        includeCollisionProtoOverrides: true,
-        includeResolvedPrimPathIndex: true,
-        includeRobotMetadata: warmupRobotMetadata && options.includeRobotMetadata === true,
-        robotMetadataSkipIdleWait: eagerRobotMetadataWarmup,
-        robotMetadataSkipUrdfTruthFallback: skipUrdfTruthDuringEagerWarmup,
+      const summary = activeRenderInterface.warmupRobotSceneSnapshotFromDriver(state.driver, {
+        force: options.force === true,
+        stageSourcePath: normalizedPath,
+        emitRobotMetadataEvent: false,
       });
-      const warmedTransforms = Number((summary as any)?.transformTotalCount || 0);
-      const warmedProtoBlobs = Number((summary as any)?.protoBlobCount || 0);
-      if (warmedTransforms > 0 || warmedProtoBlobs > 0) {
+      if (summary && typeof summary === "object") {
         markLoadPhase(`runtime-bridge-warmup-${phaseLabel}`);
       }
-      if (phaseLabel === "driver-init" && warmedProtoBlobs > 0) {
-        protoBlobPrefetchedBeforeDraw = true;
-      }
       return summary && typeof summary === "object" ? summary : null;
     } catch {
       return null;
     }
   };
-  const refreshPrefetchedStageTransforms = (
-    phaseLabel: string,
-    options: { force?: boolean } = {},
-  ): { world: number; local: number; total: number } => {
-    const shouldPrefetchInPhase = (phaseLabel === "driver-init" && prefetchStageTransformsBeforeDraw)
-      || (phaseLabel === "post-initial-draw" && prefetchStageTransformsPostDraw);
-    if (!shouldPrefetchInPhase || !window.renderInterface || typeof window.renderInterface.prefetchPrimTransformsFromDriver !== "function") {
-      return { world: 0, local: 0, total: 0 };
+
+  const getPendingProtoHydrationCount = (summary: Record<string, unknown> | null): number | null => {
+    if (!summary || typeof summary !== "object") return null;
+    const rawPending = Number((summary as any).hydratedProtoMeshPendingCount ?? (summary as any).pendingCount);
+    if (Number.isFinite(rawPending) && rawPending >= 0) {
+      return Math.max(0, Math.floor(rawPending));
     }
-    try {
-      const transformPrefetchSummary = window.renderInterface.prefetchPrimTransformsFromDriver(state.driver, {
-        force: options.force === true,
-      });
-      const worldCount = Number(transformPrefetchSummary?.world || 0);
-      const localCount = Number(transformPrefetchSummary?.local || 0);
-      const totalCount = Number(transformPrefetchSummary?.total || Math.max(worldCount, localCount));
-      return { world: worldCount, local: localCount, total: totalCount };
-    } catch {
-      return { world: 0, local: 0, total: 0 };
+    const rawAttempted = Number((summary as any).hydratedProtoMeshAttemptedCount ?? (summary as any).attemptedCount);
+    const rawCompleted = Number((summary as any).hydratedProtoMeshCount ?? (summary as any).completedCount);
+    if (Number.isFinite(rawAttempted) && rawAttempted >= 0 && Number.isFinite(rawCompleted) && rawCompleted >= 0) {
+      return Math.max(0, Math.floor(rawAttempted) - Math.floor(rawCompleted));
     }
+    return null;
   };
-  const runProtoBlobPrefetch = (options: { force?: boolean } = {}): number => {
-    if (!prefetchProtoDataBlobs) return 0;
-    const activeRenderInterface = window.renderInterface as any;
-    if (!activeRenderInterface || typeof activeRenderInterface.prefetchProtoDataBlobsFromDriver !== "function") return 0;
-    if (!isLoadStillActive()) return 0;
-    if (window.driver !== state.driver) return 0;
-    const forceRefresh = options.force === true;
-    try {
-      const protoPrefetchSummary = activeRenderInterface.prefetchProtoDataBlobsFromDriver(state.driver, { force: forceRefresh });
-      const protoCount = Number(protoPrefetchSummary?.count || 0);
-      return Number.isFinite(protoCount) ? Math.max(0, Math.floor(protoCount)) : 0;
-    } catch {
-      return 0;
-    }
+
+  const hasRuntimeBridgeCompletedProtoHydration = (summary: Record<string, unknown> | null): boolean => {
+    if (!summary || typeof summary !== "object") return false;
+    if ((summary as any).sceneSnapshotReady !== true) return false;
+    const pendingCount = getPendingProtoHydrationCount(summary);
+    return pendingCount === 0;
   };
-  const runFinalStageOverrideBatchPrefetch = (
-    phaseLabel: "driver-init" | "post-initial-draw",
-    options: { force?: boolean } = {},
-  ): Record<string, unknown> | null => {
-    const forceRefresh = options.force === true;
-    const shouldPrefetchInPhase = (phaseLabel === "driver-init" && prefetchFinalStageOverrideBatchBeforeDraw)
-      || (phaseLabel === "post-initial-draw" && primeFinalStageOverrideBatchBeforeDraw)
-      || (phaseLabel === "post-initial-draw" && strictOneShot && forceRefresh);
-    if (!shouldPrefetchInPhase) return null;
+
+  const runProtoHydrationPass = (): Record<string, unknown> | null => {
     const activeRenderInterface = window.renderInterface as any;
-    if (!activeRenderInterface || typeof activeRenderInterface.prefetchFinalStageOverrideBatchFromDriver !== "function") {
-      return null;
-    }
+    if (!activeRenderInterface || typeof activeRenderInterface.hydratePendingProtoMeshes !== "function") return null;
     if (!isLoadStillActive()) return null;
     if (window.driver !== state.driver) return null;
     try {
-      const summary = activeRenderInterface.prefetchFinalStageOverrideBatchFromDriver(state.driver, {
-        force: forceRefresh,
-      });
-      const prefetchedCount = Number((summary as any)?.count || 0);
-      if (prefetchedCount > 0) {
-        markLoadPhase(`stage-overrides-batch-prefetch-${phaseLabel}`);
-      }
-      return summary && typeof summary === "object" ? summary : null;
+      return activeRenderInterface.hydratePendingProtoMeshes({ allowDeferredFinalBatch: false }) || null;
     } catch {
       return null;
     }
   };
-  const scheduleProtoBlobPrefetch = (): void => {
-    if (!prefetchProtoDataBlobs) return;
-    const runPrefetch = (): void => {
-      void runProtoBlobPrefetch({ force: !protoBlobPrefetchedBeforeDraw });
-    };
 
-    const startDelayMs = prefetchProtoDataBlobsStartDelayMs;
-    if (prefetchProtoDataBlobsMode === "immediate") {
-      if (startDelayMs <= 0) {
-        runPrefetch();
-      } else {
-        window.setTimeout(runPrefetch, startDelayMs);
-      }
-      return;
+  const getPendingResolvedPrimHydrationCount = (summary: Record<string, unknown> | null): number | null => {
+    if (!summary || typeof summary !== "object") return null;
+    const rawPending = Number((summary as any).pendingCount);
+    if (Number.isFinite(rawPending) && rawPending >= 0) {
+      return Math.max(0, Math.floor(rawPending));
     }
-
-    const requestIdle = (window as any).requestIdleCallback as
-      | ((callback: () => void, options?: { timeout?: number }) => number)
-      | undefined;
-    if (typeof requestIdle !== "function") {
-      window.setTimeout(runPrefetch, startDelayMs);
-      return;
+    const rawAttempted = Number((summary as any).attemptedCount);
+    const rawCompleted = Number((summary as any).completedCount);
+    if (Number.isFinite(rawAttempted) && rawAttempted >= 0 && Number.isFinite(rawCompleted) && rawCompleted >= 0) {
+      return Math.max(0, Math.floor(rawAttempted) - Math.floor(rawCompleted));
     }
+    return null;
+  };
 
-    window.setTimeout(() => {
-      try {
-        requestIdle(() => runPrefetch(), { timeout: 2_500 });
-      } catch {
-        runPrefetch();
-      }
-    }, startDelayMs);
+  const runResolvedPrimHydrationPass = (options: { force?: boolean } = {}): Record<string, unknown> | null => {
+    const activeRenderInterface = window.renderInterface as any;
+    if (!activeRenderInterface || typeof activeRenderInterface.hydratePendingResolvedPrimMeshes !== "function") return null;
+    if (!isLoadStillActive()) return null;
+    if (window.driver !== state.driver) return null;
+    try {
+      return activeRenderInterface.hydratePendingResolvedPrimMeshes({
+        driver: state.driver,
+        force: options.force === true,
+      }) || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const getRobotSceneStageSnapshot = (): Record<string, any> | null => {
+    const activeRenderInterface = window.renderInterface as any;
+    if (!activeRenderInterface || typeof activeRenderInterface.getCachedRobotSceneSnapshot !== "function") {
+      return null;
+    }
+    try {
+      const stageSourcePath = String(activeRenderInterface.getStageSourcePath?.() || "").trim() || null;
+      const snapshot = activeRenderInterface.getCachedRobotSceneSnapshot(stageSourcePath);
+      if (!snapshot || typeof snapshot !== "object") return null;
+      const stageSnapshot = (snapshot as any).stage;
+      return stageSnapshot && typeof stageSnapshot === "object" ? stageSnapshot : null;
+    } catch {
+      return null;
+    }
   };
 
   const getRobotMetadataSnapshotStats = (): {
@@ -970,7 +915,9 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     const stats = getRobotMetadataSnapshotStats();
     if (!stats.hasSnapshot) return false;
     const hasAnyMetadata = stats.jointCount > 0 || stats.dynamicsCount > 0 || stats.linkParentCount > 0;
-    if (!hasAnyMetadata) return false;
+    if (!hasAnyMetadata) {
+      return isLikelyNonRenderableUsdConfig(normalizedPath);
+    }
     if (options.requireComplete !== true) return true;
     // Strict one-shot: keep interaction blocked until both joint and
     // COM/inertia metadata are ready, preventing first-click long stalls.
@@ -988,47 +935,20 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
       force,
       // Force the C++ snapshot path now; avoid waiting for idle slices.
       skipIdleWait: true,
-      skipUrdfTruthFallback: skipUrdfTruthDuringEagerWarmup,
-      requireComplete: requireCompleteRobotMetadata,
-      allowStageFallback: !strictOneShot || allowJsRobotMetadataFallback,
     };
   };
 
   const awaitRobotMetadataWarmup = async (
     activeRenderInterface: any,
-    options: {
-      force: boolean;
-      honorBudget: boolean;
-    },
+    options: { force: boolean },
   ): Promise<void> => {
     try {
       const maybePromise = activeRenderInterface.startRobotMetadataWarmupForStage(
         buildRobotMetadataWarmupOptions(options.force),
       );
-      if (!maybePromise || typeof maybePromise.then !== "function") {
-        return;
-      }
-      if (strictOneShot || !options.honorBudget) {
+      if (maybePromise && typeof maybePromise.then === "function") {
         await maybePromise;
-        return;
       }
-      if (robotMetadataResolveBudgetMs > 0) {
-        let timeoutHandle: number | null = null;
-        try {
-          await Promise.race([
-            maybePromise,
-            new Promise<void>((resolve) => {
-              timeoutHandle = window.setTimeout(resolve, robotMetadataResolveBudgetMs);
-            }),
-          ]);
-        } finally {
-          if (timeoutHandle !== null) {
-            window.clearTimeout(timeoutHandle);
-          }
-        }
-        return;
-      }
-      await maybePromise;
     } catch {
       // Keep load resilient; fallback UI refresh path remains active.
     }
@@ -1044,37 +964,33 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     const activeRenderInterface = window.renderInterface as any;
     if (!activeRenderInterface || typeof activeRenderInterface.startRobotMetadataWarmupForStage !== "function") return;
 
-    await awaitRobotMetadataWarmup(activeRenderInterface, {
-      force: strictOneShot,
-      honorBudget: true,
-    });
-    if (strictOneShot && !isRobotMetadataReady()) {
-      await awaitRobotMetadataWarmup(activeRenderInterface, {
-        force: true,
-        honorBudget: false,
-      });
+    await awaitRobotMetadataWarmup(activeRenderInterface, { force: true });
+    if (!isRobotMetadataReady()) {
+      await awaitRobotMetadataWarmup(activeRenderInterface, { force: true });
     }
     if (isRobotMetadataReady()) {
       markLoadPhase("robot-metadata-ready-before-interactive");
     }
   };
 
-  runRuntimeBridgeWarmup("driver-init", {
-    force: true,
-    // Driver-init runs before first draw; runtime link paths are often incomplete.
-    // Defer metadata snapshot fetch to post-draw/ready stage to avoid caching
-    // empty metadata and causing delayed first interaction.
-    includeRobotMetadata: false,
-  });
-  runFinalStageOverrideBatchPrefetch("driver-init", { force: false });
-  refreshPrefetchedStageTransforms("driver-init", { force: false });
-  if (prefetchProtoDataBlobsBeforeDraw && !protoBlobPrefetchedBeforeDraw) {
-    const prefetched = runProtoBlobPrefetch({ force: true });
-    protoBlobPrefetchedBeforeDraw = prefetched > 0;
-    if (protoBlobPrefetchedBeforeDraw) {
-      markLoadPhase("proto-blob-prefetch-before-draw");
+  if (isLikelyNonRenderableUsdConfig(normalizedPath)) {
+    runRuntimeBridgeWarmup("driver-init", { force: true });
+    const activeRenderInterface = window.renderInterface as any;
+    if (activeRenderInterface && typeof activeRenderInterface.startRobotMetadataWarmupForStage === "function") {
+      await awaitRobotMetadataWarmup(activeRenderInterface, { force: true });
     }
+    if (!isLoadStillActive()) return state;
+
+    applyMeshFilters();
+    state.ready = true;
+    rebuildLinkAxes();
+    setMessage("This USD config contains no renderable meshes (sensor/robot metadata only).");
+    setProgress(100, true);
+    hideProgress();
+    flushLoadProfile("ok");
+    return state;
   }
+
   markLoadPhase("stage-transform-prefetch-done");
   setMessage("Loading meshes...");
   setProgress(38);
@@ -1124,199 +1040,37 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
       }
     }
   };
-  let earlyFinalStageOverrideBatchPrimeScheduled = false;
-  const scheduleEarlyFinalStageOverrideBatchPrime = (): void => {
-    if (!primeFinalStageOverrideBatchBeforeDraw) return;
-    if (earlyFinalStageOverrideBatchPrimeScheduled) return;
-    earlyFinalStageOverrideBatchPrimeScheduled = true;
-
-    const runPrime = (): void => {
-      if (!isLoadStillActive()) return;
-      const renderInterface = window.renderInterface as any;
-      if (!renderInterface || typeof renderInterface.prefetchFinalStageOverrideBatchFromDriver !== "function") return;
-      const resolvedDriver = state.driver || null;
-      if (!resolvedDriver) return;
-      try {
-        const summary = renderInterface.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
-          force: false,
-        });
-        const count = Number(summary?.count || 0);
-        if (Number.isFinite(count) && count > 0) {
-          markLoadPhase("stage-overrides-batch-primed-pre-burst");
-        }
-      } catch {
-        // Keep pre-initial override priming best-effort and non-blocking.
-      }
-    };
-
-    const requestIdle = (window as any).requestIdleCallback as
-      | ((callback: () => void, options?: { timeout?: number }) => number)
-      | undefined;
-    if (typeof requestIdle === "function") {
-      window.setTimeout(() => {
-        try {
-          requestIdle(() => runPrime(), { timeout: 2_500 });
-        } catch {
-          runPrime();
-        }
-      }, 0);
-      return;
-    }
-    window.setTimeout(runPrime, 0);
+  if (!isLoadStillActive()) return state;
+  const initialDrawStartMs = profileNow();
+  const updateStreamingStatus = (): { total: number; ready: number; collisions: number; visuals: number } => {
+    const stats = getMeshLoadStats(window.renderInterface);
+    const meshReadyPercent = Math.min(100, Math.round((stats.ready / Math.max(stats.total, 1)) * 100));
+    setMessage(`Streaming meshes... ${stats.ready}/${Math.max(stats.total, 1)} ready`);
+    setProgress(88 + (meshReadyPercent * 0.03));
+    return stats;
   };
 
-  if (fastLoad) {
-    // Fast path: draw once for first visual feedback, then run a bounded
-    // draw burst to rapidly hydrate meshes while the load screen is visible.
-    if (!isLoadStillActive()) return state;
-    const initialDrawStartMs = profileNow();
-    const safeDraw = (forceRender = false): boolean => runInstrumentedDriverDraw("load-fast", { forceRender });
-    const updateStreamingStatus = (): { total: number; ready: number; collisions: number; visuals: number } => {
-      const stats = getMeshLoadStats(window.renderInterface);
-      const meshReadyPercent = Math.min(100, Math.round((stats.ready / Math.max(stats.total, 1)) * 100));
-      setMessage(`Streaming meshes... ${stats.ready}/${Math.max(stats.total, 1)} ready`);
-      setProgress(88 + (meshReadyPercent * 0.03));
-      return stats;
-    };
-
-    let stats = { total: 0, ready: 0, collisions: 0, visuals: 0 };
-    if (safeDraw(drawBurstRenderEveryDraw)) {
-      scheduleEarlyFinalStageOverrideBatchPrime();
-      stats = updateStreamingStatus();
-    }
-
-    if (!state.drawFailed && aggressiveInitialDraw) {
-      for (;;) {
-        if (!isLoadStillActive()) return state;
-        const elapsedMs = profileNow() - initialDrawStartMs;
-        const readyRatio = stats.total > 0 ? stats.ready / stats.total : 0;
-        if (initialDrawBudgetMs > 0 && elapsedMs >= initialDrawBudgetMs) break;
-        if (stats.total > 0 && readyRatio >= initialDrawTargetReadyRatio) break;
-
-        let drewInBurst = false;
-        for (let drawIndex = 0; drawIndex < initialDrawBurst; drawIndex++) {
-          if (!isLoadStillActive()) return state;
-          if (initialDrawBudgetMs > 0 && (profileNow() - initialDrawStartMs) >= initialDrawBudgetMs) break;
-          if (!safeDraw(drawBurstRenderEveryDraw)) break;
-          drewInBurst = true;
-        }
-        if (!drewInBurst || state.drawFailed) break;
-
-        stats = updateStreamingStatus();
-        const burstReadyRatio = stats.total > 0 ? stats.ready / stats.total : 0;
-        if (stats.total > 0 && burstReadyRatio >= initialDrawTargetReadyRatio) break;
-
-        await yieldToMainThread(initialDrawYieldMs);
-      }
-    }
-
+  let stats = { total: 0, ready: 0, collisions: 0, visuals: 0 };
+  if (runInstrumentedDriverDraw("load-fast", { forceRender: drawBurstRenderEveryDraw })) {
     stats = updateStreamingStatus();
-  } else {
-    let previousTotal = -1;
-    let previousReady = -1;
-    let stableRounds = 0;
-    for (let round = 0; round < 24; round++) {
-      if (!isLoadStillActive()) return state;
-      if (!runInstrumentedDriverDraw("load-slow")) break;
-      if (round === 0) {
-        scheduleEarlyFinalStageOverrideBatchPrime();
-      }
-
-      const stats = getMeshLoadStats(window.renderInterface);
-      setMessage(`Loading meshes... ${stats.ready}/${Math.max(stats.total, 1)} ready`);
-      const meshReadyPercent = Math.min(100, Math.round((stats.ready / Math.max(stats.total, 1)) * 100));
-      setProgress(38 + (meshReadyPercent * 0.52));
-
-      if (stats.total === previousTotal && stats.ready === previousReady) stableRounds++;
-      else stableRounds = 0;
-      previousTotal = stats.total;
-      previousReady = stats.ready;
-
-      if (stats.total > 0 && stats.ready > 0 && stableRounds >= 2) break;
-      await yieldToMainThread(45);
-    }
-    if (!isLoadStillActive()) return state;
-    setProgress(92);
-
-    runInstrumentedDriverDraw("load-finalize");
   }
+  runResolvedPrimHydrationPass({ force: true });
+  updateStreamingStatus();
   markLoadPhase("initial-draw-done");
-  runRuntimeBridgeWarmup("post-initial-draw", {
-    // Strict one-shot refreshes bridge caches after first draw so staged proto
-    // overrides/transforms are not locked to pre-draw provisional values.
-    force: strictOneShot,
-    includeRobotMetadata: strictOneShot && warmupRobotMetadata,
-  });
-  runFinalStageOverrideBatchPrefetch("post-initial-draw", { force: strictOneShot });
-  if (warmupRobotMetadata && !resolveRobotMetadataBeforeReady) {
-    const scheduleRobotMetadataWarmup = (): void => {
-      const runWarmup = (): void => {
-        const renderInterface = window.renderInterface as any;
-        if (!renderInterface || typeof renderInterface.startRobotMetadataWarmupForStage !== "function") return;
-        if (!isLoadStillActive()) return;
-        if (window.driver !== state.driver) return;
-        void Promise.resolve(renderInterface.startRobotMetadataWarmupForStage({
-          force: false,
-          skipIdleWait: eagerRobotMetadataWarmup,
-          skipUrdfTruthFallback: skipUrdfTruthDuringEagerWarmup,
-        })).catch(() => {
-          // Robot metadata warmup is best-effort.
-        });
-      };
-
-      if (eagerRobotMetadataWarmup) {
-        // Prioritize joint metadata readiness: use the WASM snapshot path
-        // immediately after the first frame instead of waiting for deep idle.
-        window.requestAnimationFrame(() => {
-          window.setTimeout(() => runWarmup(), 0);
-        });
-        return;
-      }
-
-      const requestIdle = (window as any).requestIdleCallback as
-        | ((callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void, options?: { timeout?: number }) => number)
-        | undefined;
-      const minIdleBudgetMs = 6;
-      const maxIdleAttempts = 8;
-      const idleTimeoutMs = 1_800;
-      let idleAttempts = 0;
-
-      const scheduleWhenIdle = (): void => {
-        if (!isLoadStillActive()) return;
-        if (window.driver !== state.driver) return;
-
-        if (typeof requestIdle !== "function") {
-          runWarmup();
-          return;
-        }
-
-        try {
-          requestIdle((deadline) => {
-            if (!isLoadStillActive()) return;
-            if (window.driver !== state.driver) return;
-
-            const remaining = Number(deadline?.timeRemaining?.() || 0);
-            const timedOut = deadline?.didTimeout === true;
-            if (!timedOut && remaining < minIdleBudgetMs && idleAttempts < maxIdleAttempts) {
-              idleAttempts += 1;
-              window.setTimeout(() => scheduleWhenIdle(), 0);
-              return;
-            }
-            runWarmup();
-          }, { timeout: idleTimeoutMs });
-        } catch {
-          runWarmup();
-        }
-      };
-
-      // Give first render + one RAF a chance to settle before any metadata warmup.
-      window.requestAnimationFrame(() => {
-        window.setTimeout(() => scheduleWhenIdle(), 0);
-      });
-    };
-
-    scheduleRobotMetadataWarmup();
+  const postInitialDrawWarmupSummary = runRuntimeBridgeWarmup("post-initial-draw", { force: true });
+  let needsFinalProtoHydrationPass = !hasRuntimeBridgeCompletedProtoHydration(postInitialDrawWarmupSummary);
+  let needsFinalResolvedPrimHydrationPass = false;
+  if (needsFinalProtoHydrationPass) {
+    const postInitialDrawHydrationSummary = runProtoHydrationPass();
+    const pendingProtoHydrationCount = getPendingProtoHydrationCount(postInitialDrawHydrationSummary);
+    needsFinalProtoHydrationPass = pendingProtoHydrationCount === null || pendingProtoHydrationCount > 0;
   }
+  const postInitialDrawResolvedPrimHydrationSummary = runResolvedPrimHydrationPass({ force: true });
+  const pendingResolvedPrimHydrationCount = getPendingResolvedPrimHydrationCount(postInitialDrawResolvedPrimHydrationSummary);
+  needsFinalResolvedPrimHydrationPass = (
+    pendingResolvedPrimHydrationCount !== null
+    && pendingResolvedPrimHydrationCount > 0
+  );
   if (profileTextureLoads) {
     const textureSnapshot = (window.renderInterface as any)?.registry?.getTextureLoadSnapshot?.();
     if (textureSnapshot) {
@@ -1325,285 +1079,122 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
     }
   }
 
-  // A second transform prefetch after the first draw burst avoids stale
-  // early-stage matrices and fixes proto links that rely on GfQuatd xform ops.
-  const postDrawTransformSummary = refreshPrefetchedStageTransforms("post-initial-draw", {
-    force: strictOneShot,
-  });
-  const postDrawPrefetchedTransformCount = Number(postDrawTransformSummary.total || 0);
-  const shouldRunPostDrawProtoResync = (postDrawProtoResyncEnabled || forcePostDrawProtoResync) && (
-    forcePostDrawProtoResync
-    || postDrawPrefetchedTransformCount > 0
-  );
-  if (window.renderInterface?.meshes && shouldRunPostDrawProtoResync) {
-    const protoMeshes = Object.values(window.renderInterface.meshes).filter((hydraMesh) => {
-      if (!hydraMesh || typeof (hydraMesh as any)._id !== "string") return false;
-      const meshId = String((hydraMesh as any)._id || "");
-      return meshId.includes(".proto_");
-    });
-    let protoResynced = 0;
-    for (let meshIndex = 0; meshIndex < protoMeshes.length; meshIndex++) {
-      if (!isLoadStillActive()) return state;
-      const hydraMesh = protoMeshes[meshIndex] as any;
-      try {
-        if (typeof hydraMesh.resyncProtoTransformOnly === "function") {
-          hydraMesh.resyncProtoTransformOnly();
-          protoResynced += 1;
-        } else if (typeof hydraMesh.applyProtoStageSync === "function") {
-          hydraMesh.applyProtoStageSync();
-          protoResynced += 1;
-        } else {
-          if (typeof hydraMesh.syncProtoTransformFromFallback === "function") {
-            hydraMesh.syncProtoTransformFromFallback();
-          }
-          if (typeof hydraMesh.syncCollisionRotationFromVisualLink === "function") {
-            hydraMesh.syncCollisionRotationFromVisualLink();
-          }
-        }
-      } catch {
-        // Keep load resilient even if a single proto mesh fails to resync.
-      }
-      if ((meshIndex + 1) % postDrawProtoResyncChunk === 0) {
-        const ratio = protoMeshes.length > 0
-          ? Math.min(1, (meshIndex + 1) / protoMeshes.length)
-          : 1;
-        const progressBase = fastLoad ? 92 : 95;
-        const progressSpan = fastLoad ? 2 : 1;
-        setProgress(progressBase + (ratio * progressSpan));
-        setMessage(`Resyncing proto transforms... ${meshIndex + 1}/${Math.max(protoMeshes.length, 1)}`);
-        await yieldToMainThread();
-      }
-    }
-    if (profileLoad && protoMeshes.length > 0) {
-      void protoResynced;
-    }
-  } else if (profileLoad) {
-    void postDrawPrefetchedTransformCount;
-  }
-
   applyMeshFilters();
-  if (readStageMetadata) {
-    setMessage("Resolving stage metadata...");
-  } else {
-    setMessage("Finishing load...");
-  }
-  setProgress(fastLoad ? 92 : 95);
+  setMessage("Finishing load...");
+  setProgress(92);
   await yieldToMainThread();
 
-  let stage: any = null;
   const inferredStageUpAxis = inferStageUpAxisFromPath(normalizedPath);
   window.usdStage = null;
-  let stageResolvedWithinBudget = false;
-  let resolveStagePromise: Promise<any> | null = null;
-  const shouldAttemptStageResolve = (readStageMetadata || truthFirst || allowDriverStageLookup)
-    && state.driver
-    && typeof state.driver.GetStage === "function";
-  if (shouldAttemptStageResolve) {
-    resolveStagePromise = (async () => {
-      let resolvedStage: any = null;
-      resolvedStage = state.driver.GetStage();
-      if (resolvedStage && typeof resolvedStage.then === "function") {
-        await resolvedStage;
-        resolvedStage = state.driver.GetStage();
-      }
-      return resolvedStage || null;
-    })();
-    if (strictOneShot) {
-      try {
-        stage = await resolveStagePromise;
-        stageResolvedWithinBudget = true;
-        window.usdStage = stage || null;
-      } catch {
-        stageResolvedWithinBudget = false;
-      }
-    } else if (stageMetadataBudgetMs > 0) {
-      let timeoutHandle: number | null = null;
-      try {
-        const stageResult = await Promise.race([
-          resolveStagePromise.then((resolvedStage) => ({
-            kind: "stage" as const,
-            stage: resolvedStage || null,
-          })),
-          new Promise<{ kind: "timeout" }>((resolve) => {
-            timeoutHandle = window.setTimeout(() => resolve({ kind: "timeout" }), stageMetadataBudgetMs);
-          }),
-        ]);
-        if (stageResult.kind === "stage") {
-          stageResolvedWithinBudget = true;
-          stage = stageResult.stage || null;
-          window.usdStage = stage;
-        }
-      } catch {
-        stageResolvedWithinBudget = false;
-      } finally {
-        if (timeoutHandle !== null) {
-          window.clearTimeout(timeoutHandle);
-        }
-      }
-    }
-  }
   if (!isLoadStillActive()) return state;
-  markLoadPhase(stageResolvedWithinBudget ? "stage-ready" : "stage-ready-deferred");
-
-  if (directStageMeshRead && stage && window.renderInterface && typeof window.renderInterface.hydrateMissingMeshGeometryFromStage === "function") {
-    try {
-      const hydrationSummary = window.renderInterface.hydrateMissingMeshGeometryFromStage();
-      if (hydrationSummary && Number(hydrationSummary.hydrated || 0) > 0) {
-        applyMeshFilters();
-        void hydrationSummary;
-      }
-    } catch {
-      // Keep load path quiet; fallback remains active.
-    }
-  }
+  markLoadPhase("stage-ready");
   markLoadPhase("stage-mesh-fastpath");
 
   const refreshMeshStageOverrides = (): void => {
-    const includeVisualStageOverrides = !!loadVisualPrims && !!applyVisualStageOverrides;
     try {
       window.renderInterface?.refreshMeshStageOverrides?.({
         includeCollision: !!loadCollisionPrims,
-        includeVisual: includeVisualStageOverrides,
+        includeVisual: false,
       });
     } catch {
       // Keep load resilient and quiet.
     }
     applyMeshFilters();
   };
-  const shouldRunStageOverrides = !!loadCollisionPrims || !loadVisualPrims || applyVisualStageOverrides;
+  const shouldRunStageOverrides = !!loadCollisionPrims || !loadVisualPrims;
   if (!shouldRunStageOverrides) {
-    setMessage("Finishing load...");
-    setProgress(fastLoad ? 96 : 98);
-  } else if (deferStageOverrides) {
-    setMessage("Finishing load...");
-    const currentRenderInterface = window.renderInterface || null;
-    const runDeferredStageOverrides = (): void => {
-      if (!isLoadStillActive()) return;
-      if ((window.renderInterface || null) !== currentRenderInterface) return;
-      if (!currentRenderInterface || typeof currentRenderInterface.refreshMeshStageOverrides !== "function") {
-        refreshMeshStageOverrides();
-        return;
-      }
-
-      // Prime the final-stage override batch once before chunked refresh.
-      // This avoids expensive per-mesh proto blob fallback work on the main
-      // thread while still keeping stage overrides deferred/off critical path.
-      let allowPerMeshFallbackDuringDeferredChunks = true;
-      if (typeof currentRenderInterface.prefetchFinalStageOverrideBatchFromDriver === "function") {
-        try {
-          const resolvedDriver = state.driver || window.driver || null;
-          if (resolvedDriver) {
-            const batchSummary = currentRenderInterface.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
-              force: false,
-            }) || {};
-            const batchCount = Number(batchSummary?.count || 0);
-            const batchProtoMeshCount = Number(batchSummary?.protoMeshCount || 0);
-            if (
-              Number.isFinite(batchCount)
-              && Number.isFinite(batchProtoMeshCount)
-              && batchProtoMeshCount > 0
-              && batchCount >= batchProtoMeshCount
-            ) {
-              allowPerMeshFallbackDuringDeferredChunks = false;
-            }
-          }
-        } catch {
-          // Keep deferred overrides best-effort.
-        }
-      }
-
-      let nextIndex = 0;
-      const scheduleChunk = (next: () => void, delayMs: number): void => {
-        const requestIdle = (window as any).requestIdleCallback as
-          | ((callback: () => void, options?: { timeout?: number }) => number)
-          | undefined;
-        const shouldUseIdle = deferStageOverridesUseIdle && typeof requestIdle === "function";
-        window.setTimeout(() => {
-          if (shouldUseIdle) {
-            try {
-              requestIdle(() => next(), { timeout: Math.max(120, delayMs + 120) });
-              return;
-            } catch {
-              // Fall through to immediate callback.
-            }
-          }
-          next();
-        }, delayMs);
-      };
-
-      const runChunk = (): void => {
-        if (!isLoadStillActive()) return;
-        if ((window.renderInterface || null) !== currentRenderInterface) return;
-
-        const tickStartedAtMs = profileNow();
-        let done = false;
-        while (!done) {
-          let summary: any = null;
-          try {
-            summary = currentRenderInterface.refreshMeshStageOverrides({
-              includeCollision: !!loadCollisionPrims,
-              includeVisual: !!loadVisualPrims && !!applyVisualStageOverrides,
-              startIndex: nextIndex,
-              chunkSize: deferredStageOverridesChunkSize,
-              prefetchFinalStageBatch: false,
-              allowPerMeshFallback: allowPerMeshFallbackDuringDeferredChunks,
-              reuseProtoMeshCache: true,
-            });
-          } catch {
-            return;
-          }
-
-          done = summary && typeof summary === "object"
-            ? summary.done === true
-            : true;
-          const reportedNextIndex = Number(summary?.nextIndex);
-          nextIndex = Number.isFinite(reportedNextIndex)
-            ? Math.max(0, Math.floor(reportedNextIndex))
-            : (nextIndex + deferredStageOverridesChunkSize);
-          if (done) break;
-
-          const elapsedMs = Math.max(0, profileNow() - tickStartedAtMs);
-          if (elapsedMs >= deferredStageOverridesWorkBudgetMs) break;
-        }
-
-        if (done) {
-          applyMeshFilters();
-        } else {
-          scheduleChunk(runChunk, deferredStageOverridesChunkDelayMs);
-        }
-      };
-
-      scheduleChunk(runChunk, 0);
-    };
-
-    window.setTimeout(runDeferredStageOverrides, deferredStageOverridesStartDelayMs);
-    setProgress(96);
   } else {
     setMessage("Applying transform/collision fixes...");
     refreshMeshStageOverrides();
-    setProgress(fastLoad ? 96 : 98);
+    setProgress(96);
   }
   markLoadPhase("stage-overrides-applied");
 
+  const drainStrictOneShotMeshReadiness = async (): Promise<void> => {
+    if (!strictOneShot || state.drawFailed) return;
+    const drainStartedAtMs = profileNow();
+    let previousReady = -1;
+    let previousTotal = -1;
+    let previousPendingProto = -1;
+    let previousPendingResolvedPrim = -1;
+    let stagnantPassCount = 0;
+
+    for (;;) {
+      if (!isLoadStillActive()) return;
+
+      const hydrationSummary = runProtoHydrationPass();
+      const resolvedPrimHydrationSummary = runResolvedPrimHydrationPass();
+      const pendingProtoCount = Math.max(0, Number(getPendingProtoHydrationCount(hydrationSummary) ?? 0));
+      const pendingResolvedPrimCount = Math.max(0, Number(getPendingResolvedPrimHydrationCount(resolvedPrimHydrationSummary) ?? 0));
+      stats = updateStreamingStatus();
+      const allMeshesReady = stats.total <= 0 || stats.ready >= stats.total;
+      if (allMeshesReady && pendingProtoCount === 0 && pendingResolvedPrimCount === 0) {
+        return;
+      }
+
+      const isStagnant = (
+        stats.ready === previousReady
+        && stats.total === previousTotal
+        && pendingProtoCount === previousPendingProto
+        && pendingResolvedPrimCount === previousPendingResolvedPrim
+      );
+      stagnantPassCount = isStagnant ? (stagnantPassCount + 1) : 0;
+      previousReady = stats.ready;
+      previousTotal = stats.total;
+      previousPendingProto = pendingProtoCount;
+      previousPendingResolvedPrim = pendingResolvedPrimCount;
+
+      const elapsedMs = profileNow() - drainStartedAtMs;
+      if ((finalSceneDrainBudgetMs > 0 && elapsedMs >= finalSceneDrainBudgetMs) || stagnantPassCount >= 6) {
+        console.warn(
+          `[usd-loader] Strict one-shot drain stopped with ${stats.ready}/${Math.max(stats.total, 1)} meshes ready and ${pendingProtoCount} pending proto meshes.`,
+        );
+        return;
+      }
+
+      let drewInBurst = false;
+      const burstCount = Math.max(1, aggressiveInitialDraw ? initialDrawBurst : 1);
+      for (let drawIndex = 0; drawIndex < burstCount; drawIndex++) {
+        if (!isLoadStillActive()) return;
+        if (!runInstrumentedDriverDraw("load-complete", { forceRender: drawBurstRenderEveryDraw })) break;
+        drewInBurst = true;
+      }
+      if (!drewInBurst || state.drawFailed) return;
+
+      await yieldToMainThread(initialDrawYieldMs);
+    }
+  };
+
+  await drainStrictOneShotMeshReadiness();
+  if (!isLoadStillActive()) return state;
+  markLoadPhase("strict-one-shot-drain-done");
+
+  const cachedSceneStageSnapshot = getRobotSceneStageSnapshot();
+
   state.timeout = 40;
   state.endTimeCode = 0;
-  if (stage?.GetEndTimeCode) {
-    const stageEndTimeCode = Number(stage.GetEndTimeCode());
-    const stageTimeCodesPerSecond = Number(stage.GetTimeCodesPerSecond ? stage.GetTimeCodesPerSecond() : 0);
+  if (cachedSceneStageSnapshot) {
+    const stageEndTimeCode = Number((cachedSceneStageSnapshot as any).endTimeCode || 0);
+    const stageTimeCodesPerSecond = Number((cachedSceneStageSnapshot as any).timeCodesPerSecond || 0);
     state.endTimeCode = Number.isFinite(stageEndTimeCode) && stageEndTimeCode > 0 ? stageEndTimeCode : 0;
     state.timeout = Number.isFinite(stageTimeCodesPerSecond) && stageTimeCodesPerSecond > 0 ? 1000 / stageTimeCodesPerSecond : 40;
   }
 
   let stageUpAxis: "y" | "z" = inferredStageUpAxis;
-  if (stage?.GetUpAxis) {
-    try {
-      const resolvedAxis = String.fromCharCode(stage.GetUpAxis()).toLowerCase();
-      if (resolvedAxis === "y" || resolvedAxis === "z") {
-        stageUpAxis = resolvedAxis;
-      }
-    } catch {}
+  if (cachedSceneStageSnapshot) {
+    const resolvedAxis = String((cachedSceneStageSnapshot as any).upAxis || "").trim().toLowerCase();
+    if (resolvedAxis === "y" || resolvedAxis === "z") {
+      stageUpAxis = resolvedAxis;
+    }
   }
   window.usdRoot.rotation.x = stageUpAxis === "z" ? -Math.PI / 2 : 0;
+
+  if (needsFinalProtoHydrationPass) {
+    runProtoHydrationPass();
+  }
+  if (needsFinalResolvedPrimHydrationPass) {
+    runResolvedPrimHydrationPass({ force: true });
+  }
 
   const fitted = fitCameraToSelection(window.camera!, window._controls!, [window.usdRoot], 1.5, params);
   if (!fitted) {
@@ -1612,13 +1203,6 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
 
   await ensureRobotMetadataReadyBeforeInteractive();
   if (!isLoadStillActive()) return state;
-  if (strictOneShot && prefetchProtoDataBlobs && !protoBlobPrefetchedBeforeDraw) {
-    const prefetchedNow = runProtoBlobPrefetch({ force: true });
-    if (prefetchedNow > 0) {
-      protoBlobPrefetchedBeforeDraw = true;
-      markLoadPhase("proto-blob-prefetch-before-ready");
-    }
-  }
 
   state.ready = true;
   rebuildLinkAxes();
@@ -1649,36 +1233,7 @@ export async function loadUsdStage(args: LoadUsdFileArgs): Promise<LoadUsdFileSt
   runEagerRender("pre-complete", { forceRender: true });
   setProgress(100, true);
   hideProgress();
-  if (!strictOneShot) {
-    scheduleProtoBlobPrefetch();
-  }
   flushLoadProfile("ok");
-
-  if (!strictOneShot && resolveStagePromise && !stageResolvedWithinBudget) {
-    const activeRenderInterface = window.renderInterface || null;
-    const activeDriver = state.driver;
-    const fallbackUpAxis = stageUpAxis;
-    void resolveStagePromise.then((resolvedStage) => {
-      if (!resolvedStage) return;
-      if (!isLoadStillActive()) return;
-      if ((window.renderInterface || null) !== activeRenderInterface) return;
-      if (window.driver !== activeDriver) return;
-
-      window.usdStage = resolvedStage;
-      let resolvedUpAxis: "y" | "z" = fallbackUpAxis;
-      if (typeof resolvedStage.GetUpAxis === "function") {
-        try {
-          const rawAxis = String.fromCharCode(resolvedStage.GetUpAxis()).toLowerCase();
-          if (rawAxis === "y" || rawAxis === "z") {
-            resolvedUpAxis = rawAxis;
-          }
-        } catch {}
-      }
-      window.usdRoot.rotation.x = resolvedUpAxis === "z" ? -Math.PI / 2 : 0;
-    }).catch(() => {
-      // Keep background stage resolution best-effort.
-    });
-  }
 
   return state;
 }

@@ -28,6 +28,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -57,6 +58,7 @@ public:
         std::vector<float> normals;
         std::array<float, 16> transform = {0.0f};
         std::string materialId;
+        std::vector<GeomSubsetSection> geomSubsetSections;
     };
 
     struct RprimPrimvarDeltaRecord
@@ -169,6 +171,10 @@ public:
     void ReadAllProtoDataBlobs(
         std::function<void(std::string const&, ProtoDataBlobRecord const&)> const& reader) const;
     void RemoveProtoDataBlob(std::string const& rprimPath);
+    void RegisterLiveRprimPath(std::string const& rprimPath);
+    void UnregisterLiveRprimPath(std::string const& rprimPath);
+    void ReadAllLiveRprimPaths(
+        std::function<void(std::string const&)> const& reader) const;
 
     void QueueRprimMaterial(std::string const& rprimPath,
                             std::string const& materialId);
@@ -210,6 +216,9 @@ private:
     emscripten::val _renderDelegateInterface;
     mutable std::mutex _protoDataBlobMutex;
     std::unordered_map<std::string, ProtoDataBlobRecord> _protoDataBlobByRprimPath;
+    mutable std::mutex _liveRprimPathMutex;
+    std::unordered_set<std::string> _liveRprimPathSet;
+    std::vector<std::string> _liveRprimPathOrder;
     mutable std::mutex _rprimDeltaMutex;
     std::unordered_map<std::string, RprimDeltaRecord> _rprimDeltaByPath;
     std::vector<std::string> _rprimDeltaOrder;

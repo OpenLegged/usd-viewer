@@ -91,11 +91,6 @@ export class LinkRotationController {
     120,
     120_000,
   );
-  private readonly strictOneShot = this.getBooleanParamFromQuery("strictOneShot", true);
-  private readonly allowStageJointCatalogFallback = this.getBooleanParamFromQuery(
-    "allowStageJointCatalogFallback",
-    !this.strictOneShot,
-  );
   private readonly jointCatalogUiWaitBudgetMs = this.getDurationParamMsFromQuery("jointCatalogWaitBudgetMs", 96, 0, 10_000);
   private readonly jointCatalogStageFallbackDelayMs = this.getDurationParamMsFromQuery("jointCatalogStageFallbackDelayMs", 40, 0, 120_000);
   private readonly jointCatalogStageFallbackIdleTimeoutMs = this.getDurationParamMsFromQuery("jointCatalogStageFallbackIdleTimeoutMs", 40, 0, 120_000);
@@ -304,6 +299,13 @@ export class LinkRotationController {
     if (Object.keys(this.renderInterface.meshes).length <= 0) return;
 
     this.refreshMeshLinkPathIndex();
+    if (this.jointCatalogByLinkPath.size === 0 && this.linkParentPathByLinkPath.size === 0) {
+      const runtimeLinkPathIndex = buildRuntimeLinkPathIndex(this.renderInterface);
+      if (runtimeLinkPathIndex.allLinkPaths.size > 0) {
+        const cachedRenderSnapshot = getRenderRobotMetadataSnapshot(this.renderInterface, this.stageSourcePath);
+        this.ingestJointCatalogFromRenderSnapshot(cachedRenderSnapshot, runtimeLinkPathIndex);
+      }
+    }
     this.ensureSubtreeIndex({ resolveMissingParents: true });
     this.captureCurrentPoseAsBasePose();
     const baseLinkPoseByLinkPath = this.buildBaseLinkPoseMap();
@@ -336,6 +338,11 @@ export class LinkRotationController {
       upperLimitDeg: roundAngleDegrees(jointState.upperLimitDeg),
       angleDeg: roundAngleDegrees(jointState.angleDeg),
     };
+  }
+
+  getCurrentLinkFrameMatrix(linkPath: string): Matrix4 | null {
+    if (!linkPath) return null;
+    return this.getCurrentLinkFrameMatrixForLinkPath(linkPath);
   }
 
   async getAllJointInfos(): Promise<JointInfoSnapshot[]> {
@@ -1326,70 +1333,7 @@ export class LinkRotationController {
       return Promise.resolve();
     }
 
-    const importedFromDriverSnapshot = this.tryHydrateJointCatalogFromDriverSnapshot(runtimeLinkPathIndex);
-    if (importedFromDriverSnapshot > 0) {
-      return Promise.resolve();
-    }
-
-    if (!this.allowStageJointCatalogFallback) {
-      this.jointCatalogBuildPromise = Promise.resolve()
-        .then(async () => {
-          const refreshedRuntimeLinkPathIndex = buildRuntimeLinkPathIndex(this.renderInterface);
-          if (refreshedRuntimeLinkPathIndex.allLinkPaths.size <= 0) return;
-          const warmedSnapshot = await warmupRenderRobotMetadataSnapshot(this.renderInterface, {
-            stageSourcePath: this.stageSourcePath,
-            force: true,
-            skipIdleWait: true,
-            skipUrdfTruthFallback: true,
-          });
-          this.ingestJointCatalogFromRenderSnapshot(warmedSnapshot, refreshedRuntimeLinkPathIndex);
-          if (!cacheKey) return;
-          this.saveJointCatalogToCache(cacheKey);
-        })
-        .catch(() => {
-          // Keep strict one-shot fallback disabled path resilient.
-        })
-        .finally(() => {
-          this.jointCatalogBuildPromise = null;
-        });
-      return this.jointCatalogBuildPromise;
-    }
-
-    this.lastJointCatalogBuildAttemptAtMs = nowMs;
-    const stage = ((window as any).usdStage || null) as StageLike | null;
-    this.jointCatalogBuildPromise = this.buildJointCatalog(stage)
-      .then(() => {
-        if (!cacheKey) return;
-        this.saveJointCatalogToCache(cacheKey);
-      })
-      .catch((error) => {
-        console.warn("Failed to build joint catalog for link rotation.", error);
-      })
-      .finally(() => {
-        this.jointCatalogBuildPromise = null;
-      });
-    return this.jointCatalogBuildPromise;
-  }
-
-  private tryHydrateJointCatalogFromDriverSnapshot(runtimeLinkPathIndex: RuntimeLinkPathIndex): number {
-    const activeDriver = (window as any).driver;
-    if (!activeDriver || typeof activeDriver.GetRobotMetadataSnapshot !== "function") return 0;
-
-    const sortedLinkPaths = Array.from(runtimeLinkPathIndex.allLinkPaths)
-      .filter((linkPath) => !!linkPath)
-      .sort((left, right) => left.localeCompare(right));
-    if (sortedLinkPaths.length <= 0) return 0;
-
-    try {
-      const rawSnapshot = activeDriver.GetRobotMetadataSnapshot(
-        sortedLinkPaths,
-        String(this.stageSourcePath || ""),
-      );
-      const normalizedSnapshot = normalizeRenderRobotMetadataSnapshot(rawSnapshot);
-      return this.ingestJointCatalogFromRenderSnapshot(normalizedSnapshot, runtimeLinkPathIndex);
-    } catch {
-      return 0;
-    }
+    return null;
   }
 
   private getDurationParamMsFromQuery(paramName: string, fallbackMs: number, minMs: number, maxMs: number): number {
@@ -1400,12 +1344,6 @@ export class LinkRotationController {
     const requested = Number(requestedRaw);
     if (!Number.isFinite(requested)) return fallbackMs;
     return Math.max(minMs, Math.min(maxMs, Math.floor(requested)));
-  }
-
-  private getBooleanParamFromQuery(paramName: string, fallback: boolean): boolean {
-    const search = String(window?.location?.search || "");
-    const params = new URLSearchParams(search);
-    return parseBooleanFlag(params.get(paramName), fallback);
   }
 
   private async waitForBrowserIdleSlice(timeoutMs: number): Promise<void> {
@@ -1622,6 +1560,8 @@ export class LinkRotationController {
     let imported = 0;
     for (const entry of snapshot.jointCatalogEntries) {
       if (!entry?.linkPath) continue;
+      const jointTypeName = String(entry.jointTypeName || entry.jointType || "").trim();
+      if (jointTypeName && !isControllableRevoluteJointTypeName(jointTypeName)) continue;
       const resolvedLinkPaths = resolveRuntimeLinkPathsFromSourcePath(entry.linkPath, runtimeLinkPathIndex);
       if (resolvedLinkPaths.length <= 0) continue;
 

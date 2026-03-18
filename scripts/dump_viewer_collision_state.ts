@@ -77,6 +77,7 @@ function createViewerUrl(options: DumpOptions): string {
   url.searchParams.set("showCollisions", options.showCollisions ? "1" : "0");
   // Force deterministic one-shot load path while dumping mesh/collision state.
   url.searchParams.set("strictOneShot", "1");
+  url.searchParams.set("sceneSnapshotMode", "1");
   url.searchParams.set("twoPassSelectionUpgrade", "0");
   url.searchParams.set("preloadHiddenPrims", "1");
   url.searchParams.set("deferStageOverrides", "0");
@@ -131,7 +132,7 @@ async function main(): Promise<void> {
 
           const classifyCategory = (meshId: string): "visual" | "collision" | "other" => {
             const lowered = String(meshId || "").toLowerCase();
-            if (/\/collisions(?:[/.]|$)/i.test(lowered)) return "collision";
+            if (/\/(?:collisions|colliders)(?:[/.]|$)/i.test(lowered)) return "collision";
             if (/\/visuals(?:[/.]|$)/i.test(lowered)) return "visual";
             return "other";
           };
@@ -175,6 +176,45 @@ async function main(): Promise<void> {
       );
     };
 
+    const waitForStableMeshTopology = async (timeoutMs: number): Promise<void> => {
+      await page.waitForFunction(
+        ({ noGeometryPatternSource }) => {
+          const renderInterface = (window as any).renderInterface;
+          const message = String((document.querySelector("#message-log") as HTMLElement | null)?.textContent || "").trim();
+          const noGeometryPattern = new RegExp(noGeometryPatternSource, "i");
+          if (noGeometryPattern.test(message)) return true;
+          if (!renderInterface?.meshes) return false;
+
+          const meshIds = Object.keys(renderInterface.meshes || {}).sort();
+          if (meshIds.length === 0) return false;
+
+          const signature = JSON.stringify({
+            message,
+            meshIds,
+          });
+          const stateKey = "__viewerDumpStableMeshTopology";
+          const now = Date.now();
+          const previousState = (window as any)[stateKey] || null;
+          if (!previousState || previousState.signature !== signature) {
+            (window as any)[stateKey] = {
+              signature,
+              stableSinceMs: now,
+            };
+            return false;
+          }
+
+          const stableForMs = now - Number(previousState.stableSinceMs || now);
+          const hasTerminalMessage = /loaded\s+\d+\s+meshes/i.test(message);
+          const isTransientMessage = /finishing load|applying transform\/collision fixes/i.test(message);
+          if (hasTerminalMessage && stableForMs >= 500) return true;
+          if (!isTransientMessage && stableForMs >= 1500) return true;
+          return false;
+        },
+        { noGeometryPatternSource: noGeometryMessagePattern.source },
+        { timeout: timeoutMs },
+      );
+    };
+
     await page.goto(viewerUrl, { waitUntil: "domcontentloaded", timeout: options.timeoutMs });
     await waitForLoadCompletionSignal();
     try {
@@ -190,22 +230,27 @@ async function main(): Promise<void> {
       } catch {}
     }
 
-    const payload = await page.evaluate(({ showVisuals, showCollisions }) => {
-      const renderInterface = (window as any).renderInterface;
-      const stage = (window as any).usdStage;
-      const classifyCategory = (meshId: string): "visual" | "collision" | "other" => {
+    try {
+      await waitForStableMeshTopology(Math.min(20_000, options.timeoutMs));
+    } catch {}
+
+    const payload = await page.evaluate(String.raw`(() => {
+      const showVisuals = ${JSON.stringify(options.showVisuals)};
+      const showCollisions = ${JSON.stringify(options.showCollisions)};
+      const win = window;
+      const renderInterface = win.renderInterface;
+      const stage = win.usdStage;
+      const classifyCategory = (meshId) => {
         const loweredMeshId = String(meshId || "").toLowerCase();
-        if (/\/collisions(?:[/.]|$)/i.test(loweredMeshId)) return "collision";
+        if (/\/(?:collisions|colliders)(?:[/.]|$)/i.test(loweredMeshId)) return "collision";
         if (/\/visuals(?:[/.]|$)/i.test(loweredMeshId)) return "visual";
-        if (showVisuals && !showCollisions) return "visual";
-        if (showCollisions && !showVisuals) return "collision";
         return "other";
       };
-      const toMatrixArray = (matrix: any): number[] | null => {
+      const toMatrixArray = (matrix) => {
         if (!matrix?.elements) return null;
         return Array.from(matrix.elements);
       };
-      const getMatrixMaxElementDelta = (left: any, right: any): number => {
+      const getMatrixMaxElementDelta = (left, right) => {
         const leftElements = left?.elements;
         const rightElements = right?.elements;
         if (!leftElements || !rightElements) return Number.POSITIVE_INFINITY;
@@ -219,7 +264,7 @@ async function main(): Promise<void> {
         }
         return maxDelta;
       };
-      const readBounds = (geometry: any): { min: number[]; max: number[]; size: number[] } | null => {
+      const readBounds = (geometry) => {
         if (!geometry) return null;
         try {
           if (!geometry.boundingBox && typeof geometry.computeBoundingBox === "function") {
@@ -227,23 +272,77 @@ async function main(): Promise<void> {
           }
           const bounds = geometry.boundingBox;
           if (!bounds?.min || !bounds?.max) return null;
-          return {
-            min: [Number(bounds.min.x), Number(bounds.min.y), Number(bounds.min.z)],
-            max: [Number(bounds.max.x), Number(bounds.max.y), Number(bounds.max.z)],
-            size: [
-              Number(bounds.max.x - bounds.min.x),
-              Number(bounds.max.y - bounds.min.y),
-              Number(bounds.max.z - bounds.min.z),
-            ],
-          };
+          const min = [Number(bounds.min.x), Number(bounds.min.y), Number(bounds.min.z)];
+          const max = [Number(bounds.max.x), Number(bounds.max.y), Number(bounds.max.z)];
+          const size = [
+            Number(bounds.max.x - bounds.min.x),
+            Number(bounds.max.y - bounds.min.y),
+            Number(bounds.max.z - bounds.min.z),
+          ];
+          const allFinite = [...min, ...max, ...size].every((value) => Number.isFinite(value));
+          if (!allFinite) return null;
+          return { min, max, size };
         } catch {
           return null;
         }
       };
 
-      const meshRecords: Array<Record<string, unknown>> = [];
-      const usdRootMatrixWorld = (window as any)?.usdRoot?.matrixWorld || null;
-      const toStageSpaceWorldMatrix = (matrix: any): any => {
+      const meshRecords = [];
+      const stageSourcePath = renderInterface?.getStageSourcePath?.() || null;
+      const sceneSnapshot = typeof renderInterface?.getCachedRobotSceneSnapshot === "function"
+        ? renderInterface.getCachedRobotSceneSnapshot(stageSourcePath)
+        : null;
+      const snapshotDescriptorByMeshId = new Map();
+      const snapshotPositions = sceneSnapshot?.buffers?.positions || null;
+      if (Array.isArray(sceneSnapshot?.render?.meshDescriptors)) {
+        for (const descriptor of sceneSnapshot.render.meshDescriptors) {
+          const meshId = String(descriptor?.meshId || "").trim();
+          if (!meshId) continue;
+          snapshotDescriptorByMeshId.set(meshId, descriptor);
+        }
+      }
+      const readSnapshotBounds = (meshId) => {
+        const descriptor = snapshotDescriptorByMeshId.get(String(meshId || "").trim());
+        const range = descriptor?.ranges?.positions;
+        if (!descriptor || !range || !snapshotPositions || typeof snapshotPositions.length !== "number") return null;
+        const offset = Number(range.offset);
+        const count = Number(range.count);
+        const stride = Math.max(1, Number(range.stride || 3));
+        if (!Number.isFinite(offset) || offset < 0 || !Number.isFinite(count) || count < 3) return null;
+        const end = Math.min(snapshotPositions.length, offset + count);
+        if (end - offset < 3) return null;
+        let minX = Number.POSITIVE_INFINITY;
+        let minY = Number.POSITIVE_INFINITY;
+        let minZ = Number.POSITIVE_INFINITY;
+        let maxX = Number.NEGATIVE_INFINITY;
+        let maxY = Number.NEGATIVE_INFINITY;
+        let maxZ = Number.NEGATIVE_INFINITY;
+        for (let index = offset; index + 2 < end; index += stride) {
+          const x = Number(snapshotPositions[index + 0]);
+          const y = Number(snapshotPositions[index + 1]);
+          const z = Number(snapshotPositions[index + 2]);
+          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (z < minZ) minZ = z;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+          if (z > maxZ) maxZ = z;
+        }
+        if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(minZ)
+          || !Number.isFinite(maxX) || !Number.isFinite(maxY) || !Number.isFinite(maxZ)) {
+          return null;
+        }
+        return {
+          min: [minX, minY, minZ],
+          max: [maxX, maxY, maxZ],
+          size: [maxX - minX, maxY - minY, maxZ - minZ],
+          vertex_count: Math.max(0, Math.floor(Number(descriptor?.geometry?.numVertices || 0) || Math.floor((end - offset) / Math.max(1, stride)))),
+          index_count: Math.max(0, Math.floor(Number(descriptor?.geometry?.numIndices || 0))),
+        };
+      };
+      const usdRootMatrixWorld = win?.usdRoot?.matrixWorld || null;
+      const toStageSpaceWorldMatrix = (matrix) => {
         if (!matrix || typeof matrix.clone !== "function") return matrix || null;
         const clonedMatrix = matrix.clone();
         if (!usdRootMatrixWorld || typeof usdRootMatrixWorld.clone !== "function") {
@@ -264,9 +363,9 @@ async function main(): Promise<void> {
         }
       };
       for (const [meshId, hydraMesh] of Object.entries(renderInterface?.meshes || {})) {
-        const category: "visual" | "collision" | "other" = classifyCategory(meshId);
+        const category = classifyCategory(meshId);
 
-        const meshObject = (hydraMesh as any)?._mesh || null;
+        const meshObject = hydraMesh?._mesh || null;
         const resolvedCollisionPath = category === "collision"
           ? renderInterface?.getResolvedPrimPathForMeshId?.(meshId) || null
           : null;
@@ -281,14 +380,10 @@ async function main(): Promise<void> {
         const isVisualProtoMeshId = isProtoMeshId && category === "visual";
         const isCollisionProtoMeshId = isProtoMeshId && category === "collision";
 
-        // In this render path, prim/link world transforms can be available before mesh world matrices are updated.
         const rawWorldMatrix = meshObject?.matrixWorld || meshObject?.matrix || null;
         const rawStageSpaceWorldMatrix = toStageSpaceWorldMatrix(rawWorldMatrix);
-        // Prefer stage-resolved transforms whenever a semantic prim path is available.
-        // Raw matrixWorld can include scene-level up-axis presentation transforms
-        // (e.g. root -90deg X) that should not be part of stage-truth comparisons.
-        const preferRawVisualProtoWorld = isVisualProtoMeshId && (hydraMesh as any)?._hasCompletedProtoSync === true;
-        const collisionOverrideApplied = isCollisionProtoMeshId && (hydraMesh as any)?._appliedCollisionOverride === true;
+        const preferRawVisualProtoWorld = isVisualProtoMeshId && hydraMesh?._hasCompletedProtoSync === true;
+        const collisionOverrideApplied = isCollisionProtoMeshId && hydraMesh?._appliedCollisionOverride === true;
         const rawVsStageResolvedDelta = getMatrixMaxElementDelta(rawStageSpaceWorldMatrix, stageResolvedMatrix);
         const preferRawCollisionProtoWorld = category === "collision" && (
           collisionOverrideApplied
@@ -300,6 +395,10 @@ async function main(): Promise<void> {
         const effectiveWorldMatrix = shouldPreferStageWorldMatrix
           ? (stageResolvedMatrix || rawStageSpaceWorldMatrix || fallbackLinkMatrix || rawWorldMatrix)
           : (rawStageSpaceWorldMatrix || stageResolvedMatrix || fallbackLinkMatrix || rawWorldMatrix);
+        const snapshotBounds = readSnapshotBounds(meshId);
+        const geometryBounds = readBounds(geometry);
+        const vertexCount = Number(geometry?.getAttribute?.("position")?.count || snapshotBounds?.vertex_count || 0);
+        const indexCount = Number(geometry?.index?.count || snapshotBounds?.index_count || 0);
         meshRecords.push({
           id: meshId,
           category,
@@ -309,11 +408,15 @@ async function main(): Promise<void> {
           world_matrix: toMatrixArray(effectiveWorldMatrix),
           stage_resolved_matrix: toMatrixArray(stageResolvedMatrix),
           fallback_link_matrix: toMatrixArray(fallbackLinkMatrix),
-          local_bounds: readBounds(geometry),
-          geometry_type: String(geometry?.type || ""),
-          primitive_fallback_type: (hydraMesh as any)?._primitiveFallbackType || null,
-          vertex_count: Number(geometry?.getAttribute?.("position")?.count || 0),
-          index_count: Number(geometry?.index?.count || 0),
+          local_bounds: geometryBounds || (snapshotBounds ? {
+            min: snapshotBounds.min,
+            max: snapshotBounds.max,
+            size: snapshotBounds.size,
+          } : null),
+          geometry_type: String(geometry?.type || (snapshotBounds ? "SnapshotGeometry" : "")),
+          primitive_fallback_type: hydraMesh?._primitiveFallbackType || null,
+          vertex_count: vertexCount,
+          index_count: indexCount,
           visible: !!meshObject?.visible,
         });
       }
@@ -332,10 +435,7 @@ async function main(): Promise<void> {
         visuals: visualRecords,
         collisions: collisionRecords,
       };
-    }, {
-      showVisuals: options.showVisuals,
-      showCollisions: options.showCollisions,
-    });
+    })()`);
 
     const outputPath = path.resolve(options.output);
     await mkdir(path.dirname(outputPath), { recursive: true });

@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <utility>
 
 using namespace emscripten;
 
@@ -85,6 +86,9 @@ public:
      , _smoothNormals(false)
     {
       _rPrim = _renderDelegateInterface.call<val>("createRPrim", std::string(typeId.GetText()), id.GetAsString());
+      if (_ownerDelegate) {
+          _ownerDelegate->RegisterLiveRprimPath(id.GetAsString());
+      }
     }
 
     virtual ~Emscripten_Rprim() {
@@ -92,6 +96,7 @@ public:
         const std::string rprimPath = GetId().GetAsString();
         _ownerDelegate->ClearRprimDelta(rprimPath);
         _ownerDelegate->RemoveProtoDataBlob(rprimPath);
+        _ownerDelegate->UnregisterLiveRprimPath(rprimPath);
     }
 
     void findContiguousSections(
@@ -281,6 +286,29 @@ protected:
     }
 
 private:
+    template <typename VecArrayT, size_t ComponentCount>
+    static std::vector<float> _FlattenFloatTupleArray(VecArrayT const& values)
+    {
+        if (values.empty()) return {};
+        const float* rawValues = reinterpret_cast<float const*>(values.cdata());
+        return std::vector<float>(
+            rawValues,
+            rawValues + (values.size() * ComponentCount));
+    }
+
+    static std::vector<uint32_t> _FlattenTriangulatedIndices(VtVec3iArray const& values)
+    {
+        if (values.empty()) return {};
+        std::vector<uint32_t> flattened(values.size() * 3);
+        size_t writeIndex = 0;
+        for (auto const& triangle : values) {
+            flattened[writeIndex++] = static_cast<uint32_t>(std::max(0, triangle[0]));
+            flattened[writeIndex++] = static_cast<uint32_t>(std::max(0, triangle[1]));
+            flattened[writeIndex++] = static_cast<uint32_t>(std::max(0, triangle[2]));
+        }
+        return flattened;
+    }
+
     TfToken _typeId;
     emscripten::val _renderDelegateInterface;
     WebRenderDelegate* _ownerDelegate;
@@ -319,9 +347,9 @@ private:
         return name == "st" || name == "primvars:st";
     }
 
-    static bool _ShouldQueuePrimvarToJs(std::string const& name)
+    static std::string _NormalizePrimvarName(std::string const& name)
     {
-        if (name.empty()) return false;
+        if (name.empty()) return {};
 
         std::string normalized = name;
         std::transform(
@@ -332,6 +360,138 @@ private:
         if (normalized.rfind("primvars:", 0) == 0) {
             normalized = normalized.substr(9);
         }
+        return normalized;
+    }
+
+    static bool _TryGetSplitStPrimvarOrdinal(std::string const& name, int* outOrdinal)
+    {
+        if (outOrdinal) {
+            *outOrdinal = -1;
+        }
+
+        const std::string normalized = _NormalizePrimvarName(name);
+        if (normalized == "st") {
+            if (outOrdinal) {
+                *outOrdinal = 0;
+            }
+            return true;
+        }
+        if (normalized.rfind("st_", 0) != 0 || normalized.size() <= 3) {
+            return false;
+        }
+
+        int ordinal = 0;
+        for (size_t index = 3; index < normalized.size(); ++index) {
+            const char ch = normalized[index];
+            if (ch < '0' || ch > '9') {
+                return false;
+            }
+            ordinal = (ordinal * 10) + static_cast<int>(ch - '0');
+        }
+
+        if (ordinal <= 0) {
+            return false;
+        }
+        if (outOrdinal) {
+            *outOrdinal = ordinal;
+        }
+        return true;
+    }
+
+    static size_t _GetExpectedFaceVaryingElementCount(HdMeshTopology const& topology)
+    {
+        const VtIntArray faceVertexCounts = topology.GetFaceVertexCounts();
+        if (faceVertexCounts.empty()) return 0;
+
+        size_t expectedCount = 0;
+        for (const int countValue : faceVertexCounts) {
+            if (countValue > 0) {
+                expectedCount += static_cast<size_t>(countValue);
+            }
+        }
+        return expectedCount;
+    }
+
+    bool _TryBuildMergedFaceVaryingStPrimvar(
+        HdSceneDelegate* delegate,
+        HdPrimvarDescriptorVector const& primvars,
+        VtVec2fArray* outMergedPrimvar,
+        std::string* outCanonicalPrimvarName = nullptr) const
+    {
+        if (!delegate || !outMergedPrimvar) return false;
+
+        struct SplitPrimvarRecord {
+            int ordinal = -1;
+            std::string name;
+            TfToken token;
+        };
+
+        std::vector<SplitPrimvarRecord> splitPrimvars;
+        splitPrimvars.reserve(primvars.size());
+        bool hasSplitSuffix = false;
+        for (HdPrimvarDescriptor const& primvar : primvars) {
+            const std::string name = primvar.name.GetString();
+            int ordinal = -1;
+            if (!_TryGetSplitStPrimvarOrdinal(name, &ordinal)) {
+                continue;
+            }
+            if (ordinal > 0) {
+                hasSplitSuffix = true;
+            }
+            splitPrimvars.push_back({ordinal, name, primvar.name});
+        }
+
+        if (splitPrimvars.size() <= 1 || !hasSplitSuffix) {
+            return false;
+        }
+
+        std::sort(
+            splitPrimvars.begin(),
+            splitPrimvars.end(),
+            [](SplitPrimvarRecord const& left, SplitPrimvarRecord const& right) {
+                if (left.ordinal != right.ordinal) {
+                    return left.ordinal < right.ordinal;
+                }
+                return left.name < right.name;
+            });
+
+        const size_t expectedCount = _GetExpectedFaceVaryingElementCount(_topology);
+        if (expectedCount == 0) {
+            return false;
+        }
+
+        VtVec2fArray mergedPrimvar;
+        mergedPrimvar.reserve(expectedCount);
+        for (SplitPrimvarRecord const& splitPrimvar : splitPrimvars) {
+            const VtValue value = GetPrimvar(delegate, splitPrimvar.token);
+            if (!value.CanCast<VtVec2fArray>()) {
+                return false;
+            }
+            const VtVec2fArray currentPrimvar = value.Get<VtVec2fArray>();
+            if (currentPrimvar.empty()) {
+                continue;
+            }
+            for (GfVec2f const& uvValue : currentPrimvar) {
+                mergedPrimvar.push_back(uvValue);
+            }
+        }
+
+        if (mergedPrimvar.size() != expectedCount) {
+            return false;
+        }
+
+        *outMergedPrimvar = std::move(mergedPrimvar);
+        if (outCanonicalPrimvarName) {
+            *outCanonicalPrimvarName = splitPrimvars.front().name;
+        }
+        return true;
+    }
+
+    static bool _ShouldQueuePrimvarToJs(std::string const& name)
+    {
+        if (name.empty()) return false;
+
+        const std::string normalized = _NormalizePrimvarName(name);
 
         return normalized == "st"
             || normalized == "displaycolor"
@@ -352,39 +512,33 @@ private:
         record.normalsDimension = record.numNormals > 0 ? 3 : 0;
         record.materialId = _materialIdPath;
 
-        if (!_points.empty()) {
-            record.points.reserve(_points.size() * 3);
-            for (auto const& point : _points) {
-                record.points.push_back(point[0]);
-                record.points.push_back(point[1]);
-                record.points.push_back(point[2]);
+        const HdGeomSubsets geomSubsets = _topology.GetGeomSubsets();
+        if (!geomSubsets.empty()) {
+            const VtIntArray faceVertexCounts = _topology.GetFaceVertexCounts();
+            for (const HdGeomSubset& geomSubset : geomSubsets) {
+                const std::string materialID = geomSubset.materialId.GetAsString();
+                findContiguousSections(
+                    geomSubset.indices,
+                    materialID,
+                    record.geomSubsetSections,
+                    faceVertexCounts);
             }
+        }
+
+        if (!_points.empty()) {
+            record.points = _FlattenFloatTupleArray<VtVec3fArray, 3>(_points);
         }
 
         if (!_triangulatedIndices.empty()) {
-            record.indices.reserve(_triangulatedIndices.size() * 3);
-            for (auto const& triangle : _triangulatedIndices) {
-                record.indices.push_back(static_cast<uint32_t>(std::max(0, triangle[0])));
-                record.indices.push_back(static_cast<uint32_t>(std::max(0, triangle[1])));
-                record.indices.push_back(static_cast<uint32_t>(std::max(0, triangle[2])));
-            }
+            record.indices = _FlattenTriangulatedIndices(_triangulatedIndices);
         }
 
         if (!_uvPrimvar.empty()) {
-            record.uv.reserve(_uvPrimvar.size() * 2);
-            for (auto const& uv : _uvPrimvar) {
-                record.uv.push_back(uv[0]);
-                record.uv.push_back(uv[1]);
-            }
+            record.uv = _FlattenFloatTupleArray<VtVec2fArray, 2>(_uvPrimvar);
         }
 
         if (!_computedNormals.empty()) {
-            record.normals.reserve(_computedNormals.size() * 3);
-            for (auto const& normal : _computedNormals) {
-                record.normals.push_back(normal[0]);
-                record.normals.push_back(normal[1]);
-                record.normals.push_back(normal[2]);
-            }
+            record.normals = _FlattenFloatTupleArray<VtVec3fArray, 3>(_computedNormals);
         }
 
         int matrixIndex = 0;
@@ -433,37 +587,19 @@ private:
                 _uvPrimvar = primvarData;
             }
             if (!queueToJs) return;
-            std::vector<float> flattened;
-            flattened.reserve(primvarData.size() * 2);
-            for (auto const& item : primvarData) {
-                flattened.push_back(item[0]);
-                flattened.push_back(item[1]);
-            }
+            std::vector<float> flattened = _FlattenFloatTupleArray<VtVec2fArray, 2>(primvarData);
             _StorePrimvarPayload(name + "|2|" + ip, name, ip, 2, std::move(flattened), rprimPath);
         }
         if (value.CanCast<VtVec3fArray>()) {
             if (!queueToJs) return;
             VtVec3fArray primvarData = value.Get<VtVec3fArray>();
-            std::vector<float> flattened;
-            flattened.reserve(primvarData.size() * 3);
-            for (auto const& item : primvarData) {
-                flattened.push_back(item[0]);
-                flattened.push_back(item[1]);
-                flattened.push_back(item[2]);
-            }
+            std::vector<float> flattened = _FlattenFloatTupleArray<VtVec3fArray, 3>(primvarData);
             _StorePrimvarPayload(name + "|3|" + ip, name, ip, 3, std::move(flattened), rprimPath);
         }
         if (value.CanCast<VtVec4fArray>()) {
             if (!queueToJs) return;
             VtVec4fArray primvarData = value.Get<VtVec4fArray>();
-            std::vector<float> flattened;
-            flattened.reserve(primvarData.size() * 4);
-            for (auto const& item : primvarData) {
-                flattened.push_back(item[0]);
-                flattened.push_back(item[1]);
-                flattened.push_back(item[2]);
-                flattened.push_back(item[3]);
-            }
+            std::vector<float> flattened = _FlattenFloatTupleArray<VtVec4fArray, 4>(primvarData);
             _StorePrimvarPayload(name + "|4|" + ip, name, ip, 4, std::move(flattened), rprimPath);
         }
     }
@@ -479,6 +615,14 @@ private:
                     ++interpolation) {
             HdInterpolation ip = static_cast<HdInterpolation>(interpolation);
             HdPrimvarDescriptorVector primvars = GetPrimvarDescriptors(delegate, ip);
+            VtVec2fArray mergedFaceVaryingStPrimvar;
+            std::string mergedFaceVaryingStCanonicalName;
+            const bool hasMergedFaceVaryingSt = ip == HdInterpolationFaceVarying
+                && _TryBuildMergedFaceVaryingStPrimvar(
+                    delegate,
+                    primvars,
+                    &mergedFaceVaryingStPrimvar,
+                    &mergedFaceVaryingStCanonicalName);
 
             size_t numPrimVars = primvars.size();
             for (size_t primVarNum = 0;
@@ -488,9 +632,20 @@ private:
                 if (HdChangeTracker::IsPrimvarDirty(dirtyBits,
                                                     id,
                                                     primvar.name)) {
-                    VtValue value = GetPrimvar(delegate, primvar.name);
+                    const std::string primvarName = primvar.name.GetString();
+                    const bool isMergedFaceVaryingStFamily = hasMergedFaceVaryingSt
+                        && _TryGetSplitStPrimvarOrdinal(primvarName, nullptr);
+                    if (isMergedFaceVaryingStFamily
+                        && !mergedFaceVaryingStCanonicalName.empty()
+                        && primvarName != mergedFaceVaryingStCanonicalName) {
+                        continue;
+                    }
+
+                    const VtValue value = isMergedFaceVaryingStFamily
+                        ? VtValue(mergedFaceVaryingStPrimvar)
+                        : GetPrimvar(delegate, primvar.name);
                     const bool queueToJs = !skipHydraPayloadForProto
-                        && _ShouldQueuePrimvarToJs(primvar.name.GetString());
+                        && _ShouldQueuePrimvarToJs(isMergedFaceVaryingStFamily ? std::string("st") : primvarName);
 
                     switch(ip) {
                         case HdInterpolationFaceVarying: {
@@ -507,12 +662,22 @@ private:
                                 continue;
                             }
 
-                            _SendPrimvar(triangulated, primvar.name.GetString(), ip, rprimPath, queueToJs);
+                            _SendPrimvar(
+                                triangulated,
+                                isMergedFaceVaryingStFamily ? std::string("st") : primvarName,
+                                ip,
+                                rprimPath,
+                                queueToJs);
                             break;
                         }
                         case HdInterpolationConstant:
                         case HdInterpolationVertex: {
-                            _SendPrimvar(value, primvar.name.GetString(), ip, rprimPath, queueToJs);
+                            _SendPrimvar(
+                                value,
+                                primvarName,
+                                ip,
+                                rprimPath,
+                                queueToJs);
                             break;
                         }
                         default:
@@ -782,6 +947,36 @@ WebRenderDelegate::RemoveProtoDataBlob(std::string const& rprimPath)
     if (rprimPath.empty()) return;
     std::lock_guard<std::mutex> lock(_protoDataBlobMutex);
     _protoDataBlobByRprimPath.erase(rprimPath);
+}
+
+void
+WebRenderDelegate::RegisterLiveRprimPath(std::string const& rprimPath)
+{
+    if (rprimPath.empty()) return;
+    std::lock_guard<std::mutex> lock(_liveRprimPathMutex);
+    if (_liveRprimPathSet.insert(rprimPath).second) {
+        _liveRprimPathOrder.push_back(rprimPath);
+    }
+}
+
+void
+WebRenderDelegate::UnregisterLiveRprimPath(std::string const& rprimPath)
+{
+    if (rprimPath.empty()) return;
+    std::lock_guard<std::mutex> lock(_liveRprimPathMutex);
+    _liveRprimPathSet.erase(rprimPath);
+}
+
+void
+WebRenderDelegate::ReadAllLiveRprimPaths(
+    std::function<void(std::string const&)> const& reader) const
+{
+    if (!reader) return;
+    std::lock_guard<std::mutex> lock(_liveRprimPathMutex);
+    for (std::string const& rprimPath : _liveRprimPathOrder) {
+        if (_liveRprimPathSet.find(rprimPath) == _liveRprimPathSet.end()) continue;
+        reader(rprimPath);
+    }
 }
 
 void

@@ -1,12 +1,13 @@
 // @ts-nocheck
 import { Color, LinearSRGBColorSpace, Matrix4, SRGBColorSpace, Vector2, } from 'three';
-import * as Shared from './shared.js?v=20260224c';
-import { ThreeRenderDelegateMaterialOps } from './ThreeRenderDelegateMaterialOps.js?v=20260224c';
-import { HydraInstancer } from './HydraInstancer.js?v=20260224c';
-import { HydraMaterial } from './HydraMaterial.js?v=20260224c';
-import { HydraMesh } from './HydraMesh.js?v=20260224c';
-import { getDefaultMaterial } from './default-material-state.js?v=20260224c';
+import * as Shared from './shared.js?v=20260318a';
+import { ThreeRenderDelegateMaterialOps } from './ThreeRenderDelegateMaterialOps.js?v=20260317d';
+import { HydraInstancer } from './HydraInstancer.js?v=20260315c';
+import { HydraMaterial } from './HydraMaterial.js?v=20260315c';
+import { HydraMesh } from './HydraMesh.js?v=20260317d';
+import { getDefaultMaterial } from './default-material-state.js?v=20260315c';
 const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfTruthFromText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
 export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps {
     applyStageFallbackMaterialParameters(material, shaderPrim) {
         if (!material || !shaderPrim)
@@ -344,8 +345,13 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (options.requireValue === false)
             return color;
         let nextColor = new Color().fromArray(color);
+        const inferredHex = this.inferColorHexFromMaterialName(material?.name);
+        if (Number.isFinite(inferredHex)
+            && color.every((channel) => Math.abs(channel - 1) <= 1e-4)
+            && inferredHex !== 0xffffff) {
+            nextColor = new Color(inferredHex);
+        }
         if (options.treatAsSrgbWhenMatchingMaterialName && material?.name) {
-            const inferredHex = this.inferColorHexFromMaterialName(material.name);
             if (Number.isFinite(inferredHex)) {
                 const sr = ((inferredHex >> 16) & 0xff) / 255;
                 const sg = ((inferredHex >> 8) & 0xff) / 255;
@@ -398,13 +404,19 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             }
         }
         else if (this._knownPrimPathSetPrimed !== true) {
-            const driver = this.config?.driver?.();
-            if (driver) {
-                try {
-                    this.prefetchPrimPathSetFromDriver(driver, { force: false });
-                }
-                catch {
-                    // Keep fallback path resilient.
+            const allowOnDemandPrimPathBatch = this.autoBatchPrimTransformsOnFirstAccess === true
+                || this.autoBatchProtoBlobsOnFirstAccess === true
+                || this.autoBatchCollisionProtoOverridesOnFirstAccess === true
+                || this.autoBatchVisualProtoOverridesOnFirstAccess === true;
+            if (allowOnDemandPrimPathBatch) {
+                const driver = this.config?.driver?.();
+                if (driver) {
+                    try {
+                        this.prefetchPrimPathSetFromDriver(driver, { force: false });
+                    }
+                    catch {
+                        // Keep fallback path resilient.
+                    }
                 }
             }
             if (this._knownPrimPathSetPrimed === true && this._knownPrimPathSet instanceof Set && !this._knownPrimPathSet.has(normalizedPath)) {
@@ -496,6 +508,17 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         const normalized = String(materialName || '').trim();
         if (!normalized)
             return null;
+        const basename = normalized.split('/').filter(Boolean).pop() || normalized;
+        const decimalRgbMatch = basename.match(/^material_(\d{3})(\d{3})(\d{3})$/i);
+        if (decimalRgbMatch) {
+            const red = Number.parseInt(decimalRgbMatch[1], 10);
+            const green = Number.parseInt(decimalRgbMatch[2], 10);
+            const blue = Number.parseInt(decimalRgbMatch[3], 10);
+            const isValidTriplet = [red, green, blue].every((channel) => Number.isFinite(channel) && channel >= 0 && channel <= 255);
+            if (isValidTriplet) {
+                return (red << 16) | (green << 8) | blue;
+            }
+        }
         const match = normalized.match(/([0-9a-f]{6})$/i);
         if (!match)
             return null;
@@ -874,6 +897,28 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 return undefined;
             return value;
         };
+        const normalizeGeomSubsetSections = (value) => {
+            if (!value || typeof value.length !== 'number')
+                return [];
+            const out = [];
+            const length = Number(value.length);
+            const safeLength = Number.isFinite(length) && length > 0 ? Math.floor(length) : 0;
+            for (let index = 0; index < safeLength; index += 1) {
+                const rawSection = value[index];
+                const start = Number(rawSection?.start);
+                const sectionLength = Number(rawSection?.length);
+                if (!Number.isFinite(start) || !Number.isFinite(sectionLength) || sectionLength <= 0)
+                    continue;
+                out.push({
+                    start: Math.max(0, Math.floor(start)),
+                    length: Math.max(0, Math.floor(sectionLength)),
+                    materialId: typeof rawSection?.materialId === 'string'
+                        ? normalizeHydraPath(rawSection.materialId)
+                        : '',
+                });
+            }
+            return out;
+        };
         // Return a plain JS object with pointer/count metadata.
         // This prevents accidental high-frequency proxy reads on large payloads.
         return {
@@ -897,6 +942,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             uv: keepTypedArrayView(rawBlob.uv),
             normals: keepTypedArrayView(rawBlob.normals),
             transform: keepSmallArrayLike(rawBlob.transform, 32),
+            geomSubsetSections: normalizeGeomSubsetSections(rawBlob.geomSubsetSections),
         };
     }
     normalizeCollisionProtoOverride(rawOverride) {
@@ -1323,6 +1369,112 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             entries: this._finalStageOverrideBatchCache,
         };
     }
+    ingestFinalStageOverrideSnapshotDescriptors(rawDescriptors, options = {}) {
+        const forceRefresh = options?.force === true;
+        const descriptors = Array.isArray(rawDescriptors)
+            ? rawDescriptors
+            : (rawDescriptors && typeof rawDescriptors.length === 'number' ? Array.from(rawDescriptors) : []);
+        if (forceRefresh) {
+            this._collisionProtoOverrideCache?.clear?.();
+            this._visualProtoOverrideCache?.clear?.();
+            this._primOverrideDataCache?.clear?.();
+            this._resolvedProtoPrimPathCache?.clear?.();
+            this._resolvedVisualPrimPathCache?.clear?.();
+            this._finalStageOverrideBatchProtoMeshCount = 0;
+        }
+        this._finalStageOverrideBatchPrimed = true;
+        this._finalStageOverrideBatchCache?.clear?.();
+        if (descriptors.length <= 0) {
+            this._collisionProtoOverrideBatchPrimed = true;
+            this._visualProtoOverrideBatchPrimed = true;
+            this._finalStageOverrideBatchProtoMeshCount = 0;
+            return {
+                count: 0,
+                collisionCount: 0,
+                visualCount: 0,
+                protoMeshCount: 0,
+                primOverrideCount: 0,
+                source: 'empty',
+                entries: this._finalStageOverrideBatchCache,
+            };
+        }
+        let collisionCount = 0;
+        let visualCount = 0;
+        let protoMeshCount = 0;
+        const primOverridePaths = new Set();
+        for (const rawDescriptor of descriptors) {
+            const normalizedMeshId = normalizeHydraPath(rawDescriptor?.meshId || '');
+            if (!normalizedMeshId || !normalizedMeshId.includes('.proto_'))
+                continue;
+            protoMeshCount += 1;
+            const sectionName = String(rawDescriptor?.sectionName || '').toLowerCase();
+            const normalizedOverride = sectionName === 'visuals'
+                ? this.normalizeVisualProtoOverride(rawDescriptor)
+                : this.normalizeCollisionProtoOverride(rawDescriptor);
+            if (!normalizedOverride)
+                continue;
+            normalizedOverride.meshId = normalizeHydraPath(normalizedOverride.meshId || normalizedMeshId) || normalizedMeshId;
+            normalizedOverride.sectionName = sectionName || (normalizedOverride?.meshId?.includes('/visuals.proto_') ? 'visuals' : 'collisions');
+            normalizedOverride.applyGeometry = rawDescriptor?.applyGeometry === true || normalizedOverride.sectionName === 'collisions';
+            const dirtyMaskValue = Number(rawDescriptor?.dirtyMask);
+            normalizedOverride.dirtyMask = Number.isFinite(dirtyMaskValue) ? Math.max(0, Math.floor(dirtyMaskValue)) : 0;
+            if (!normalizedOverride.worldTransformElements) {
+                normalizedOverride.worldTransformElements = rawDescriptor?.worldTransform;
+            }
+            const cacheMeshId = normalizeHydraPath(normalizedOverride.meshId || normalizedMeshId) || normalizedMeshId;
+            this._finalStageOverrideBatchCache.set(cacheMeshId, normalizedOverride);
+            this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
+            const resolvedPrimPath = normalizeHydraPath(normalizedOverride.resolvedPrimPath || '');
+            if (resolvedPrimPath) {
+                const normalizedPrimOverride = this.normalizePrimOverrideData(rawDescriptor);
+                if (normalizedPrimOverride) {
+                    this._primOverrideDataCache.set(resolvedPrimPath, normalizedPrimOverride);
+                    primOverridePaths.add(resolvedPrimPath);
+                }
+            }
+            if (normalizedOverride.sectionName === 'visuals') {
+                this._visualProtoOverrideCache.set(cacheMeshId, normalizedOverride);
+                if (resolvedPrimPath)
+                    this._resolvedVisualPrimPathCache.set(cacheMeshId, resolvedPrimPath);
+                visualCount += 1;
+            }
+            else {
+                this._collisionProtoOverrideCache.set(cacheMeshId, normalizedOverride);
+                if (resolvedPrimPath)
+                    this._resolvedProtoPrimPathCache.set(cacheMeshId, resolvedPrimPath);
+                collisionCount += 1;
+            }
+        }
+        this._collisionProtoOverrideBatchPrimed = true;
+        this._visualProtoOverrideBatchPrimed = true;
+        this._finalStageOverrideBatchProtoMeshCount = protoMeshCount;
+        return {
+            count: Number(this._finalStageOverrideBatchCache?.size || (collisionCount + visualCount)),
+            collisionCount,
+            visualCount,
+            protoMeshCount,
+            primOverrideCount: primOverridePaths.size,
+            source: forceRefresh ? 'snapshot-refresh' : 'snapshot',
+            entries: this._finalStageOverrideBatchCache,
+        };
+    }
+    hasResolvedRobotSceneSnapshot(stageSourcePath = null) {
+        const normalizedStagePath = String(stageSourcePath
+            || this.getStageSourcePath?.()
+            || '').trim().split('?')[0];
+        if (!normalizedStagePath || typeof this.getCachedRobotSceneSnapshot !== 'function')
+            return false;
+        try {
+            return !!this.getCachedRobotSceneSnapshot(normalizedStagePath);
+        }
+        catch {
+            return false;
+        }
+    }
+    shouldDeferProtoStageSyncUntilSceneSnapshot(stageSourcePath = null) {
+        return this.strictOneShotSceneLoad === true
+            && !this.hasResolvedRobotSceneSnapshot(stageSourcePath);
+    }
     _resolveWasmHeaps() {
         const candidates = [
             globalThis?.Module,
@@ -1748,31 +1900,809 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             source: forceRefresh ? "batch-refresh" : "batch",
         };
     }
-    collectRuntimeLinkPathsForBootstrap() {
-        const linkPathSet = new Set();
-        const legacyLinkPathRegex = /^(.*?)(?:\/(?:visuals?|collisions?))(?:$|[/.])/i;
-        for (const meshId of Object.keys(this.meshes || {})) {
-            if (!meshId)
-                continue;
-            const proto = this.registerMeshLinkPathIndex(meshId) || parseProtoMeshIdentifier(meshId);
-            if (proto?.linkPath) {
-                const normalizedProtoLinkPath = normalizeHydraPath(proto.linkPath);
-                if (normalizedProtoLinkPath && normalizedProtoLinkPath.startsWith('/')) {
-                    linkPathSet.add(normalizedProtoLinkPath);
+    normalizeRobotSceneSnapshot(rawSnapshot, options = {}) {
+        if (!rawSnapshot || typeof rawSnapshot !== 'object')
+            return null;
+        const toPlainArray = (value) => (Array.isArray(value)
+            ? value.slice()
+            : (value && typeof value.length === 'number' ? Array.from(value) : []));
+        const toPlainObject = (value) => (value && typeof value === 'object'
+            ? Object.fromEntries(Object.entries(value))
+            : {});
+        const copyFloat32 = (value) => {
+            if (!value || typeof value.length !== 'number')
+                return new Float32Array(0);
+            if (ArrayBuffer.isView(value))
+                return Float32Array.from(value);
+            return Float32Array.from(Array.from(value));
+        };
+        const useFloat32 = (value) => (value instanceof Float32Array
+            ? value
+            : copyFloat32(value));
+        const copyUint32 = (value) => {
+            if (!value || typeof value.length !== 'number')
+                return new Uint32Array(0);
+            if (ArrayBuffer.isView(value))
+                return Uint32Array.from(value);
+            return Uint32Array.from(Array.from(value));
+        };
+        const useUint32 = (value) => (value instanceof Uint32Array
+            ? value
+            : copyUint32(value));
+        const copyInt32 = (value) => {
+            if (!value || typeof value.length !== 'number')
+                return new Int32Array(0);
+            if (ArrayBuffer.isView(value))
+                return Int32Array.from(value);
+            return Int32Array.from(Array.from(value));
+        };
+        const useInt32 = (value) => (value instanceof Int32Array
+            ? value
+            : copyInt32(value));
+        const readFloatPayload = (payload, directField, ptrField, count) => {
+            const directValue = payload?.[directField];
+            if (directValue && typeof directValue.length === 'number') {
+                return copyFloat32(directValue);
+            }
+            const heapView = this._readHeapFloat32View(payload?.[ptrField], count);
+            return heapView ? Float32Array.from(heapView) : new Float32Array(0);
+        };
+        const readUintPayload = (payload, directField, ptrField, count) => {
+            const directValue = payload?.[directField];
+            if (directValue && typeof directValue.length === 'number') {
+                return copyUint32(directValue);
+            }
+            const heapView = this._readHeapUint32View(payload?.[ptrField], count);
+            return heapView ? Uint32Array.from(heapView) : new Uint32Array(0);
+        };
+        const rawStage = rawSnapshot.stage && typeof rawSnapshot.stage === 'object'
+            ? rawSnapshot.stage
+            : {};
+        const renderPayload = rawSnapshot.render && typeof rawSnapshot.render === 'object'
+            ? rawSnapshot.render
+            : rawSnapshot;
+        const resolvedStageSourcePath = String(options?.stageSourcePath
+            || rawStage.stageSourcePath
+            || rawSnapshot.stageSourcePath
+            || this.getStageSourcePath()
+            || '').trim().split('?')[0];
+        if (resolvedStageSourcePath) {
+            this._runtimeBridgeCacheStageKey = resolvedStageSourcePath;
+        }
+        const robotMetadataRaw = rawSnapshot.robotMetadataSnapshot && typeof rawSnapshot.robotMetadataSnapshot === 'object'
+            ? rawSnapshot.robotMetadataSnapshot
+            : {
+                stageSourcePath: resolvedStageSourcePath || null,
+                generatedAtMs: Number(rawSnapshot.generatedAtMs || Date.now()),
+                source: 'robot-scene-snapshot',
+                linkParentPairs: rawSnapshot.robotTree?.linkParentPairs || [],
+                jointCatalogEntries: rawSnapshot.robotTree?.jointCatalogEntries || [],
+                linkDynamicsEntries: rawSnapshot.physics?.linkDynamicsEntries || [],
+                meshCountsByLinkPath: {},
+            };
+        const forceRefresh = options?.force === true;
+        let rawMeshDescriptors = toPlainArray(renderPayload.meshDescriptors);
+        const rawBuffers = rawSnapshot.buffers && typeof rawSnapshot.buffers === 'object'
+            ? rawSnapshot.buffers
+            : {};
+        const packedDescriptorFormat = String(renderPayload?.meshDescriptorFormat || '').trim().toLowerCase();
+        const packedRangesByMeshId = rawBuffers.rangesByMeshId && typeof rawBuffers.rangesByMeshId === 'object'
+            ? rawBuffers.rangesByMeshId
+            : null;
+        const packedGeomSubsetSectionsByMeshId = renderPayload.meshDescriptorGeomSubsetSections
+            && typeof renderPayload.meshDescriptorGeomSubsetSections === 'object'
+            ? renderPayload.meshDescriptorGeomSubsetSections
+            : null;
+        const hasPackedDescriptorRecords = packedDescriptorFormat === 'packed-v2';
+        const hasPackedMeshBuffers = hasPackedDescriptorRecords || !!packedRangesByMeshId;
+        const normalizeBufferRange = (rawRange, fallbackStride = 1) => {
+            if (!rawRange || typeof rawRange !== 'object')
+                return null;
+            const offset = Number(rawRange.offset);
+            const count = Number(rawRange.count);
+            if (!Number.isFinite(offset) || offset < 0 || !Number.isFinite(count) || count <= 0)
+                return null;
+            const stride = Number(rawRange.stride);
+            return {
+                offset: Math.max(0, Math.floor(offset)),
+                count: Math.max(0, Math.floor(count)),
+                stride: Number.isFinite(stride) && stride > 0 ? Math.floor(stride) : fallbackStride,
+            };
+        };
+        const normalizeMeshRanges = (rawRanges) => {
+            if (!rawRanges || typeof rawRanges !== 'object')
+                return null;
+            const positions = normalizeBufferRange(rawRanges.positions, 3);
+            const indices = normalizeBufferRange(rawRanges.indices, 1);
+            const normals = normalizeBufferRange(rawRanges.normals, 3);
+            const uvs = normalizeBufferRange(rawRanges.uvs, 2);
+            const transform = normalizeBufferRange(rawRanges.transform, 16);
+            if (!positions && !indices && !normals && !uvs && !transform)
+                return null;
+            return { positions, indices, normals, uvs, transform };
+        };
+        const normalizeGeomSubsetSections = (value) => {
+            if (!value || typeof value.length !== 'number')
+                return [];
+            const out = [];
+            const safeLength = Math.max(0, Math.floor(Number(value.length) || 0));
+            for (let index = 0; index < safeLength; index += 1) {
+                const rawSection = value[index];
+                const start = Number(rawSection?.start);
+                const length = Number(rawSection?.length);
+                if (!Number.isFinite(start) || !Number.isFinite(length) || length <= 0)
+                    continue;
+                out.push({
+                    start: Math.max(0, Math.floor(start)),
+                    length: Math.max(0, Math.floor(length)),
+                    materialId: normalizeHydraPath(rawSection?.materialId || '') || '',
+                });
+            }
+            return out;
+        };
+        const normalizeGeometrySummary = (rawGeometry, fallbackBlob = null) => {
+            const source = rawGeometry && typeof rawGeometry === 'object'
+                ? rawGeometry
+                : fallbackBlob;
+            if (!source || typeof source !== 'object')
+                return null;
+            const materialId = normalizeHydraPath(source.materialId || '');
+            return {
+                numVertices: Number(source.numVertices || 0),
+                numIndices: Number(source.numIndices || 0),
+                numNormals: Number(source.numNormals || 0),
+                numUVs: Number(source.numUVs || 0),
+                uvDimension: Number(source.uvDimension || 0),
+                normalsDimension: Number(source.normalsDimension || 0),
+                materialId: materialId || null,
+                geomSubsetSections: normalizeGeomSubsetSections(source.geomSubsetSections),
+            };
+        };
+        const sliceFloatPool = (pool, range) => {
+            if (!range || !pool || typeof pool.subarray !== 'function')
+                return new Float32Array(0);
+            const start = Math.max(0, Math.floor(Number(range.offset) || 0));
+            const count = Math.max(0, Math.floor(Number(range.count) || 0));
+            if (count <= 0 || start >= pool.length)
+                return new Float32Array(0);
+            const end = Math.min(pool.length, start + count);
+            return pool.subarray(start, end);
+        };
+        const sliceUintPool = (pool, range) => {
+            if (!range || !pool || typeof pool.subarray !== 'function')
+                return new Uint32Array(0);
+            const start = Math.max(0, Math.floor(Number(range.offset) || 0));
+            const count = Math.max(0, Math.floor(Number(range.count) || 0));
+            if (count <= 0 || start >= pool.length)
+                return new Uint32Array(0);
+            const end = Math.min(pool.length, start + count);
+            return pool.subarray(start, end);
+        };
+        let positionPool = new Float32Array(0);
+        let indexPool = new Uint32Array(0);
+        let normalPool = new Float32Array(0);
+        let uvPool = new Float32Array(0);
+        let transformPool = new Float32Array(0);
+        let bufferRangesByMeshId = {};
+        let normalizedMeshDescriptors = [];
+        if (hasPackedDescriptorRecords) {
+            positionPool = useFloat32(rawBuffers.positions);
+            indexPool = useUint32(rawBuffers.indices);
+            normalPool = useFloat32(rawBuffers.normals);
+            uvPool = useFloat32(rawBuffers.uvs);
+            transformPool = useFloat32(rawBuffers.transforms);
+            const packedDescriptorStrings = toPlainArray(renderPayload.meshDescriptorStrings)
+                .map((value) => String(value || ''));
+            const packedDescriptorHeaders = useInt32(renderPayload.meshDescriptorHeaders);
+            const packedDescriptorScalars = useFloat32(renderPayload.meshDescriptorScalars);
+            const headerStride = Math.max(1, Math.floor(Number(renderPayload.meshDescriptorHeaderStride || 30)));
+            const scalarStride = Math.max(1, Math.floor(Number(renderPayload.meshDescriptorScalarStride || 6)));
+            const readPackedString = (rawIndex) => {
+                const index = Number(rawIndex);
+                if (!Number.isFinite(index))
+                    return '';
+                const normalizedIndex = Math.floor(index);
+                if (normalizedIndex < 0 || normalizedIndex >= packedDescriptorStrings.length)
+                    return '';
+                return packedDescriptorStrings[normalizedIndex] || '';
+            };
+            const readPackedRange = (headerBase, offsetIndex, countIndex, strideIndex, fallbackStride) => {
+                const offset = Number(packedDescriptorHeaders[headerBase + offsetIndex]);
+                const count = Number(packedDescriptorHeaders[headerBase + countIndex]);
+                const stride = Number(packedDescriptorHeaders[headerBase + strideIndex]);
+                return normalizeBufferRange({ offset, count, stride }, fallbackStride);
+            };
+            const readPackedScalar = (scalarBase, index) => {
+                const value = Number(packedDescriptorScalars[scalarBase + index]);
+                return Number.isFinite(value) ? value : undefined;
+            };
+            const makeFloatView = (pool, range) => (range
+                ? pool.subarray(range.offset, range.offset + range.count)
+                : new Float32Array(0));
+            const makeUintView = (pool, range) => (range
+                ? pool.subarray(range.offset, range.offset + range.count)
+                : new Uint32Array(0));
+            const descriptorCount = Math.min(Math.floor(packedDescriptorHeaders.length / headerStride), Math.floor(packedDescriptorScalars.length / scalarStride));
+            rawMeshDescriptors = [];
+            for (let descriptorIndex = 0; descriptorIndex < descriptorCount; descriptorIndex += 1) {
+                const headerBase = descriptorIndex * headerStride;
+                const scalarBase = descriptorIndex * scalarStride;
+                const meshId = readPackedString(packedDescriptorHeaders[headerBase + 0]);
+                const sectionName = readPackedString(packedDescriptorHeaders[headerBase + 1]);
+                const resolvedPrimPath = readPackedString(packedDescriptorHeaders[headerBase + 2]);
+                const primType = readPackedString(packedDescriptorHeaders[headerBase + 3]);
+                const axis = readPackedString(packedDescriptorHeaders[headerBase + 4]);
+                const materialId = normalizeHydraPath(readPackedString(packedDescriptorHeaders[headerBase + 5])) || null;
+                const geomSubsetSections = normalizeGeomSubsetSections(packedGeomSubsetSectionsByMeshId && meshId
+                    ? packedGeomSubsetSectionsByMeshId[meshId]
+                    : null);
+                const valid = Number(packedDescriptorHeaders[headerBase + 6]) === 1;
+                const applyGeometry = Number(packedDescriptorHeaders[headerBase + 7]) === 1;
+                const dirtyMask = Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 8]) || 0));
+                const ranges = {
+                    positions: readPackedRange(headerBase, 9, 10, 11, 3),
+                    indices: readPackedRange(headerBase, 12, 13, 14, 1),
+                    normals: readPackedRange(headerBase, 15, 16, 17, 3),
+                    uvs: readPackedRange(headerBase, 18, 19, 20, 2),
+                    transform: readPackedRange(headerBase, 21, 22, 23, 16),
+                };
+                const normalizedRanges = normalizeMeshRanges(ranges);
+                const geometry = {
+                    numVertices: Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 24]) || 0)),
+                    numIndices: Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 25]) || 0)),
+                    numNormals: Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 26]) || 0)),
+                    numUVs: Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 27]) || 0)),
+                    uvDimension: Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 28]) || 0)),
+                    normalsDimension: Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 29]) || 0)),
+                    materialId,
+                    geomSubsetSections,
+                };
+                const extentValues = [
+                    readPackedScalar(scalarBase, 3),
+                    readPackedScalar(scalarBase, 4),
+                    readPackedScalar(scalarBase, 5),
+                ];
+                const extentSize = extentValues.every((value) => Number.isFinite(value))
+                    ? extentValues.map((value) => Math.max(0, Number(value)))
+                    : undefined;
+                const meshPayload = primType === 'mesh'
+                    ? {
+                        valid,
+                        numVertices: geometry.numVertices,
+                        numIndices: geometry.numIndices,
+                        numNormals: geometry.numNormals,
+                        numUVs: geometry.numUVs,
+                        uvDimension: geometry.uvDimension,
+                        normalsDimension: geometry.normalsDimension,
+                        materialId: geometry.materialId,
+                        geomSubsetSections: geometry.geomSubsetSections,
+                        points: makeFloatView(positionPool, normalizedRanges?.positions || null),
+                        indices: makeUintView(indexPool, normalizedRanges?.indices || null),
+                        normals: makeFloatView(normalPool, normalizedRanges?.normals || null),
+                        uv: makeFloatView(uvPool, normalizedRanges?.uvs || null),
+                        transform: makeFloatView(transformPool, normalizedRanges?.transform || null),
+                    }
+                    : undefined;
+                const worldTransform = normalizedRanges?.transform
+                    ? makeFloatView(transformPool, normalizedRanges.transform)
+                    : undefined;
+                rawMeshDescriptors.push({
+                    valid,
+                    meshId,
+                    sectionName,
+                    resolvedPrimPath,
+                    primType,
+                    axis,
+                    size: readPackedScalar(scalarBase, 0),
+                    radius: readPackedScalar(scalarBase, 1),
+                    height: readPackedScalar(scalarBase, 2),
+                    extentSize,
+                    worldTransform,
+                    applyGeometry,
+                    dirtyMask,
+                    ranges: normalizedRanges,
+                    geometry,
+                    meshPayload,
+                });
+                const normalizedMeshId = normalizeHydraPath(meshId || '');
+                if (normalizedMeshId && normalizedRanges) {
+                    bufferRangesByMeshId[normalizedMeshId] = normalizedRanges;
                 }
             }
-            const normalizedMeshId = normalizeHydraPath(meshId);
-            if (!normalizedMeshId)
-                continue;
-            const legacyMatch = normalizedMeshId.match(legacyLinkPathRegex);
-            if (!legacyMatch?.[1])
-                continue;
-            const legacyLinkPath = normalizeHydraPath(legacyMatch[1]);
-            if (!legacyLinkPath || !legacyLinkPath.startsWith('/'))
-                continue;
-            linkPathSet.add(legacyLinkPath);
         }
-        return Array.from(linkPathSet).sort((left, right) => left.localeCompare(right));
+        const primPathSummary = renderPayload.primPathSet !== undefined
+            ? (this.prefetchPrimPathSetFromDriver({ GetPrimPathSet: () => renderPayload.primPathSet }, { force: forceRefresh }) || { count: 0, source: 'none' })
+            : { count: 0, source: 'none' };
+        const transformSummary = renderPayload.primTransforms !== undefined
+            ? (this.prefetchPrimTransformsFromDriver({ GetPrimTransforms: () => renderPayload.primTransforms }, { force: forceRefresh }) || { world: 0, local: 0, total: 0, source: 'none' })
+            : { world: 0, local: 0, total: 0, source: 'none' };
+        let protoBlobSummary = renderPayload.protoDataBlobs !== undefined && !hasPackedMeshBuffers
+            ? (this.prefetchProtoDataBlobsFromDriver({ GetAllProtoDataBlobs: () => renderPayload.protoDataBlobs }, { force: forceRefresh }) || { count: 0, source: 'none' })
+            : { count: 0, source: hasPackedMeshBuffers ? 'packed-buffers' : 'none' };
+        const descriptorHasProtoOverride = rawMeshDescriptors.some((descriptor) => String(descriptor?.meshId || '').includes('.proto_'));
+        const finalOverrideSummary = descriptorHasProtoOverride
+            ? (this.ingestFinalStageOverrideSnapshotDescriptors(rawMeshDescriptors, { force: forceRefresh }) || {
+                count: 0,
+                collisionCount: 0,
+                visualCount: 0,
+                primOverrideCount: 0,
+                source: 'none',
+            })
+            : renderPayload.finalStageOverrideBatch !== undefined
+                ? (this.prefetchFinalStageOverrideBatchFromDriver({ GetFinalStageOverrideBatch: () => renderPayload.finalStageOverrideBatch }, { force: forceRefresh }) || {
+                    count: 0,
+                    collisionCount: 0,
+                    visualCount: 0,
+                    primOverrideCount: 0,
+                    source: 'none',
+                })
+                : {
+                    count: 0,
+                    collisionCount: 0,
+                    visualCount: 0,
+                    primOverrideCount: 0,
+                    source: 'none',
+                };
+        const robotMetadataSummary = this.ingestRobotMetadataSnapshotFromBootstrapPayload(robotMetadataRaw, {
+            stageSourcePath: resolvedStageSourcePath,
+            emitEvent: options?.emitRobotMetadataEvent === true,
+            allowEmptySnapshot: true,
+        }) || { ready: false, jointCount: 0, dynamicsCount: 0, source: 'none' };
+        if (hasPackedMeshBuffers) {
+            if (!hasPackedDescriptorRecords) {
+                positionPool = useFloat32(rawBuffers.positions);
+                indexPool = useUint32(rawBuffers.indices);
+                normalPool = useFloat32(rawBuffers.normals);
+                uvPool = useFloat32(rawBuffers.uvs);
+                transformPool = useFloat32(rawBuffers.transforms);
+                for (const [rawMeshId, rawRanges] of Object.entries(packedRangesByMeshId || {})) {
+                    const meshId = normalizeHydraPath(rawMeshId);
+                    const normalizedRanges = normalizeMeshRanges(rawRanges);
+                    if (!meshId || !normalizedRanges)
+                        continue;
+                    bufferRangesByMeshId[meshId] = normalizedRanges;
+                }
+            }
+            normalizedMeshDescriptors = rawMeshDescriptors.map((rawDescriptor) => {
+                const meshId = normalizeHydraPath(rawDescriptor?.meshId || '');
+                const resolvedPrimPath = normalizeHydraPath(rawDescriptor?.resolvedPrimPath || '');
+                return {
+                    meshId: meshId || null,
+                    sectionName: String(rawDescriptor?.sectionName || '').trim() || null,
+                    resolvedPrimPath: resolvedPrimPath || null,
+                    primType: String(rawDescriptor?.primType || '').trim() || null,
+                    applyGeometry: rawDescriptor?.applyGeometry === true,
+                    dirtyMask: Number(rawDescriptor?.dirtyMask || 0),
+                    ranges: normalizeMeshRanges(rawDescriptor?.ranges) || (meshId ? (bufferRangesByMeshId[meshId] || null) : null),
+                    geometry: normalizeGeometrySummary(rawDescriptor?.geometry, null),
+                };
+            });
+            if (protoBlobSummary.count <= 0) {
+                protoBlobSummary = {
+                    count: Object.keys(bufferRangesByMeshId).length,
+                    source: 'packed-buffers',
+                };
+            }
+        }
+        else {
+            const protoPayloadByKey = new Map();
+            const rawProtoDataBlobs = renderPayload.protoDataBlobs && typeof renderPayload.protoDataBlobs === 'object'
+                ? renderPayload.protoDataBlobs
+                : {};
+            for (const [rawKey, rawBlob] of Object.entries(rawProtoDataBlobs)) {
+                const normalizedKey = normalizeHydraPath(rawKey);
+                if (!normalizedKey)
+                    continue;
+                const normalizedBlob = this.normalizeProtoDataBlob(rawBlob);
+                if (!normalizedBlob)
+                    continue;
+                protoPayloadByKey.set(normalizedKey, {
+                    payload: normalizedBlob,
+                    positions: readFloatPayload(normalizedBlob, 'points', 'pointsPtr', Number(normalizedBlob.numVertices || 0) * 3),
+                    indices: readUintPayload(normalizedBlob, 'indices', 'indicesPtr', Number(normalizedBlob.numIndices || 0)),
+                    normals: readFloatPayload(normalizedBlob, 'normals', 'normalsPtr', Number(normalizedBlob.numNormals || 0) * Math.max(1, Number(normalizedBlob.normalsDimension || 3))),
+                    uvs: readFloatPayload(normalizedBlob, 'uv', 'uvPtr', Number(normalizedBlob.numUVs || 0) * Math.max(1, Number(normalizedBlob.uvDimension || 2))),
+                    transform: readFloatPayload(normalizedBlob, 'transform', 'transformPtr', 16),
+                });
+            }
+            for (const rawDescriptor of rawMeshDescriptors) {
+                const meshId = normalizeHydraPath(rawDescriptor?.meshId || '');
+                if (!meshId || protoPayloadByKey.has(meshId) || !rawDescriptor?.meshPayload)
+                    continue;
+                const normalizedBlob = this.normalizeProtoDataBlob(rawDescriptor.meshPayload);
+                if (!normalizedBlob)
+                    continue;
+                protoPayloadByKey.set(meshId, {
+                    payload: normalizedBlob,
+                    positions: readFloatPayload(normalizedBlob, 'points', 'pointsPtr', Number(normalizedBlob.numVertices || 0) * 3),
+                    indices: readUintPayload(normalizedBlob, 'indices', 'indicesPtr', Number(normalizedBlob.numIndices || 0)),
+                    normals: readFloatPayload(normalizedBlob, 'normals', 'normalsPtr', Number(normalizedBlob.numNormals || 0) * Math.max(1, Number(normalizedBlob.normalsDimension || 3))),
+                    uvs: readFloatPayload(normalizedBlob, 'uv', 'uvPtr', Number(normalizedBlob.numUVs || 0) * Math.max(1, Number(normalizedBlob.uvDimension || 2))),
+                    transform: readFloatPayload(normalizedBlob, 'transform', 'transformPtr', 16),
+                });
+            }
+            const pooledEntries = Array.from(protoPayloadByKey.entries());
+            let totalPositionCount = 0;
+            let totalIndexCount = 0;
+            let totalNormalCount = 0;
+            let totalUvCount = 0;
+            let totalTransformCount = 0;
+            for (const [, packed] of pooledEntries) {
+                totalPositionCount += Number(packed.positions?.length || 0);
+                totalIndexCount += Number(packed.indices?.length || 0);
+                totalNormalCount += Number(packed.normals?.length || 0);
+                totalUvCount += Number(packed.uvs?.length || 0);
+                totalTransformCount += Number(packed.transform?.length || 0);
+            }
+            positionPool = new Float32Array(totalPositionCount);
+            indexPool = new Uint32Array(totalIndexCount);
+            normalPool = new Float32Array(totalNormalCount);
+            uvPool = new Float32Array(totalUvCount);
+            transformPool = new Float32Array(totalTransformCount);
+            bufferRangesByMeshId = {};
+            let positionOffset = 0;
+            let indexOffset = 0;
+            let normalOffset = 0;
+            let uvOffset = 0;
+            let transformOffset = 0;
+            for (const [meshId, packed] of pooledEntries) {
+                const positions = packed.positions || new Float32Array(0);
+                const indices = packed.indices || new Uint32Array(0);
+                const normals = packed.normals || new Float32Array(0);
+                const uvs = packed.uvs || new Float32Array(0);
+                const transform = packed.transform || new Float32Array(0);
+                if (positions.length > 0)
+                    positionPool.set(positions, positionOffset);
+                if (indices.length > 0)
+                    indexPool.set(indices, indexOffset);
+                if (normals.length > 0)
+                    normalPool.set(normals, normalOffset);
+                if (uvs.length > 0)
+                    uvPool.set(uvs, uvOffset);
+                if (transform.length > 0)
+                    transformPool.set(transform, transformOffset);
+                bufferRangesByMeshId[meshId] = {
+                    positions: positions.length > 0 ? { offset: positionOffset, count: positions.length, stride: 3 } : null,
+                    indices: indices.length > 0 ? { offset: indexOffset, count: indices.length, stride: 1 } : null,
+                    normals: normals.length > 0 ? {
+                        offset: normalOffset,
+                        count: normals.length,
+                        stride: Math.max(1, Number(packed.payload?.normalsDimension || 3)),
+                    } : null,
+                    uvs: uvs.length > 0 ? {
+                        offset: uvOffset,
+                        count: uvs.length,
+                        stride: Math.max(1, Number(packed.payload?.uvDimension || 2)),
+                    } : null,
+                    transform: transform.length > 0 ? { offset: transformOffset, count: transform.length, stride: 16 } : null,
+                };
+                positionOffset += positions.length;
+                indexOffset += indices.length;
+                normalOffset += normals.length;
+                uvOffset += uvs.length;
+                transformOffset += transform.length;
+            }
+            normalizedMeshDescriptors = rawMeshDescriptors.map((rawDescriptor) => {
+                const meshId = normalizeHydraPath(rawDescriptor?.meshId || '');
+                const resolvedPrimPath = normalizeHydraPath(rawDescriptor?.resolvedPrimPath || '');
+                const normalizedBlob = meshId ? protoPayloadByKey.get(meshId)?.payload || null : null;
+                return {
+                    meshId: meshId || null,
+                    sectionName: String(rawDescriptor?.sectionName || '').trim() || null,
+                    resolvedPrimPath: resolvedPrimPath || null,
+                    primType: String(rawDescriptor?.primType || '').trim() || null,
+                    applyGeometry: rawDescriptor?.applyGeometry === true,
+                    dirtyMask: Number(rawDescriptor?.dirtyMask || 0),
+                    ranges: meshId ? (bufferRangesByMeshId[meshId] || null) : null,
+                    geometry: normalizedBlob ? {
+                        numVertices: Number(normalizedBlob.numVertices || 0),
+                        numIndices: Number(normalizedBlob.numIndices || 0),
+                        numNormals: Number(normalizedBlob.numNormals || 0),
+                        numUVs: Number(normalizedBlob.numUVs || 0),
+                        uvDimension: Number(normalizedBlob.uvDimension || 0),
+                        normalsDimension: Number(normalizedBlob.normalsDimension || 0),
+                        materialId: normalizeHydraPath(normalizedBlob.materialId || '') || null,
+                        geomSubsetSections: Array.isArray(normalizedBlob.geomSubsetSections)
+                            ? normalizedBlob.geomSubsetSections
+                            : [],
+                    } : null,
+                };
+            });
+        }
+        if (hasPackedMeshBuffers) {
+            this._protoDataBlobBatchCache?.clear?.();
+            let packedBlobCount = 0;
+            for (const descriptor of normalizedMeshDescriptors) {
+                const meshId = normalizeHydraPath(descriptor?.meshId || '');
+                if (!meshId || !meshId.includes('.proto_'))
+                    continue;
+                const ranges = normalizeMeshRanges(descriptor?.ranges) || null;
+                const geometry = descriptor?.geometry && typeof descriptor.geometry === 'object'
+                    ? descriptor.geometry
+                    : {};
+                const normalizedBlob = this.normalizeProtoDataBlob({
+                    valid: true,
+                    numVertices: Number(geometry?.numVertices || 0),
+                    numIndices: Number(geometry?.numIndices || 0),
+                    numNormals: Number(geometry?.numNormals || 0),
+                    numUVs: Number(geometry?.numUVs || 0),
+                    uvDimension: Number(geometry?.uvDimension || 0),
+                    normalsDimension: Number(geometry?.normalsDimension || 0),
+                    materialId: normalizeHydraPath(geometry?.materialId || '') || '',
+                    points: sliceFloatPool(positionPool, ranges?.positions || null),
+                    indices: sliceUintPool(indexPool, ranges?.indices || null),
+                    normals: sliceFloatPool(normalPool, ranges?.normals || null),
+                    uv: sliceFloatPool(uvPool, ranges?.uvs || null),
+                    transform: sliceFloatPool(transformPool, ranges?.transform || null),
+                    geomSubsetSections: Array.isArray(geometry?.geomSubsetSections)
+                        ? geometry.geomSubsetSections
+                        : [],
+                });
+                if (!normalizedBlob)
+                    continue;
+                this._protoDataBlobBatchCache.set(meshId, normalizedBlob);
+                packedBlobCount += 1;
+            }
+            this._protoDataBlobBatchPrimed = true;
+            if (protoBlobSummary.count <= 0) {
+                protoBlobSummary = {
+                    count: packedBlobCount,
+                    source: 'packed-buffers',
+                };
+            }
+        }
+        const normalizedMaterials = this.ingestSnapshotMaterialRecords(renderPayload.materials, {
+            stageSourcePath: resolvedStageSourcePath,
+            force: forceRefresh,
+        });
+        const normalizedRobotMetadataSnapshot = this.getCachedRobotMetadataSnapshot(resolvedStageSourcePath) || {
+            stageSourcePath: resolvedStageSourcePath || null,
+            generatedAtMs: Number(robotMetadataRaw.generatedAtMs || rawSnapshot.generatedAtMs || Date.now()),
+            source: String(robotMetadataRaw.source || robotMetadataSummary.source || 'robot-scene-snapshot'),
+            linkParentPairs: toPlainArray(robotMetadataRaw.linkParentPairs),
+            jointCatalogEntries: toPlainArray(robotMetadataRaw.jointCatalogEntries),
+            linkDynamicsEntries: toPlainArray(robotMetadataRaw.linkDynamicsEntries),
+            meshCountsByLinkPath: toPlainObject(robotMetadataRaw.meshCountsByLinkPath),
+        };
+        const normalizedStage = {
+            stageSourcePath: resolvedStageSourcePath || null,
+            rootLayerIdentifier: rawStage.rootLayerIdentifier || null,
+            defaultPrimPath: rawStage.defaultPrimPath || null,
+            upAxis: rawStage.upAxis || null,
+            startTimeCode: Number(rawStage.startTimeCode || 0),
+            endTimeCode: Number(rawStage.endTimeCode || 0),
+            timeCodesPerSecond: Number(rawStage.timeCodesPerSecond || 0),
+            framesPerSecond: Number(rawStage.framesPerSecond || 0),
+            metersPerUnit: Number(rawStage.metersPerUnit || 0),
+        };
+        return {
+            generatedAtMs: Number(rawSnapshot.generatedAtMs || Date.now()),
+            source: 'robot-scene-snapshot',
+            stageSourcePath: resolvedStageSourcePath || null,
+            stage: normalizedStage,
+            robotTree: {
+                linkParentPairs: Array.isArray(normalizedRobotMetadataSnapshot.linkParentPairs)
+                    ? normalizedRobotMetadataSnapshot.linkParentPairs
+                    : [],
+                jointCatalogEntries: Array.isArray(normalizedRobotMetadataSnapshot.jointCatalogEntries)
+                    ? normalizedRobotMetadataSnapshot.jointCatalogEntries
+                    : [],
+                rootLinkPaths: toPlainArray(rawSnapshot.robotTree?.rootLinkPaths),
+            },
+            physics: {
+                linkDynamicsEntries: Array.isArray(normalizedRobotMetadataSnapshot.linkDynamicsEntries)
+                    ? normalizedRobotMetadataSnapshot.linkDynamicsEntries
+                    : [],
+            },
+            render: {
+                primPathCount: Number(primPathSummary.count || this._knownPrimPathSet?.size || 0),
+                primTransformCount: Number(transformSummary.total || 0),
+                protoBlobCount: Number(protoBlobSummary.count || 0),
+                finalStageOverrideCount: Number(finalOverrideSummary.count || 0),
+                collisionOverrideCount: Number(finalOverrideSummary.collisionCount || 0),
+                visualOverrideCount: Number(finalOverrideSummary.visualCount || 0),
+                primOverrideCount: Number(finalOverrideSummary.primOverrideCount || 0),
+                materialCount: Number(normalizedMaterials?.length || 0),
+                meshDescriptors: normalizedMeshDescriptors,
+                materials: normalizedMaterials,
+            },
+            buffers: {
+                positions: positionPool,
+                indices: indexPool,
+                normals: normalPool,
+                uvs: uvPool,
+                transforms: transformPool,
+                rangesByMeshId: bufferRangesByMeshId,
+            },
+            robotMetadataSnapshot: normalizedRobotMetadataSnapshot,
+        };
+    }
+    warmupRobotSceneSnapshotFromDriver(driver, options = {}) {
+        const forceRefresh = options?.force === true;
+        const resolvedDriver = driver || this.config?.driver?.();
+        const summary = {
+            source: 'none',
+            used: false,
+            sceneSnapshotReady: false,
+            primPathCount: 0,
+            transformTotalCount: 0,
+            protoBlobCount: 0,
+            collisionOverrideCount: 0,
+            visualOverrideCount: 0,
+            primOverrideCount: 0,
+            robotMetadataJointCount: 0,
+            robotMetadataDynamicsCount: 0,
+            meshDescriptorCount: 0,
+            driverSnapshotSource: 'none',
+            hydratedProtoMeshAttemptedCount: 0,
+            hydratedProtoMeshPendingCount: 0,
+        };
+        if (!resolvedDriver)
+            return summary;
+        const stageSourcePath = String(options?.stageSourcePath || this.getStageSourcePath() || '').trim().split('?')[0];
+        const snapshotResult = this.getRobotSceneSnapshotFromDriver(resolvedDriver, {
+            stageSourcePath,
+        });
+        summary.driverSnapshotSource = String(snapshotResult?.source || 'none');
+        const rawSnapshot = snapshotResult?.rawSnapshot || null;
+        if (!rawSnapshot || typeof rawSnapshot !== 'object') {
+            summary.source = String(summary.driverSnapshotSource || 'empty');
+            return summary;
+        }
+        const normalizedSnapshot = this.normalizeRobotSceneSnapshot(rawSnapshot, {
+            force: forceRefresh,
+            stageSourcePath,
+            emitRobotMetadataEvent: options?.emitRobotMetadataEvent === true,
+        });
+        if (!normalizedSnapshot) {
+            summary.source = 'normalize-failed';
+            return summary;
+        }
+        const cacheKey = String(normalizedSnapshot.stageSourcePath || stageSourcePath || '').trim().split('?')[0];
+        if (cacheKey) {
+            this._runtimeBridgeCacheStageKey = cacheKey;
+            this._robotSceneSnapshotByStageSource.set(cacheKey, normalizedSnapshot);
+        }
+        const hydrateSummary = this.hydratePendingProtoMeshes({ allowDeferredFinalBatch: false });
+        const materialApplySummary = this.applySnapshotMaterialsToMeshes();
+        this.emitRobotSceneSnapshotReady(normalizedSnapshot);
+        summary.source = 'scene-snapshot';
+        summary.used = true;
+        summary.sceneSnapshotReady = true;
+        summary.primPathCount = Number(normalizedSnapshot.render?.primPathCount || 0);
+        summary.transformTotalCount = Number(normalizedSnapshot.render?.primTransformCount || 0);
+        summary.protoBlobCount = Number(normalizedSnapshot.render?.protoBlobCount || 0);
+        summary.collisionOverrideCount = Number(normalizedSnapshot.render?.collisionOverrideCount || 0);
+        summary.visualOverrideCount = Number(normalizedSnapshot.render?.visualOverrideCount || 0);
+        summary.primOverrideCount = Number(normalizedSnapshot.render?.primOverrideCount || 0);
+        summary.robotMetadataJointCount = Number(normalizedSnapshot.robotMetadataSnapshot?.jointCatalogEntries?.length || 0);
+        summary.robotMetadataDynamicsCount = Number(normalizedSnapshot.robotMetadataSnapshot?.linkDynamicsEntries?.length || 0);
+        summary.meshDescriptorCount = Number(normalizedSnapshot.render?.meshDescriptors?.length || 0);
+        summary.hydratedProtoMeshAttemptedCount = Number(hydrateSummary?.attemptedCount || 0);
+        summary.hydratedProtoMeshCount = Number(hydrateSummary?.completedCount || 0);
+        summary.hydratedProtoMeshPendingCount = Number(hydrateSummary?.pendingCount || 0);
+        summary.snapshotMaterialBindCount = Number(materialApplySummary?.boundCount || 0);
+        summary.snapshotMaterialInheritCount = Number(materialApplySummary?.inheritedCount || 0);
+        return summary;
+    }
+    getRobotSceneSnapshotFromDriver(driver, options = {}) {
+        const resolvedDriver = driver || this.config?.driver?.();
+        const stageSourcePath = String(options?.stageSourcePath || this.getStageSourcePath() || '').trim().split('?')[0];
+        const runtimeLinkPaths = Array.isArray(options?.runtimeLinkPaths)
+            ? options.runtimeLinkPaths
+            : [];
+        const supportsRobotSceneSnapshot = typeof resolvedDriver?.GetRobotSceneSnapshot === 'function';
+        if (supportsRobotSceneSnapshot) {
+            try {
+                const rawSnapshot = resolvedDriver.GetRobotSceneSnapshot(runtimeLinkPaths, stageSourcePath);
+                if (rawSnapshot && typeof rawSnapshot === 'object') {
+                    return {
+                        source: 'robot-scene-snapshot',
+                        rawSnapshot,
+                        stageSourcePath,
+                        runtimeLinkPaths,
+                    };
+                }
+            }
+            catch { }
+        }
+        return {
+            source: supportsRobotSceneSnapshot ? 'empty-robot-scene-snapshot' : 'unsupported',
+            rawSnapshot: null,
+            stageSourcePath,
+            runtimeLinkPaths,
+        };
+    }
+    hydratePendingProtoMeshes(options = {}) {
+        const summary = {
+            totalProtoMeshCount: 0,
+            attemptedCount: 0,
+            completedCount: 0,
+            pendingCount: 0,
+        };
+        for (const hydraMesh of Object.values(this.meshes || {})) {
+            if (!hydraMesh || typeof hydraMesh !== 'object')
+                continue;
+            if (!String(hydraMesh._id || '').includes('.proto_'))
+                continue;
+            summary.totalProtoMeshCount += 1;
+            if (hydraMesh._hasCompletedProtoSync === true)
+                continue;
+            summary.attemptedCount += 1;
+            try {
+                hydraMesh.applyProtoStageSync?.({
+                    allowDeferredFinalBatch: options?.allowDeferredFinalBatch === true,
+                });
+                hydraMesh.sanitizeNormalsIfNeeded?.();
+                if (hydraMesh._hasCompletedProtoSync === true) {
+                    summary.completedCount += 1;
+                }
+                else {
+                    summary.pendingCount += 1;
+                }
+            }
+            catch {
+                summary.pendingCount += 1;
+                // Keep one-shot warmup resilient even if a single proto mesh fails.
+            }
+        }
+        return summary;
+    }
+    hydratePendingResolvedPrimMeshes(options = {}) {
+        const summary = {
+            totalMeshCount: 0,
+            attemptedCount: 0,
+            completedCount: 0,
+            pendingCount: 0,
+            prefetchedPrimOverrideCount: 0,
+        };
+        const pendingMeshIds = [];
+        for (const hydraMesh of Object.values(this.meshes || {})) {
+            if (!hydraMesh || typeof hydraMesh !== 'object')
+                continue;
+            const meshId = normalizeHydraPath(hydraMesh._id || '');
+            if (!meshId || !meshId.startsWith('/'))
+                continue;
+            if (meshId.includes('.proto_'))
+                continue;
+            const geometry = hydraMesh?._mesh?.geometry || hydraMesh?._geometry || null;
+            const positionCount = Number(geometry?.getAttribute?.('position')?.count || 0);
+            if (positionCount > 0)
+                continue;
+            summary.totalMeshCount += 1;
+            pendingMeshIds.push(meshId);
+        }
+        if (pendingMeshIds.length <= 0) {
+            return summary;
+        }
+        const driver = options?.driver || this.config?.driver?.();
+        const prefetchSummary = this.prefetchPrimOverrideDataFromDriver(driver, pendingMeshIds, {
+            force: options?.force === true,
+        });
+        summary.prefetchedPrimOverrideCount = Number(prefetchSummary?.count || 0);
+        for (const meshId of pendingMeshIds) {
+            const hydraMesh = this.meshes?.[meshId];
+            if (!hydraMesh || typeof hydraMesh !== 'object')
+                continue;
+            summary.attemptedCount += 1;
+            try {
+                hydraMesh.applyResolvedPrimGeometryAndTransform?.(meshId);
+                hydraMesh.sanitizeNormalsIfNeeded?.();
+            }
+            catch {
+                summary.pendingCount += 1;
+                continue;
+            }
+            const geometry = hydraMesh?._mesh?.geometry || hydraMesh?._geometry || null;
+            const positionCount = Number(geometry?.getAttribute?.('position')?.count || 0);
+            if (positionCount > 0) {
+                summary.completedCount += 1;
+            }
+            else {
+                summary.pendingCount += 1;
+            }
+        }
+        return summary;
     }
     ingestRobotMetadataSnapshotFromBootstrapPayload(rawSnapshot, options = {}) {
         if (!rawSnapshot || typeof rawSnapshot !== 'object') {
@@ -1841,321 +2771,26 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             dynamicsCount,
         };
     }
-    prefetchRuntimeBootstrapSnapshotFromDriver(driver, options = {}) {
-        const forceRefresh = options?.force === true;
-        const includeRobotMetadata = options?.includeRobotMetadata !== false;
-        const resolvedDriver = driver || this.config?.driver?.();
-        const emptySummary = {
-            source: "none",
-            used: false,
-            primPathCount: 0,
-            primPathSource: "none",
-            worldTransformCount: 0,
-            localTransformCount: 0,
-            transformTotalCount: 0,
-            transformSource: "none",
-            protoBlobCount: 0,
-            protoBlobSource: "none",
-            collisionOverrideCount: 0,
-            visualOverrideCount: 0,
-            primOverrideCount: 0,
-            protoOverrideSource: "none",
-            protoMeshCount: 0,
-            robotMetadataReady: false,
-            robotMetadataSource: "none",
-            robotMetadataJointCount: 0,
-            robotMetadataDynamicsCount: 0,
-        };
-        if (!resolvedDriver || typeof resolvedDriver.GetRuntimeBootstrapSnapshot !== 'function') {
-            return {
-                ...emptySummary,
-                source: "unsupported",
-            };
-        }
-        const runtimeLinkPaths = this.collectRuntimeLinkPathsForBootstrap();
-        const stageSourcePath = String(options?.stageSourcePath || this.getStageSourcePath() || '').trim().split('?')[0];
-        let payload = null;
-        try {
-            payload = resolvedDriver.GetRuntimeBootstrapSnapshot(runtimeLinkPaths, stageSourcePath);
-        }
-        catch {
-            return {
-                ...emptySummary,
-                source: "error",
-            };
-        }
-        if (!payload || typeof payload !== 'object') {
-            return {
-                ...emptySummary,
-                source: "empty",
-            };
-        }
-        const nextSummary = { ...emptySummary, source: "bootstrap", used: true };
-        if (payload.primPathSet !== undefined) {
-            const primPathSummary = this.prefetchPrimPathSetFromDriver({ GetPrimPathSet: () => payload.primPathSet }, { force: forceRefresh }) || {};
-            nextSummary.primPathCount = Number(primPathSummary.count || 0);
-            nextSummary.primPathSource = String(primPathSummary.source || "batch");
-        }
-        if (payload.primTransforms !== undefined) {
-            const transformSummary = this.prefetchPrimTransformsFromDriver({ GetPrimTransforms: () => payload.primTransforms }, { force: forceRefresh }) || {};
-            nextSummary.worldTransformCount = Number(transformSummary.world || 0);
-            nextSummary.localTransformCount = Number(transformSummary.local || 0);
-            nextSummary.transformTotalCount = Number(transformSummary.total || 0);
-            nextSummary.transformSource = String(transformSummary.source || "batch");
-        }
-        if (payload.protoDataBlobs !== undefined) {
-            const protoBlobSummary = this.prefetchProtoDataBlobsFromDriver({ GetAllProtoDataBlobs: () => payload.protoDataBlobs }, { force: forceRefresh }) || {};
-            nextSummary.protoBlobCount = Number(protoBlobSummary.count || 0);
-            nextSummary.protoBlobSource = String(protoBlobSummary.source || "batch");
-        }
-        if (payload.finalStageOverrideBatch !== undefined) {
-            const finalStageSummary = this.prefetchFinalStageOverrideBatchFromDriver({ GetFinalStageOverrideBatch: () => payload.finalStageOverrideBatch }, { force: forceRefresh }) || {};
-            nextSummary.collisionOverrideCount = Number(finalStageSummary.collisionCount || 0);
-            nextSummary.visualOverrideCount = Number(finalStageSummary.visualCount || 0);
-            nextSummary.primOverrideCount = Number(finalStageSummary.primOverrideCount || 0);
-            nextSummary.protoOverrideSource = String(finalStageSummary.source || "batch");
-            nextSummary.protoMeshCount = Number(finalStageSummary.protoMeshCount || 0);
-        }
-        if (includeRobotMetadata && payload.robotMetadataSnapshot !== undefined) {
-            const robotMetadataSummary = this.ingestRobotMetadataSnapshotFromBootstrapPayload(payload.robotMetadataSnapshot, {
-                stageSourcePath,
-                emitEvent: options?.emitRobotMetadataEvent === true,
-            }) || {};
-            nextSummary.robotMetadataReady = robotMetadataSummary.ready === true;
-            nextSummary.robotMetadataSource = String(robotMetadataSummary.source || "none");
-            nextSummary.robotMetadataJointCount = Number(robotMetadataSummary.jointCount || 0);
-            nextSummary.robotMetadataDynamicsCount = Number(robotMetadataSummary.dynamicsCount || 0);
-        }
-        return nextSummary;
-    }
-    warmupRuntimeBridgeFromDriver(driver, options = {}) {
-        const resolvedDriver = driver || this.config?.driver?.();
-        const forceRefresh = options?.force === true;
-        const includeBootstrapSnapshot = options?.includeBootstrapSnapshot !== false;
-        const includePrimPathSet = options?.includePrimPathSet !== false;
-        const includePrimTransforms = options?.includePrimTransforms !== false;
-        const includeProtoDataBlobs = options?.includeProtoDataBlobs !== false;
-        const includeCollisionProtoOverrides = options?.includeCollisionProtoOverrides !== false;
-        const includeVisualProtoOverrides = options?.includeVisualProtoOverrides !== false;
-        const includeResolvedPrimPathIndex = options?.includeResolvedPrimPathIndex !== false;
-        const includeRobotMetadata = options?.includeRobotMetadata === true;
-        const robotMetadataSkipIdleWait = options?.robotMetadataSkipIdleWait === true;
-        const robotMetadataSkipUrdfTruthFallback = options?.robotMetadataSkipUrdfTruthFallback === true;
-        const summary = {
-            driverReady: !!resolvedDriver,
-            primPathCount: 0,
-            primPathSource: "none",
-            protoBlobCount: 0,
-            protoBlobSource: "none",
-            collisionOverrideCount: 0,
-            collisionOverrideSource: "none",
-            visualOverrideCount: 0,
-            visualOverrideSource: "none",
-            primOverrideCount: 0,
-            primOverrideSource: "none",
-            worldTransformCount: 0,
-            localTransformCount: 0,
-            transformTotalCount: 0,
-            transformSource: "none",
-            protoMeshCount: 0,
-            resolvedCollisionPrimCount: 0,
-            resolvedVisualPrimCount: 0,
-            robotMetadataWarmupStarted: false,
-            bootstrapSource: "none",
-            robotMetadataSource: "none",
-            robotMetadataJointCount: 0,
-            robotMetadataDynamicsCount: 0,
-        };
-        if (!resolvedDriver)
-            return summary;
-        let bootstrapSummary = null;
-        let bootstrapProvidedPrimPathSet = false;
-        let bootstrapProvidedPrimTransforms = false;
-        let bootstrapProvidedProtoDataBlobs = false;
-        let bootstrapProvidedProtoOverrides = false;
-        let bootstrapProvidedRobotMetadata = false;
-        if (includeBootstrapSnapshot) {
-            try {
-                const resolvedStageSourcePath = String(this.getStageSourcePath() || '').split('?')[0];
-                const maybeBootstrapSummary = this.prefetchRuntimeBootstrapSnapshotFromDriver(resolvedDriver, {
-                    force: forceRefresh,
-                    includeRobotMetadata,
-                    stageSourcePath: resolvedStageSourcePath,
-                    emitRobotMetadataEvent: false,
-                }) || null;
-                if (maybeBootstrapSummary && maybeBootstrapSummary.used === true) {
-                    bootstrapSummary = maybeBootstrapSummary;
-                    summary.bootstrapSource = String(maybeBootstrapSummary.source || "bootstrap");
-                    summary.primPathCount = Number(maybeBootstrapSummary.primPathCount || 0);
-                    summary.primPathSource = String(maybeBootstrapSummary.primPathSource || summary.primPathSource || "batch");
-                    summary.worldTransformCount = Number(maybeBootstrapSummary.worldTransformCount || 0);
-                    summary.localTransformCount = Number(maybeBootstrapSummary.localTransformCount || 0);
-                    summary.transformTotalCount = Number(maybeBootstrapSummary.transformTotalCount || 0);
-                    summary.transformSource = String(maybeBootstrapSummary.transformSource || summary.transformSource || "batch");
-                    summary.protoBlobCount = Number(maybeBootstrapSummary.protoBlobCount || 0);
-                    summary.protoBlobSource = String(maybeBootstrapSummary.protoBlobSource || summary.protoBlobSource || "batch");
-                    summary.collisionOverrideCount = Number(maybeBootstrapSummary.collisionOverrideCount || 0);
-                    summary.collisionOverrideSource = String(maybeBootstrapSummary.protoOverrideSource || "batch");
-                    summary.visualOverrideCount = Number(maybeBootstrapSummary.visualOverrideCount || 0);
-                    summary.visualOverrideSource = String(maybeBootstrapSummary.protoOverrideSource || "batch");
-                    summary.primOverrideCount = Number(maybeBootstrapSummary.primOverrideCount || 0);
-                    summary.primOverrideSource = String(maybeBootstrapSummary.protoOverrideSource || "batch");
-                    summary.robotMetadataSource = String(maybeBootstrapSummary.robotMetadataSource || "none");
-                    summary.robotMetadataJointCount = Number(maybeBootstrapSummary.robotMetadataJointCount || 0);
-                    summary.robotMetadataDynamicsCount = Number(maybeBootstrapSummary.robotMetadataDynamicsCount || 0);
-                    summary.robotMetadataWarmupStarted = maybeBootstrapSummary.robotMetadataReady === true;
-                    bootstrapProvidedPrimPathSet = summary.primPathCount > 0;
-                    bootstrapProvidedPrimTransforms = summary.transformTotalCount > 0;
-                    bootstrapProvidedProtoDataBlobs = summary.protoBlobCount > 0;
-                    bootstrapProvidedProtoOverrides = (summary.collisionOverrideCount > 0
-                        || summary.visualOverrideCount > 0
-                        || summary.primOverrideCount > 0);
-                    bootstrapProvidedRobotMetadata = maybeBootstrapSummary.robotMetadataReady === true;
-                }
-                else {
-                    summary.bootstrapSource = String(maybeBootstrapSummary?.source || "none");
-                }
-            }
-            catch {
-                summary.bootstrapSource = "error";
-            }
-        }
-        const resolvedCollisionPrimPaths = [];
-        let usedCombinedProtoOverridePrefetch = false;
-        let combinedProtoOverrideSummary = null;
-        if (includePrimPathSet && !bootstrapProvidedPrimPathSet) {
-            try {
-                const pathSummary = this.prefetchPrimPathSetFromDriver(resolvedDriver, { force: forceRefresh }) || {};
-                summary.primPathCount = Number(pathSummary.count || 0);
-                summary.primPathSource = String(pathSummary.source || "batch");
-            }
-            catch { }
-        }
-        if (includePrimTransforms && !bootstrapProvidedPrimTransforms) {
-            try {
-                const transformSummary = this.prefetchPrimTransformsFromDriver(resolvedDriver, { force: forceRefresh }) || {};
-                summary.worldTransformCount = Number(transformSummary.world || 0);
-                summary.localTransformCount = Number(transformSummary.local || 0);
-                summary.transformTotalCount = Number(transformSummary.total || 0);
-                summary.transformSource = String(transformSummary.source || "batch");
-            }
-            catch { }
-        }
-        if (includeProtoDataBlobs && !bootstrapProvidedProtoDataBlobs) {
-            try {
-                const protoSummary = this.prefetchProtoDataBlobsFromDriver(resolvedDriver, { force: forceRefresh }) || {};
-                summary.protoBlobCount = Number(protoSummary.count || 0);
-                summary.protoBlobSource = String(protoSummary.source || "batch");
-            }
-            catch { }
-        }
-        if (includeCollisionProtoOverrides && includeVisualProtoOverrides && !bootstrapProvidedProtoOverrides) {
-            try {
-                const combinedSummary = this.prefetchProtoMeshOverridesFromDriver(resolvedDriver, { force: forceRefresh }) || {};
-                const combinedSource = String(combinedSummary.source || "none");
-                if (combinedSource !== "single-only" && combinedSource !== "error") {
-                    usedCombinedProtoOverridePrefetch = true;
-                    combinedProtoOverrideSummary = combinedSummary;
-                    summary.collisionOverrideCount = Number(combinedSummary.collisionCount || 0);
-                    summary.collisionOverrideSource = combinedSource;
-                    summary.visualOverrideCount = Number(combinedSummary.visualCount || 0);
-                    summary.visualOverrideSource = combinedSource;
-                    summary.primOverrideCount = Number(combinedSummary.primOverrideCount || 0);
-                    summary.primOverrideSource = combinedSource;
-                }
-            }
-            catch { }
-        }
-        if (includeCollisionProtoOverrides && !usedCombinedProtoOverridePrefetch && !bootstrapProvidedProtoOverrides) {
-            try {
-                const collisionSummary = this.prefetchCollisionProtoOverridesFromDriver(resolvedDriver, { force: forceRefresh }) || {};
-                summary.collisionOverrideCount = Number(collisionSummary.count || 0);
-                summary.collisionOverrideSource = String(collisionSummary.source || "batch");
-            }
-            catch { }
-        }
-        if (includeVisualProtoOverrides && !usedCombinedProtoOverridePrefetch && !bootstrapProvidedProtoOverrides) {
-            try {
-                const visualSummary = this.prefetchVisualProtoOverridesFromDriver(resolvedDriver, { force: forceRefresh }) || {};
-                summary.visualOverrideCount = Number(visualSummary.count || 0);
-                summary.visualOverrideSource = String(visualSummary.source || "batch");
-            }
-            catch { }
-        }
-        for (const meshId of Object.keys(this.meshes || {})) {
-            if (!meshId || !meshId.includes('.proto_'))
-                continue;
-            const proto = this.registerMeshLinkPathIndex(meshId);
-            if (!proto)
-                continue;
-            summary.protoMeshCount += 1;
-            if (!includeResolvedPrimPathIndex)
-                continue;
-            if (proto.sectionName === 'collisions') {
-                const resolvedCollisionPath = usedCombinedProtoOverridePrefetch
-                    ? normalizeHydraPath(this._collisionProtoOverrideCache.get(meshId)?.resolvedPrimPath || '')
-                    : this.getResolvedPrimPathForMeshId(meshId);
-                if (resolvedCollisionPath) {
-                    summary.resolvedCollisionPrimCount += 1;
-                    resolvedCollisionPrimPaths.push(resolvedCollisionPath);
-                }
-            }
-            else if (proto.sectionName === 'visuals') {
-                const resolvedVisualPath = usedCombinedProtoOverridePrefetch
-                    ? normalizeHydraPath(this._visualProtoOverrideCache.get(meshId)?.resolvedPrimPath || '')
-                    : this.getResolvedVisualTransformPrimPathForMeshId(meshId);
-                if (resolvedVisualPath)
-                    summary.resolvedVisualPrimCount += 1;
-            }
-        }
-        if (!usedCombinedProtoOverridePrefetch && resolvedCollisionPrimPaths.length > 0 && !bootstrapProvidedProtoOverrides) {
-            try {
-                const primOverrideSummary = this.prefetchPrimOverrideDataFromDriver(resolvedDriver, resolvedCollisionPrimPaths, { force: forceRefresh }) || {};
-                summary.primOverrideCount = Number(primOverrideSummary.count || 0);
-                summary.primOverrideSource = String(primOverrideSummary.source || "batch");
-            }
-            catch { }
-        }
-        else if (usedCombinedProtoOverridePrefetch && combinedProtoOverrideSummary) {
-            summary.primOverrideCount = Number(combinedProtoOverrideSummary.primOverrideCount || summary.primOverrideCount || 0);
-            summary.primOverrideSource = String(combinedProtoOverrideSummary.source || summary.primOverrideSource || "batch");
-        }
-        const resolvedStageSourcePath = String(this.getStageSourcePath() || '').split('?')[0];
-        if (resolvedStageSourcePath) {
-            this._runtimeBridgeCacheStageKey = resolvedStageSourcePath;
-        }
-        if (includeRobotMetadata && !bootstrapProvidedRobotMetadata && typeof this.startRobotMetadataWarmupForStage === 'function') {
-            try {
-                const maybePromise = this.startRobotMetadataWarmupForStage({
-                    force: forceRefresh,
-                    skipIdleWait: robotMetadataSkipIdleWait,
-                    skipUrdfTruthFallback: robotMetadataSkipUrdfTruthFallback,
-                });
-                summary.robotMetadataWarmupStarted = !!maybePromise;
-            }
-            catch {
-                summary.robotMetadataWarmupStarted = false;
-            }
-        }
-        else if (includeRobotMetadata && bootstrapProvidedRobotMetadata) {
-            summary.robotMetadataWarmupStarted = true;
-        }
-        return summary;
-    }
     getProtoDataBlob(protoPath, options = {}) {
         if (!protoPath || !protoPath.startsWith('/'))
             return null;
         if (!this.config?.driver || typeof this.config.driver !== 'function')
             return null;
         const forceRefresh = options?.forceRefresh === true || options?.force === true;
+        const strictOneShotSceneLoad = this.strictOneShotSceneLoad === true;
+        const hasSceneSnapshot = this.hasResolvedRobotSceneSnapshot();
         const driver = this.config.driver();
         if (!driver || typeof driver.GetProtoDataBlob !== 'function')
             return null;
         // Hot path: prefer cache hit or single-proto fetch. Avoid forcing
         // GetAllProtoDataBlobs() here, which can create large first-sync stalls.
-        const cached = forceRefresh ? null : this._protoDataBlobBatchCache.get(protoPath);
-        if (cached)
+        const cached = this._protoDataBlobBatchCache.get(protoPath);
+        if (cached && (!forceRefresh || strictOneShotSceneLoad))
             return cached;
+        if (strictOneShotSceneLoad)
+            return cached || null;
+        if (hasSceneSnapshot)
+            return null;
         if (!forceRefresh && this.autoBatchProtoBlobsOnFirstAccess === true && this._protoDataBlobBatchPrimed !== true) {
             try {
                 this.prefetchProtoDataBlobsFromDriver(driver, { force: false });
@@ -2192,8 +2827,13 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             const cached = this._collisionProtoOverrideCache.get(meshId);
             return cached || null;
         }
+        if (this.strictOneShotSceneLoad === true)
+            return null;
+        const hasSceneSnapshot = this.hasResolvedRobotSceneSnapshot();
         const driver = this.config.driver();
         if (!driver)
+            return null;
+        if (hasSceneSnapshot)
             return null;
         if (this.autoBatchCollisionProtoOverridesOnFirstAccess === true && this._collisionProtoOverrideBatchPrimed !== true) {
             try {
@@ -2238,8 +2878,13 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             const cached = this._visualProtoOverrideCache.get(meshId);
             return cached || null;
         }
+        if (this.strictOneShotSceneLoad === true)
+            return null;
+        const hasSceneSnapshot = this.hasResolvedRobotSceneSnapshot();
         const driver = this.config.driver();
         if (!driver)
+            return null;
+        if (hasSceneSnapshot)
             return null;
         if (this.autoBatchVisualProtoOverridesOnFirstAccess === true && this._visualProtoOverrideBatchPrimed !== true) {
             try {
@@ -2285,6 +2930,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             const cached = this._primOverrideDataCache.get(normalizedPath);
             return cached || null;
         }
+        if (this.strictOneShotSceneLoad === true)
+            return null;
         const driver = this.config.driver();
         if (!driver || typeof driver.GetPrimOverrideData !== 'function')
             return null;
@@ -2308,7 +2955,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (this._primTransformBatchPrimed === true && !forceRefresh) {
             const world = Number(this._worldXformCache?.size || 0);
             const local = Number(this._localXformCache?.size || 0);
-            return { world, local, total: Math.max(world, local), source: "cache" };
+            const primPathCount = Number(this._knownPrimPathSet?.size || 0);
+            return { world, local, total: Math.max(world, local, primPathCount), source: "cache" };
         }
         this._primTransformBatchPrimed = true;
         let payload = null;
@@ -2321,46 +2969,82 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (!payload || typeof payload !== 'object') {
             return { world: 0, local: 0, total: 0, source: "empty" };
         }
-        const ingestTransformMap = (sourceMap, targetCache) => {
-            if (!sourceMap || typeof sourceMap !== 'object')
-                return 0;
-            let loaded = 0;
-            for (const [primPath, rawMatrix] of Object.entries(sourceMap)) {
-                if (!primPath || !primPath.startsWith('/'))
-                    continue;
-                const matrix = this.matrixFromWasmTransform(rawMatrix);
-                if (!matrix)
-                    continue;
-                targetCache.set(primPath, matrix);
-                loaded += 1;
+        const clearTransformCaches = () => {
+            this._localXformCache.clear();
+            if (this._localXformResetsStackCache instanceof Map) {
+                this._localXformResetsStackCache.clear();
             }
-            return loaded;
+            if (this._localXformAuthoredOpsCache instanceof Map) {
+                this._localXformAuthoredOpsCache.clear();
+            }
+            this._worldXformCache.clear();
+            if (this._worldXformCacheSourceByPath instanceof Map) {
+                this._worldXformCacheSourceByPath.clear();
+            }
+            this._meshFallbackCache.clear();
+            this._linkVisualTransformCache.clear();
+            this._urdfLinkWorldTransformCacheByStageSource.clear();
         };
-        this._localXformCache.clear();
-        if (this._localXformResetsStackCache instanceof Map) {
-            this._localXformResetsStackCache.clear();
+        const syncKnownPrimPathCache = (nextPathSet) => {
+            this._knownPrimPathSet = nextPathSet;
+            this._knownPrimPathSetPrimed = true;
+            for (const cachedPath of Array.from(this._primPathExistenceCache.keys())) {
+                if (!nextPathSet.has(cachedPath)) {
+                    this._primPathExistenceCache.delete(cachedPath);
+                }
+            }
+            for (const knownPath of nextPathSet) {
+                if (!this._primPathExistenceCache.has(knownPath))
+                    continue;
+                if (this._primPathExistenceCache.get(knownPath) === false) {
+                    this._primPathExistenceCache.set(knownPath, true);
+                }
+            }
+        };
+        const packedFormat = String(payload?.format || '').trim().toLowerCase();
+        if (packedFormat !== 'packed-v1') {
+            return { world: 0, local: 0, total: 0, source: 'unsupported-format' };
         }
-        if (this._localXformAuthoredOpsCache instanceof Map) {
-            this._localXformAuthoredOpsCache.clear();
+        const rawPaths = payload.paths;
+        const worldValues = payload.world;
+        const localValues = payload.local;
+        const strideRaw = Number(payload.stride);
+        const stride = Number.isFinite(strideRaw) && strideRaw >= 16 ? Math.floor(strideRaw) : 16;
+        const pathLength = Number(rawPaths?.length);
+        const safePathLength = Number.isFinite(pathLength) && pathLength >= 0 ? Math.floor(pathLength) : 0;
+        if (!(worldValues instanceof Float32Array) || !(localValues instanceof Float32Array) || safePathLength <= 0) {
+            return { world: 0, local: 0, total: 0, source: 'malformed-packed' };
         }
-        this._worldXformCache.clear();
-        if (this._worldXformCacheSourceByPath instanceof Map) {
-            this._worldXformCacheSourceByPath.clear();
-        }
-        this._meshFallbackCache.clear();
-        this._linkVisualTransformCache.clear();
-        this._urdfLinkWorldTransformCacheByStageSource.clear();
-        const world = ingestTransformMap(payload.world, this._worldXformCache);
-        if (this._worldXformCacheSourceByPath instanceof Map) {
-            for (const primPath of this._worldXformCache.keys()) {
-                this._worldXformCacheSourceByPath.set(primPath, 'driver');
+        clearTransformCaches();
+        const nextPathSet = new Set();
+        let world = 0;
+        let local = 0;
+        for (let index = 0; index < safePathLength; index += 1) {
+            const primPath = normalizeHydraPath(rawPaths[index]);
+            if (!primPath || !primPath.startsWith('/'))
+                continue;
+            nextPathSet.add(primPath);
+            const worldOffset = index * stride;
+            if (worldOffset + 16 <= worldValues.length) {
+                const matrix = this.matrixFromWasmTransform(worldValues.subarray(worldOffset, worldOffset + 16));
+                if (matrix) {
+                    this._worldXformCache.set(primPath, matrix);
+                    if (this._worldXformCacheSourceByPath instanceof Map) {
+                        this._worldXformCacheSourceByPath.set(primPath, 'driver');
+                    }
+                    world += 1;
+                }
+            }
+            const localOffset = index * stride;
+            if (localOffset + 16 <= localValues.length) {
+                const matrix = this.matrixFromWasmTransform(localValues.subarray(localOffset, localOffset + 16));
+                if (matrix) {
+                    this._localXformCache.set(primPath, matrix);
+                    local += 1;
+                }
             }
         }
-        const local = ingestTransformMap(payload.local, this._localXformCache);
-        // Some stages expose both collision container paths (`.../collisions/mesh_N`)
-        // and concrete primitive child paths (`.../collisions/mesh_N/cylinder`).
-        // Driver world-transform batches can disagree between those two forms; prefer
-        // the concrete primitive pose to keep collision overlays and truth checks stable.
+        syncKnownPrimPathCache(nextPathSet);
         const collisionContainerRegex = /\/collisions\/mesh_\d+$/i;
         const collisionPrimitiveLeafNames = ['mesh', 'collision_mesh', 'visual_mesh', 'cube', 'sphere', 'cylinder', 'capsule'];
         for (const containerPath of Array.from(this._worldXformCache.keys())) {
@@ -2382,8 +3066,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         return {
             world,
             local,
-            total: Number.isFinite(total) ? total : Math.max(world, local),
-            source: forceRefresh ? "batch-refresh" : "batch",
+            total: Number.isFinite(total) && total > 0 ? total : Math.max(world, local, nextPathSet.size),
+            source: forceRefresh ? 'packed-refresh' : 'packed',
         };
     }
     getWorldTransformForPrimPath(primPath, options = {}) {
@@ -2392,7 +3076,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (!primPath || !primPath.startsWith('/'))
             return null;
         const shouldClone = options?.clone !== false;
-        if (this.autoBatchPrimTransformsOnFirstAccess === true && this._primTransformBatchPrimed !== true) {
+        const hasSceneSnapshot = this.hasResolvedRobotSceneSnapshot();
+        if (!hasSceneSnapshot && this.strictOneShotSceneLoad !== true && this.autoBatchPrimTransformsOnFirstAccess === true && this._primTransformBatchPrimed !== true) {
             const driver = this.config?.driver?.();
             if (driver) {
                 try {
@@ -2413,8 +3098,13 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (cachedWorld && !cachedWorldFromDriver) {
             return shouldClone ? cachedWorld.clone() : cachedWorld;
         }
-        const stage = this.getStage();
-        if (!stage) {
+        if (this.strictOneShotSceneLoad === true && !hasSceneSnapshot) {
+            if (!cachedWorld)
+                return null;
+            return shouldClone ? cachedWorld.clone() : cachedWorld;
+        }
+        const stage = hasSceneSnapshot ? null : this.getStage();
+        if (!stage && !hasSceneSnapshot) {
             if (!cachedWorld)
                 return null;
             return shouldClone ? cachedWorld.clone() : cachedWorld;
@@ -2425,10 +3115,15 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         let hasTransform = false;
         for (const pathSegment of pathSegments) {
             currentPath += '/' + pathSegment;
-            const localMatrix = this.getLocalTransformForPrimPath(stage, currentPath, { clone: false });
+            const localMatrix = this.getLocalTransformForPrimPath(stage, currentPath, {
+                clone: false,
+                allowStageFallback: !hasSceneSnapshot,
+            });
             if (!localMatrix)
                 continue;
-            const resetsXformStack = this.getLocalTransformResetsXformStack(stage, currentPath);
+            const resetsXformStack = this.getLocalTransformResetsXformStack(stage, currentPath, {
+                allowStageFallback: !hasSceneSnapshot,
+            });
             if (resetsXformStack) {
                 worldMatrix.copy(localMatrix);
             }
@@ -2527,11 +3222,12 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         }
         return hasAuthoredOps === true;
     }
-    getLocalTransformResetsXformStack(stage, primPath) {
+    getLocalTransformResetsXformStack(stage, primPath, options = {}) {
         if (this._localXformResetsStackCache instanceof Map && this._localXformResetsStackCache.has(primPath)) {
             return this._localXformResetsStackCache.get(primPath) === true;
         }
-        if (!stage || typeof stage.GetPrimAtPath !== 'function') {
+        const allowStageFallback = options?.allowStageFallback !== false;
+        if (!allowStageFallback || !stage || typeof stage.GetPrimAtPath !== 'function') {
             if (this._localXformResetsStackCache instanceof Map) {
                 this._localXformResetsStackCache.set(primPath, false);
             }
@@ -2569,17 +3265,14 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (!this || typeof this !== 'object')
             return null;
         const shouldClone = options?.clone !== false;
+        const allowStageFallback = options?.allowStageFallback !== false;
         if (this._localXformCache.has(primPath)) {
             const cached = this._localXformCache.get(primPath);
             if (!cached)
                 return null;
             return shouldClone ? cached.clone() : cached;
         }
-        if (!stage || typeof stage.GetPrimAtPath !== 'function') {
-            this._localXformCache.set(primPath, null);
-            if (this._localXformResetsStackCache instanceof Map) {
-                this._localXformResetsStackCache.set(primPath, false);
-            }
+        if (!allowStageFallback || !stage || typeof stage.GetPrimAtPath !== 'function') {
             return null;
         }
         let prim = null;
@@ -2749,8 +3442,11 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
     createRPrim(typeId, id, instancerId) {
         const normalizedId = normalizeHydraPath(id);
         const normalizedInstancerId = normalizeHydraPath(instancerId);
+        if (!normalizedInstancerId && this.shouldSuppressSyntheticTopLevelMesh?.(normalizedId) === true) {
+            return this.createNoopRPrim();
+        }
         const loweredId = String(normalizedId || '').toLowerCase();
-        const isCollisionPrim = loweredId.includes('/collisions.') || loweredId.includes('/collisions/');
+        const isCollisionPrim = COLLISION_SEGMENT_PATTERN.test(loweredId);
         if (this.loadVisualPrims === false && !isCollisionPrim) {
             return this.createNoopRPrim();
         }
@@ -2838,8 +3534,11 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             ? this.config.driver()
             : null;
         const shouldPrimeFinalStageOverrides = (this.preferFinalStageOverrideBatchInProtoSync === true
+            && !this.hasResolvedRobotSceneSnapshot()
             && !!resolvedDriver
             && typeof this.prefetchFinalStageOverrideBatchFromDriver === 'function'
+            && (this.autoBatchCollisionProtoOverridesOnFirstAccess === true
+                || this.autoBatchVisualProtoOverridesOnFirstAccess === true)
             && this._finalStageOverrideBatchPrimed !== true
             && Object.keys(this.meshes || {}).some((meshId) => String(meshId).includes('.proto_')));
         if (shouldPrimeFinalStageOverrides) {

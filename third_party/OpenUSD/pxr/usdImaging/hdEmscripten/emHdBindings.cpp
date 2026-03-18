@@ -22,7 +22,16 @@ EMSCRIPTEN_BINDINGS(test_usd_imaging_emscripten) {
     .function("GetPhysicsJointRecords", &pxr::HdWebSyncDriver::GetPhysicsJointRecords)
     .function("GetPhysicsLinkDynamicsRecords", &pxr::HdWebSyncDriver::GetPhysicsLinkDynamicsRecords)
     .function("GetRobotMetadataSnapshot", &pxr::HdWebSyncDriver::GetRobotMetadataSnapshot)
-    .function("GetRuntimeBootstrapSnapshot", &pxr::HdWebSyncDriver::GetRuntimeBootstrapSnapshot)
+    .function("GetLastInitProfile", &pxr::HdWebSyncDriver::GetLastInitProfile)
+    .function(
+      "GetLastRobotSceneSnapshotProfile",
+      &pxr::HdWebSyncDriver::GetLastRobotSceneSnapshotProfile)
+    .function(
+      "GetRobotSceneSnapshot",
+      optional_override([](pxr::HdWebSyncDriver& self, emscripten::val runtimeLinkPaths, std::string const& stageSourcePath) {
+        return self.GetRobotSceneSnapshot(runtimeLinkPaths, stageSourcePath);
+      }))
+    .function("ExportLoadedStageSnapshot", &pxr::HdWebSyncDriver::ExportLoadedStageSnapshot)
     .function("GetPrimTransforms", &pxr::HdWebSyncDriver::GetPrimTransforms)
     .function("GetProtoDataBlob", &pxr::HdWebSyncDriver::GetProtoDataBlob)
     .function("GetAllProtoDataBlobs", &pxr::HdWebSyncDriver::GetAllProtoDataBlobs)

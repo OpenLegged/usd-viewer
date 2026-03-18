@@ -1,6 +1,10 @@
 export const robotMetadataCacheByStagePath = new Map();
 export const maxRobotMetadataCacheEntries = 8;
 export function toFiniteNumber(value) {
+    if (value === null || value === undefined)
+        return null;
+    if (typeof value === "string" && value.trim() === "")
+        return null;
     const numeric = Number(value);
     if (!Number.isFinite(numeric))
         return null;
@@ -93,7 +97,7 @@ export function getLinkPathFromMeshId(meshId) {
 }
 export function isCollisionMeshId(meshId) {
     const lowered = String(meshId || "").toLowerCase();
-    return lowered.includes("/collisions.") || lowered.includes("/collisions/") || lowered.includes("/collision.") || lowered.includes("/collision/");
+    return /(?:^|\/)collisions?(?:$|[/.])/i.test(lowered);
 }
 export function parseCollisionPrimitiveTypeFromMeshId(meshId) {
     const match = String(meshId || "").toLowerCase().match(/\.proto_([a-z]+)_id\d+/);
@@ -545,34 +549,6 @@ export async function buildRobotMetadataSnapshot(args) {
                 upperLimitDeg: toFiniteNumber(entry.upperLimitDeg),
                 controllable: false,
             });
-        }
-    }
-    else {
-        const layerTexts = await collectLayerTextsForRobotMetadata(stage, stageSourcePath);
-        for (const layerEntry of layerTexts) {
-            const parsedJointRecords = extractJointRecordsFromLayerText(layerEntry.layerText);
-            for (const parsed of parsedJointRecords) {
-                const body0Path = remapPathRootIfNeeded(parsed.body0Path, availableRootPaths);
-                const body1Path = remapPathRootIfNeeded(parsed.body1Path, availableRootPaths);
-                if (body0Path)
-                    ensureMutableLinkMetadata(linkMetadataByPath, body0Path);
-                if (body1Path)
-                    ensureMutableLinkMetadata(linkMetadataByPath, body1Path);
-                const key = `${parsed.jointName}|${body0Path || ""}|${body1Path || ""}|${parsed.axisToken}`;
-                if (jointRecordByKey.has(key))
-                    continue;
-                jointRecordByKey.set(key, {
-                    jointName: parsed.jointName,
-                    jointPath: null,
-                    jointType: parsed.jointTypeName || "PhysicsJoint",
-                    body0Path,
-                    body1Path,
-                    axisToken: parsed.axisToken,
-                    lowerLimitDeg: parsed.lowerLimitDeg,
-                    upperLimitDeg: parsed.upperLimitDeg,
-                    controllable: false,
-                });
-            }
         }
     }
     const jointInfoByLinkPath = new Map();

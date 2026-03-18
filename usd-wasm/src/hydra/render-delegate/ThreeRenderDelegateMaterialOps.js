@@ -1,9 +1,69 @@
 // @ts-nocheck
-import { Color, DoubleSide, MeshPhysicalMaterial, Quaternion } from 'three';
+import { Color, DoubleSide, LinearSRGBColorSpace, MeshPhysicalMaterial, Quaternion, SRGBColorSpace, Vector2 } from 'three';
 import * as Shared from './shared.js';
-import { ThreeRenderDelegateCore } from './ThreeRenderDelegateCore.js';
+import { ThreeRenderDelegateCore } from './ThreeRenderDelegateCore.js?v=20260317d';
 const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfTruthFromText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
 export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
+    getActiveStageRootPrimPath() {
+        const snapshotDefaultPrimPath = normalizeHydraPath(this.getCachedRobotSceneSnapshot?.()?.stage?.defaultPrimPath || '');
+        if (snapshotDefaultPrimPath)
+            return snapshotDefaultPrimPath;
+        const stageDefaultPrimPath = normalizeHydraPath(this.getStage?.()?.GetDefaultPrim?.()?.GetPath?.()?.pathString || '');
+        if (stageDefaultPrimPath)
+            return stageDefaultPrimPath;
+        return null;
+    }
+    getPrimPathIfWithinActiveStageRoot(primPath) {
+        const normalizedPrimPath = normalizeHydraPath(primPath || '');
+        if (!normalizedPrimPath)
+            return null;
+        const activeStageRootPrimPath = this.getActiveStageRootPrimPath?.();
+        if (!activeStageRootPrimPath)
+            return normalizedPrimPath;
+        if (normalizedPrimPath === activeStageRootPrimPath)
+            return normalizedPrimPath;
+        if (normalizedPrimPath.startsWith(`${activeStageRootPrimPath}/`))
+            return normalizedPrimPath;
+        return null;
+    }
+    shouldSuppressSyntheticTopLevelMesh(meshId) {
+        const normalizedMeshId = normalizeHydraPath(meshId || '');
+        if (!normalizedMeshId || normalizedMeshId.includes('.proto_'))
+            return false;
+        if (!/^\/(?:meshes|visuals|colliders?|collision)(?:$|[/.])/i.test(normalizedMeshId))
+            return false;
+        const activeStageRootPrimPath = this.getActiveStageRootPrimPath?.();
+        if (!activeStageRootPrimPath)
+            return false;
+        if (this.getPrimPathIfWithinActiveStageRoot(normalizedMeshId))
+            return false;
+        // Robot stages can carry duplicate helper scopes like `/visuals/...` or
+        // `/colliders/...` outside the default-prim root. Those prims are not part
+        // of the active robot subtree and keeping them produces duplicate rendering.
+        return true;
+    }
+    pruneSyntheticTopLevelMeshes() {
+        const meshEntries = Object.entries(this.meshes || {});
+        if (meshEntries.length === 0)
+            return 0;
+        let removedCount = 0;
+        for (const [meshId, hydraMesh] of meshEntries) {
+            if (!this.shouldSuppressSyntheticTopLevelMesh?.(meshId))
+                continue;
+            const threeMesh = hydraMesh?._mesh || null;
+            try {
+                threeMesh?.parent?.remove?.(threeMesh);
+            }
+            catch { }
+            delete this.meshes[meshId];
+            removedCount += 1;
+        }
+        if (removedCount > 0) {
+            this._meshMutationVersion = Number(this._meshMutationVersion || 0) + 1;
+            this._stageOverrideProtoMeshCache = null;
+        }
+        return removedCount;
+    }
     handleMaterialBindingApiWarning({ message }) {
         if (getActiveMaterialBindingWarningOwner() !== this)
             return false;
@@ -463,7 +523,7 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         if (!meshId)
             return null;
         if (this._resolvedProtoPrimPathCache.has(meshId)) {
-            const cachedPath = this._resolvedProtoPrimPathCache.get(meshId) || null;
+            const cachedPath = this.getPrimPathIfWithinActiveStageRoot(this._resolvedProtoPrimPathCache.get(meshId) || null);
             if (!meshId.includes('.proto_')) {
                 const normalizedMeshPath = normalizeHydraPath(meshId);
                 if (cachedPath && normalizedMeshPath && cachedPath === normalizedMeshPath) {
@@ -487,14 +547,19 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
             if (!normalizedMeshPath || !/\/collisions(?:$|[/.])/i.test(normalizedMeshPath)) {
                 return null;
             }
+            const scopedMeshPath = this.getPrimPathIfWithinActiveStageRoot(normalizedMeshPath);
+            if (!scopedMeshPath) {
+                this._resolvedProtoPrimPathCache.set(meshId, null);
+                return null;
+            }
             let resolvedLegacyPath = null;
             try {
-                resolvedLegacyPath = this.resolveLegacyCollisionPrimPathFromStage(normalizedMeshPath);
+                resolvedLegacyPath = this.resolveLegacyCollisionPrimPathFromStage(scopedMeshPath);
             }
             catch {
                 resolvedLegacyPath = null;
             }
-            const resolvedPath = resolvedLegacyPath || normalizedMeshPath;
+            const resolvedPath = this.getPrimPathIfWithinActiveStageRoot(resolvedLegacyPath || scopedMeshPath);
             this._resolvedProtoPrimPathCache.set(meshId, resolvedPath);
             return resolvedPath;
         }
@@ -531,15 +596,16 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         if (!meshId)
             return null;
         if (this._resolvedVisualPrimPathCache.has(meshId)) {
-            return this._resolvedVisualPrimPathCache.get(meshId) || null;
+            return this.getPrimPathIfWithinActiveStageRoot(this._resolvedVisualPrimPathCache.get(meshId) || null);
         }
         if (!meshId.includes('.proto_')) {
             const normalizedMeshPath = normalizeHydraPath(meshId);
             if (!normalizedMeshPath || !/\/visuals(?:$|[/.])/i.test(normalizedMeshPath)) {
                 return null;
             }
-            this._resolvedVisualPrimPathCache.set(meshId, normalizedMeshPath);
-            return normalizedMeshPath;
+            const scopedMeshPath = this.getPrimPathIfWithinActiveStageRoot(normalizedMeshPath);
+            this._resolvedVisualPrimPathCache.set(meshId, scopedMeshPath);
+            return scopedMeshPath;
         }
         const proto = parseProtoMeshIdentifier(meshId);
         if (!proto || proto.sectionName !== 'visuals' || proto.protoType !== 'mesh')
@@ -831,8 +897,9 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         if (!resolvedPath && proto.protoIndex === 0) {
             resolvedPath = proto.containerPath;
         }
-        this._resolvedVisualPrimPathCache.set(meshId, resolvedPath || null);
-        return resolvedPath || null;
+        const scopedResolvedPath = this.getPrimPathIfWithinActiveStageRoot(resolvedPath || null);
+        this._resolvedVisualPrimPathCache.set(meshId, scopedResolvedPath);
+        return scopedResolvedPath;
     }
     shouldPreferResolvedVisualTransformForMeshId(meshId) {
         if (!meshId || !meshId.includes('.proto_'))
@@ -971,26 +1038,43 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
     invalidateStageCaches(options = {}) {
         const preserveResolvedPrimCaches = options?.preserveResolvedPrimCaches === true;
         const preserveDriverCaches = options?.preserveDriverCaches === true;
+        const preserveRuntimeBridgeCaches = options?.preserveRuntimeBridgeCaches === true;
         this._stageOverrideProtoMeshCache = null;
-        this._localXformCache.clear();
-        if (this._localXformResetsStackCache instanceof Map) {
-            this._localXformResetsStackCache.clear();
+        if (!preserveRuntimeBridgeCaches) {
+            this._localXformCache.clear();
+            if (this._localXformResetsStackCache instanceof Map) {
+                this._localXformResetsStackCache.clear();
+            }
+            if (this._localXformAuthoredOpsCache instanceof Map) {
+                this._localXformAuthoredOpsCache.clear();
+            }
+            this._worldXformCache.clear();
+            if (this._worldXformCacheSourceByPath instanceof Map) {
+                this._worldXformCacheSourceByPath.clear();
+            }
+            // Transform caches were cleared, so batch-prime state must be reset.
+            // Otherwise future prefetchPrimTransformsFromDriver(force=false) calls may
+            // incorrectly short-circuit with empty caches and trigger slow per-prim fallback.
+            this._primTransformBatchPrimed = false;
+            this._primPathExistenceCache.clear();
+            this._knownPrimPathSet = null;
+            this._knownPrimPathSetPrimed = false;
         }
-        if (this._localXformAuthoredOpsCache instanceof Map) {
-            this._localXformAuthoredOpsCache.clear();
-        }
-        this._worldXformCache.clear();
-        if (this._worldXformCacheSourceByPath instanceof Map) {
-            this._worldXformCacheSourceByPath.clear();
-        }
-        // Transform caches were cleared, so batch-prime state must be reset.
-        // Otherwise future prefetchPrimTransformsFromDriver(force=false) calls may
-        // incorrectly short-circuit with empty caches and trigger slow per-prim fallback.
-        this._primTransformBatchPrimed = false;
-        this._primPathExistenceCache.clear();
-        this._knownPrimPathSet = null;
-        this._knownPrimPathSetPrimed = false;
         this._meshFallbackCache.clear();
+        if (this._stageFallbackMaterialCache instanceof Map) {
+            this._stageFallbackMaterialCache.clear();
+        }
+        if (!preserveRuntimeBridgeCaches) {
+            if (this._snapshotMaterialRecordById instanceof Map) {
+                this._snapshotMaterialRecordById.clear();
+            }
+            if (this._snapshotMaterialIdsByStageSource instanceof Map) {
+                this._snapshotMaterialIdsByStageSource.clear();
+            }
+            if (this._snapshotFallbackMaterialCache instanceof Map) {
+                this._snapshotFallbackMaterialCache.clear();
+            }
+        }
         if (!preserveResolvedPrimCaches) {
             this._resolvedProtoPrimPathCache.clear();
             this._resolvedVisualPrimPathCache.clear();
@@ -1021,7 +1105,7 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         this._resolvedDriverStage = null;
         this._pendingDriverStagePromise = null;
         this._hasRunStageTruthAlignmentDiagnostics = false;
-        if (!preserveResolvedPrimCaches && !preserveDriverCaches) {
+        if (!preserveResolvedPrimCaches && !preserveDriverCaches && !preserveRuntimeBridgeCaches) {
             this._runtimeBridgeCacheStageKey = null;
         }
         this.flushMaterialBindingApiWarningSummary();
@@ -1040,17 +1124,20 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         const chunkSize = Number.isFinite(chunkSizeRaw) && chunkSizeRaw > 0
             ? Math.max(1, Math.floor(chunkSizeRaw))
             : Number.POSITIVE_INFINITY;
+        const stageSourcePath = String(this.getStageSourcePath() || '').split('?')[0];
+        const hasSceneSnapshot = typeof this.hasResolvedRobotSceneSnapshot === 'function' && this.hasResolvedRobotSceneSnapshot(stageSourcePath);
         if (startIndex === 0) {
-            const stageSourcePath = String(this.getStageSourcePath() || '').split('?')[0];
-            const canPreserveRuntimeBridgeCaches = (!!stageSourcePath
-                && stageSourcePath === String(this._runtimeBridgeCacheStageKey || ''));
+            const canPreserveRuntimeBridgeCaches = !!stageSourcePath && (hasSceneSnapshot
+                || stageSourcePath === String(this._runtimeBridgeCacheStageKey || ''));
             this.invalidateStageCaches({
                 preserveResolvedPrimCaches: canPreserveRuntimeBridgeCaches,
                 preserveDriverCaches: canPreserveRuntimeBridgeCaches,
+                preserveRuntimeBridgeCaches: canPreserveRuntimeBridgeCaches,
             });
             if (!this.suppressMaterialBindingApiWarnings && stage) {
                 this.tryRepairMaterialBindingApiSchemas();
             }
+            this.pruneSyntheticTopLevelMeshes();
         }
         const meshMutationVersion = Number(this._meshMutationVersion || 0);
         const cachedProtoMeshState = this._stageOverrideProtoMeshCache;
@@ -1073,7 +1160,7 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
             : null;
         let finalStageBatchEntries = null;
         let finalStageBatchEnabled = false;
-        if (prefetchFinalStageBatch && resolvedDriver && typeof this.prefetchFinalStageOverrideBatchFromDriver === 'function') {
+        if (!hasSceneSnapshot && prefetchFinalStageBatch && resolvedDriver && typeof this.prefetchFinalStageOverrideBatchFromDriver === 'function') {
             try {
                 const batchSummary = this.prefetchFinalStageOverrideBatchFromDriver(resolvedDriver, {
                     force: forceFinalStageBatchRefresh || startIndex === 0,
@@ -1496,6 +1583,9 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         for (const candidate of candidates) {
             if (this.materials[candidate])
                 return candidate;
+            if (this._snapshotMaterialRecordById instanceof Map && this._snapshotMaterialRecordById.has(candidate)) {
+                return candidate;
+            }
             if (stage && this.safeGetPrimAtPath(stage, candidate)) {
                 return candidate;
             }
@@ -1510,7 +1600,9 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         const existingMaterial = this.materials[resolvedMaterialId] || this.materials[normalizedMaterialId];
         if (existingMaterial)
             return existingMaterial;
-        const fallbackMaterial = this.createFallbackMaterialFromStage(resolvedMaterialId);
+        const fallbackMaterial = this.createFallbackMaterialFromSnapshot(resolvedMaterialId)
+            || (resolvedMaterialId !== normalizedMaterialId ? this.createFallbackMaterialFromSnapshot(normalizedMaterialId) : null)
+            || this.createFallbackMaterialFromStage(resolvedMaterialId);
         if (!fallbackMaterial)
             return null;
         this.materials[resolvedMaterialId] = fallbackMaterial;
@@ -1518,6 +1610,417 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
             this.materials[normalizedMaterialId] = fallbackMaterial;
         }
         return fallbackMaterial;
+    }
+    normalizeSnapshotMaterialRecords(rawRecords, options = {}) {
+        const records = Array.isArray(rawRecords)
+            ? rawRecords
+            : (rawRecords && typeof rawRecords.length === 'number' ? Array.from(rawRecords) : []);
+        const normalizedStageSourcePath = String(options?.stageSourcePath || this.getStageSourcePath() || '').trim().split('?')[0] || null;
+        const normalizeScalar = (value, config = {}) => {
+            const numeric = toFiniteNumber(value);
+            if (numeric === undefined)
+                return null;
+            let normalized = numeric;
+            if (config.clamp01)
+                normalized = clamp01(normalized);
+            if (Number.isFinite(config.min))
+                normalized = Math.max(Number(config.min), normalized);
+            if (Number.isFinite(config.max))
+                normalized = Math.min(Number(config.max), normalized);
+            return normalized;
+        };
+        const normalizeColor = (value) => {
+            const color = toColorArray(value);
+            if (!color)
+                return null;
+            return [Number(color[0] || 0), Number(color[1] || 0), Number(color[2] || 0)];
+        };
+        const normalizeVec2 = (value) => {
+            const tuple = toFiniteVector2Tuple(value)
+                || (() => {
+                    const scalar = toFiniteNumber(value);
+                    if (scalar === undefined)
+                        return null;
+                    return [scalar, scalar];
+                })();
+            if (!tuple)
+                return null;
+            return [Number(tuple[0] || 0), Number(tuple[1] || 0)];
+        };
+        const normalizeTexturePath = (value) => {
+            const normalized = this.normalizeMaterialTexturePath(value);
+            return normalized || null;
+        };
+        return records
+            .map((rawRecord) => {
+            if (!rawRecord || typeof rawRecord !== 'object')
+                return null;
+            const materialId = normalizeHydraPath(rawRecord.materialId || rawRecord.id || '');
+            if (!materialId)
+                return null;
+            const name = String(rawRecord.name || materialId.split('/').filter(Boolean).pop() || materialId).trim();
+            const normalizedRecord = {
+                materialId,
+                name,
+                stageSourcePath: normalizedStageSourcePath,
+                shaderPath: normalizeHydraPath(rawRecord.shaderPath || '') || null,
+                shaderName: String(rawRecord.shaderName || '').trim() || null,
+                shaderInfoId: String(rawRecord.shaderInfoId || '').trim() || null,
+                isOmniPbr: rawRecord.isOmniPbr === true,
+                opacityEnabled: typeof rawRecord.opacityEnabled === 'boolean' ? rawRecord.opacityEnabled : null,
+                opacityTextureEnabled: typeof rawRecord.opacityTextureEnabled === 'boolean' ? rawRecord.opacityTextureEnabled : null,
+                emissiveEnabled: typeof rawRecord.emissiveEnabled === 'boolean' ? rawRecord.emissiveEnabled : null,
+                color: normalizeColor(rawRecord.color),
+                emissive: normalizeColor(rawRecord.emissive),
+                specularColor: normalizeColor(rawRecord.specularColor),
+                attenuationColor: normalizeColor(rawRecord.attenuationColor),
+                sheenColor: normalizeColor(rawRecord.sheenColor),
+                normalScale: normalizeVec2(rawRecord.normalScale),
+                clearcoatNormalScale: normalizeVec2(rawRecord.clearcoatNormalScale),
+                roughness: normalizeScalar(rawRecord.roughness, { clamp01: true }),
+                metalness: normalizeScalar(rawRecord.metalness, { clamp01: true }),
+                opacity: normalizeScalar(rawRecord.opacity, { clamp01: true }),
+                alphaTest: normalizeScalar(rawRecord.alphaTest, { clamp01: true }),
+                clearcoat: normalizeScalar(rawRecord.clearcoat, { clamp01: true }),
+                clearcoatRoughness: normalizeScalar(rawRecord.clearcoatRoughness, { clamp01: true }),
+                specularIntensity: normalizeScalar(rawRecord.specularIntensity, { clamp01: true }),
+                transmission: normalizeScalar(rawRecord.transmission, { clamp01: true }),
+                thickness: normalizeScalar(rawRecord.thickness, { min: 0 }),
+                attenuationDistance: normalizeScalar(rawRecord.attenuationDistance, { min: 0 }),
+                aoMapIntensity: normalizeScalar(rawRecord.aoMapIntensity, { clamp01: true }),
+                sheen: normalizeScalar(rawRecord.sheen, { clamp01: true }),
+                sheenRoughness: normalizeScalar(rawRecord.sheenRoughness, { clamp01: true }),
+                iridescence: normalizeScalar(rawRecord.iridescence, { clamp01: true }),
+                iridescenceIOR: normalizeScalar(rawRecord.iridescenceIOR, { min: 1 }),
+                anisotropy: normalizeScalar(rawRecord.anisotropy, { clamp01: true }),
+                anisotropyRotation: normalizeScalar(rawRecord.anisotropyRotation),
+                emissiveIntensity: normalizeScalar(rawRecord.emissiveIntensity, { min: 0 }),
+                ior: normalizeScalar(rawRecord.ior, { min: 1 }),
+                mapPath: normalizeTexturePath(rawRecord.mapPath),
+                emissiveMapPath: normalizeTexturePath(rawRecord.emissiveMapPath),
+                roughnessMapPath: normalizeTexturePath(rawRecord.roughnessMapPath),
+                metalnessMapPath: normalizeTexturePath(rawRecord.metalnessMapPath),
+                normalMapPath: normalizeTexturePath(rawRecord.normalMapPath),
+                aoMapPath: normalizeTexturePath(rawRecord.aoMapPath),
+                alphaMapPath: normalizeTexturePath(rawRecord.alphaMapPath),
+                clearcoatMapPath: normalizeTexturePath(rawRecord.clearcoatMapPath),
+                clearcoatRoughnessMapPath: normalizeTexturePath(rawRecord.clearcoatRoughnessMapPath),
+                clearcoatNormalMapPath: normalizeTexturePath(rawRecord.clearcoatNormalMapPath),
+                specularColorMapPath: normalizeTexturePath(rawRecord.specularColorMapPath),
+                specularIntensityMapPath: normalizeTexturePath(rawRecord.specularIntensityMapPath),
+                transmissionMapPath: normalizeTexturePath(rawRecord.transmissionMapPath),
+                thicknessMapPath: normalizeTexturePath(rawRecord.thicknessMapPath),
+                sheenColorMapPath: normalizeTexturePath(rawRecord.sheenColorMapPath),
+                sheenRoughnessMapPath: normalizeTexturePath(rawRecord.sheenRoughnessMapPath),
+                anisotropyMapPath: normalizeTexturePath(rawRecord.anisotropyMapPath),
+                iridescenceMapPath: normalizeTexturePath(rawRecord.iridescenceMapPath),
+                iridescenceThicknessMapPath: normalizeTexturePath(rawRecord.iridescenceThicknessMapPath),
+            };
+            const inferredColorHex = this.inferColorHexFromMaterialName(name);
+            if (Number.isFinite(inferredColorHex)) {
+                const inferredColor = [
+                    ((inferredColorHex >> 16) & 0xff) / 255,
+                    ((inferredColorHex >> 8) & 0xff) / 255,
+                    (inferredColorHex & 0xff) / 255,
+                ];
+                const hasSuspiciousPureWhiteColor = Array.isArray(normalizedRecord.color)
+                    && normalizedRecord.color.length >= 3
+                    && normalizedRecord.color.every((channel) => Math.abs(Number(channel) - 1) <= 1e-4);
+                if (!normalizedRecord.color || (hasSuspiciousPureWhiteColor && inferredColorHex !== 0xffffff)) {
+                    normalizedRecord.color = inferredColor;
+                }
+            }
+            if (normalizedRecord.roughness === null && normalizedRecord.isOmniPbr) {
+                normalizedRecord.roughness = 0.5;
+            }
+            return normalizedRecord;
+        })
+            .filter(Boolean);
+    }
+    ingestSnapshotMaterialRecords(rawRecords, options = {}) {
+        const normalizedStageSourcePath = String(options?.stageSourcePath || this.getStageSourcePath() || '').trim().split('?')[0] || '__default__';
+        const normalizedRecords = this.normalizeSnapshotMaterialRecords(rawRecords, {
+            stageSourcePath: normalizedStageSourcePath,
+        });
+        if (!(this._snapshotMaterialRecordById instanceof Map)) {
+            this._snapshotMaterialRecordById = new Map();
+        }
+        if (!(this._snapshotMaterialIdsByStageSource instanceof Map)) {
+            this._snapshotMaterialIdsByStageSource = new Map();
+        }
+        if (!(this._snapshotFallbackMaterialCache instanceof Map)) {
+            this._snapshotFallbackMaterialCache = new Map();
+        }
+        const previousIds = this._snapshotMaterialIdsByStageSource.get(normalizedStageSourcePath);
+        if (options?.force === true && previousIds instanceof Set) {
+            for (const materialId of previousIds) {
+                this._snapshotMaterialRecordById.delete(materialId);
+                this._snapshotFallbackMaterialCache.delete(materialId);
+            }
+        }
+        const stageMaterialIds = new Set();
+        for (const record of normalizedRecords) {
+            const materialId = normalizeHydraPath(record?.materialId || '');
+            if (!materialId)
+                continue;
+            this._snapshotMaterialRecordById.set(materialId, record);
+            this._snapshotFallbackMaterialCache.delete(materialId);
+            stageMaterialIds.add(materialId);
+        }
+        this._snapshotMaterialIdsByStageSource.set(normalizedStageSourcePath, stageMaterialIds);
+        for (const materialId of stageMaterialIds) {
+            if (this.materials[materialId])
+                continue;
+            const wrappedMaterial = this.createFallbackMaterialFromSnapshot(materialId);
+            if (wrappedMaterial) {
+                this.materials[materialId] = wrappedMaterial;
+            }
+        }
+        return normalizedRecords;
+    }
+    applySnapshotTextureInput(material, texturePath, materialProperty, options = {}) {
+        const normalizedTexturePath = this.normalizeMaterialTexturePath(texturePath);
+        if (!material || !normalizedTexturePath)
+            return false;
+        this.registry.getTexture(normalizedTexturePath).then((texture) => {
+            const nextTexture = texture?.clone ? texture.clone() : texture;
+            if (!nextTexture)
+                return;
+            nextTexture.colorSpace = options.colorSpace || LinearSRGBColorSpace;
+            nextTexture.needsUpdate = true;
+            material[materialProperty] = nextTexture;
+            if (typeof options.onAssigned === 'function') {
+                options.onAssigned(nextTexture);
+            }
+            material.needsUpdate = true;
+        }).catch(() => { });
+        return true;
+    }
+    applySnapshotMaterialRecord(material, record) {
+        if (!material || !record || typeof record !== 'object')
+            return;
+        const assignColor = (recordField, materialField, options = {}) => {
+            const color = toColorArray(record?.[recordField]);
+            if (!color)
+                return false;
+            let nextColor = new Color().fromArray(color);
+            const inferredHex = this.inferColorHexFromMaterialName(material?.name);
+            if (Number.isFinite(inferredHex)
+                && color.every((channel) => Math.abs(channel - 1) <= 1e-4)
+                && inferredHex !== 0xffffff) {
+                nextColor = new Color(inferredHex);
+            }
+            if (options.treatAsSrgbWhenMatchingMaterialName && material?.name) {
+                if (Number.isFinite(inferredHex)) {
+                    const sr = ((inferredHex >> 16) & 0xff) / 255;
+                    const sg = ((inferredHex >> 8) & 0xff) / 255;
+                    const sb = (inferredHex & 0xff) / 255;
+                    const epsilon = 1 / 255 + 1e-4;
+                    if (Math.abs(color[0] - sr) <= epsilon && Math.abs(color[1] - sg) <= epsilon && Math.abs(color[2] - sb) <= epsilon) {
+                        nextColor = new Color(inferredHex);
+                    }
+                }
+            }
+            material[materialField] = nextColor;
+            return true;
+        };
+        const assignScalar = (recordField, materialField) => {
+            const numeric = toFiniteNumber(record?.[recordField]);
+            if (numeric === undefined)
+                return false;
+            material[materialField] = numeric;
+            return true;
+        };
+        const assignVec2 = (recordField, materialField) => {
+            const tuple = toFiniteVector2Tuple(record?.[recordField]);
+            if (!tuple)
+                return false;
+            material[materialField] = new Vector2(tuple[0], tuple[1]);
+            return true;
+        };
+        assignColor('color', 'color', {
+            treatAsSrgbWhenMatchingMaterialName: this.shouldTreatNamedHexDiffuseAsSrgb(),
+        });
+        assignColor('specularColor', 'specularColor');
+        assignColor('attenuationColor', 'attenuationColor');
+        assignColor('sheenColor', 'sheenColor');
+        if (record?.emissiveEnabled !== false) {
+            assignColor('emissive', 'emissive');
+        }
+        assignScalar('roughness', 'roughness');
+        assignScalar('metalness', 'metalness');
+        assignScalar('opacity', 'opacity');
+        assignScalar('alphaTest', 'alphaTest');
+        assignScalar('clearcoat', 'clearcoat');
+        assignScalar('clearcoatRoughness', 'clearcoatRoughness');
+        assignScalar('specularIntensity', 'specularIntensity');
+        assignScalar('ior', 'ior');
+        assignScalar('transmission', 'transmission');
+        assignScalar('thickness', 'thickness');
+        assignScalar('attenuationDistance', 'attenuationDistance');
+        assignScalar('aoMapIntensity', 'aoMapIntensity');
+        assignScalar('sheen', 'sheen');
+        assignScalar('sheenRoughness', 'sheenRoughness');
+        assignScalar('iridescence', 'iridescence');
+        assignScalar('iridescenceIOR', 'iridescenceIOR');
+        assignScalar('anisotropy', 'anisotropy');
+        assignScalar('anisotropyRotation', 'anisotropyRotation');
+        if (record?.emissiveEnabled === false) {
+            material.emissive = new Color(0x000000);
+            material.emissiveIntensity = 1;
+        }
+        else {
+            assignScalar('emissiveIntensity', 'emissiveIntensity');
+        }
+        assignVec2('normalScale', 'normalScale');
+        assignVec2('clearcoatNormalScale', 'clearcoatNormalScale');
+        if (record?.opacityEnabled === false) {
+            material.opacity = 1;
+            material.transparent = false;
+            material.alphaTest = 0;
+        }
+        else {
+            const opacity = toFiniteNumber(record?.opacity);
+            if (opacity !== undefined && opacity < 1) {
+                material.transparent = true;
+            }
+            const alphaTest = toFiniteNumber(record?.alphaTest);
+            if (alphaTest !== undefined && alphaTest > 0) {
+                material.transparent = false;
+            }
+        }
+        this.applySnapshotTextureInput(material, record?.mapPath, 'map', {
+            colorSpace: SRGBColorSpace,
+            onAssigned: () => {
+                material.color = new Color(0xffffff);
+            },
+        });
+        if (record?.emissiveEnabled !== false) {
+            this.applySnapshotTextureInput(material, record?.emissiveMapPath, 'emissiveMap', {
+                colorSpace: SRGBColorSpace,
+                onAssigned: () => {
+                    material.emissive = new Color(0xffffff);
+                },
+            });
+        }
+        this.applySnapshotTextureInput(material, record?.roughnessMapPath, 'roughnessMap', {
+            onAssigned: () => {
+                material.roughness = 1;
+            },
+        });
+        this.applySnapshotTextureInput(material, record?.metalnessMapPath, 'metalnessMap', {
+            onAssigned: () => {
+                material.metalness = 1;
+            },
+        });
+        this.applySnapshotTextureInput(material, record?.normalMapPath, 'normalMap');
+        this.applySnapshotTextureInput(material, record?.aoMapPath, 'aoMap');
+        if (record?.opacityEnabled !== false && record?.opacityTextureEnabled !== false) {
+            this.applySnapshotTextureInput(material, record?.alphaMapPath, 'alphaMap', {
+                onAssigned: () => {
+                    if (!(material.alphaTest > 0))
+                        material.transparent = true;
+                },
+            });
+        }
+        this.applySnapshotTextureInput(material, record?.clearcoatMapPath, 'clearcoatMap');
+        this.applySnapshotTextureInput(material, record?.clearcoatRoughnessMapPath, 'clearcoatRoughnessMap');
+        this.applySnapshotTextureInput(material, record?.clearcoatNormalMapPath, 'clearcoatNormalMap');
+        this.applySnapshotTextureInput(material, record?.specularColorMapPath, 'specularColorMap', { colorSpace: SRGBColorSpace });
+        this.applySnapshotTextureInput(material, record?.specularIntensityMapPath, 'specularIntensityMap');
+        this.applySnapshotTextureInput(material, record?.transmissionMapPath, 'transmissionMap');
+        this.applySnapshotTextureInput(material, record?.thicknessMapPath, 'thicknessMap');
+        this.applySnapshotTextureInput(material, record?.sheenColorMapPath, 'sheenColorMap', { colorSpace: SRGBColorSpace });
+        this.applySnapshotTextureInput(material, record?.sheenRoughnessMapPath, 'sheenRoughnessMap');
+        this.applySnapshotTextureInput(material, record?.anisotropyMapPath, 'anisotropyMap');
+        this.applySnapshotTextureInput(material, record?.iridescenceMapPath, 'iridescenceMap');
+        this.applySnapshotTextureInput(material, record?.iridescenceThicknessMapPath, 'iridescenceThicknessMap');
+        material.needsUpdate = true;
+    }
+    createFallbackMaterialFromSnapshot(materialPath) {
+        const normalizedMaterialPath = normalizeHydraPath(materialPath);
+        if (!normalizedMaterialPath)
+            return null;
+        if (!(this._snapshotMaterialRecordById instanceof Map))
+            return null;
+        if (!(this._snapshotFallbackMaterialCache instanceof Map)) {
+            this._snapshotFallbackMaterialCache = new Map();
+        }
+        if (this._snapshotFallbackMaterialCache.has(normalizedMaterialPath)) {
+            const cachedMaterial = this._snapshotFallbackMaterialCache.get(normalizedMaterialPath);
+            if (cachedMaterial || !(this._snapshotMaterialRecordById instanceof Map) || !this._snapshotMaterialRecordById.has(normalizedMaterialPath)) {
+                return cachedMaterial;
+            }
+            this._snapshotFallbackMaterialCache.delete(normalizedMaterialPath);
+        }
+        const record = this._snapshotMaterialRecordById.get(normalizedMaterialPath) || null;
+        if (!record) {
+            this._snapshotFallbackMaterialCache.set(normalizedMaterialPath, null);
+            return null;
+        }
+        const materialName = String(record?.name || normalizedMaterialPath.split('/').filter(Boolean).pop() || normalizedMaterialPath).trim() || normalizedMaterialPath;
+        const inferredColorHex = this.inferColorHexFromMaterialName(materialName);
+        const material = new MeshPhysicalMaterial({
+            side: DoubleSide,
+            color: new Color(inferredColorHex ?? 0xB4B4B4),
+            name: materialName,
+        });
+        this.applySnapshotMaterialRecord(material, record);
+        const wrappedMaterial = {
+            _id: normalizedMaterialPath,
+            _nodes: {},
+            _interface: this,
+            _material: material,
+            _snapshotRecord: record,
+        };
+        this._snapshotFallbackMaterialCache.set(normalizedMaterialPath, wrappedMaterial);
+        return wrappedMaterial;
+    }
+    applySnapshotMaterialsToMeshes() {
+        const summary = {
+            boundCount: 0,
+            subsetReboundCount: 0,
+            inheritedCount: 0,
+        };
+        for (const hydraMesh of Object.values(this.meshes || {})) {
+            if (!hydraMesh || typeof hydraMesh !== 'object')
+                continue;
+            const pendingMaterialId = normalizeHydraPath(hydraMesh._pendingMaterialId || '');
+            if (!pendingMaterialId)
+                continue;
+            const resolvedMaterial = this.materials?.[pendingMaterialId]?._material || null;
+            if (!resolvedMaterial || !hydraMesh._mesh)
+                continue;
+            hydraMesh._mesh.material = resolvedMaterial;
+            hydraMesh._pendingMaterialId = undefined;
+            summary.boundCount += 1;
+        }
+        for (const hydraMesh of Object.values(this.meshes || {})) {
+            if (!hydraMesh || typeof hydraMesh !== 'object')
+                continue;
+            try {
+                if (hydraMesh.tryApplyPendingGeomSubsetMaterials?.() === true) {
+                    summary.subsetReboundCount += 1;
+                }
+            }
+            catch {
+                // Keep one-shot material apply resilient.
+            }
+        }
+        this._preferredVisualMaterialByLinkCache?.clear?.();
+        for (const hydraMesh of Object.values(this.meshes || {})) {
+            if (!hydraMesh || typeof hydraMesh !== 'object')
+                continue;
+            try {
+                if (hydraMesh.tryInheritVisualMaterialFromLink?.() === true) {
+                    summary.inheritedCount += 1;
+                }
+            }
+            catch {
+                // Keep one-shot material apply resilient.
+            }
+        }
+        return summary;
     }
     createFallbackMaterialFromStage(materialPath) {
         if (!materialPath)

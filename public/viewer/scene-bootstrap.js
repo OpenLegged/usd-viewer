@@ -1,5 +1,5 @@
 import { PerspectiveCamera, Scene, Group, WebGLRenderer, AmbientLight, DirectionalLight, SRGBColorSpace, NeutralToneMapping, VSMShadowMap, PMREMGenerator, EquirectangularReflectionMapping, } from "three";
-import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 const HYDRA_PHASE_PROFILE_FROM_QUERY = (() => {
     try {
@@ -48,6 +48,9 @@ export async function initializeViewerScene(options) {
     usdRoot.name = "USD Root";
     scene.add(usdRoot);
     const renderer = (window.renderer = new WebGLRenderer({ antialias: true, alpha: false }));
+    let disposed = false;
+    let interactionPixelRatioTimer = null;
+    let environmentRenderTarget = null;
     const pixelRatioCap = parseNonNegativeNumber(params.get("pixelRatioCap"), 1.0);
     const interactionPixelRatioCap = parseNonNegativeNumber(params.get("interactionPixelRatioCap"), 1.0);
     const interactionPixelRatioHoldMs = Math.max(0, Math.min(10000, Math.floor(parseNonNegativeNumber(params.get("interactionPixelRatioHoldMs"), 220))));
@@ -58,6 +61,8 @@ export async function initializeViewerScene(options) {
         return Math.max(0.5, Math.min(basePixelRatio, Math.max(0.25, interactionPixelRatioCap)));
     };
     const applyPixelRatio = (ratio) => {
+        if (disposed)
+            return;
         const basePixelRatio = resolveBasePixelRatio();
         const clamped = Math.max(0.25, Math.min(basePixelRatio, ratio));
         if (Math.abs(renderer.getPixelRatio() - clamped) <= 1e-4)
@@ -99,9 +104,10 @@ export async function initializeViewerScene(options) {
     controls.dampingFactor = 0.2;
     controls.update();
     const requestImmediateRender = () => {
+        if (disposed)
+            return;
         renderScene();
     };
-    let interactionPixelRatioTimer = null;
     let inInteractionQualityMode = false;
     const enterInteractionQualityMode = () => {
         if (inInteractionQualityMode)
@@ -162,29 +168,70 @@ export async function initializeViewerScene(options) {
         : new Promise((resolve) => {
             const pmremGenerator = new PMREMGenerator(renderer);
             pmremGenerator.compileCubemapShader();
-            new RGBELoader().load("environments/neutral.hdr", (texture) => {
+            new HDRLoader().load("environments/neutral.hdr", (texture) => {
+                if (disposed) {
+                    texture.dispose?.();
+                    pmremGenerator.dispose();
+                    resolve();
+                    return;
+                }
+                environmentRenderTarget?.dispose?.();
                 const hdrRenderTarget = pmremGenerator.fromEquirectangular(texture);
+                environmentRenderTarget = hdrRenderTarget;
                 texture.mapping = EquirectangularReflectionMapping;
                 texture.needsUpdate = true;
                 scene.environment = hdrRenderTarget.texture;
+                texture.dispose?.();
+                pmremGenerator.dispose();
                 resolve();
-            }, undefined, () => resolve());
+            }, undefined, () => {
+                pmremGenerator.dispose();
+                resolve();
+            });
         });
     document.body.appendChild(renderer.domElement);
-    renderer.domElement.addEventListener("wheel", handleWheelInteraction, { passive: true });
-    renderer.domElement.addEventListener("drop", (event) => {
+    const handleDrop = (event) => {
         void onDrop(event);
-    });
-    renderer.domElement.addEventListener("dragover", (event) => event.preventDefault());
-    window.addEventListener("resize", handleViewportMutation);
-    window.visualViewport?.addEventListener("resize", handleViewportMutation);
-    window.visualViewport?.addEventListener("scroll", handleViewportMutation);
-    document.body.onkeyup = (event) => {
+    };
+    const handleDragOver = (event) => {
+        event.preventDefault();
+    };
+    const previousBodyOnKeyUp = document.body.onkeyup;
+    const handleBodyKeyUp = (event) => {
         if (event.code === "Space")
             onTogglePause();
     };
+    renderer.domElement.addEventListener("wheel", handleWheelInteraction, { passive: true });
+    renderer.domElement.addEventListener("drop", handleDrop);
+    renderer.domElement.addEventListener("dragover", handleDragOver);
+    window.addEventListener("resize", handleViewportMutation);
+    window.visualViewport?.addEventListener("resize", handleViewportMutation);
+    window.visualViewport?.addEventListener("scroll", handleViewportMutation);
+    document.body.onkeyup = handleBodyKeyUp;
     renderScene();
     void envMapPromise;
+    return () => {
+        disposed = true;
+        if (interactionPixelRatioTimer !== null) {
+            window.clearTimeout(interactionPixelRatioTimer);
+            interactionPixelRatioTimer = null;
+        }
+        renderer.domElement.removeEventListener("wheel", handleWheelInteraction);
+        renderer.domElement.removeEventListener("drop", handleDrop);
+        renderer.domElement.removeEventListener("dragover", handleDragOver);
+        window.removeEventListener("resize", handleViewportMutation);
+        window.visualViewport?.removeEventListener("resize", handleViewportMutation);
+        window.visualViewport?.removeEventListener("scroll", handleViewportMutation);
+        document.body.onkeyup = previousBodyOnKeyUp;
+        controls.dispose();
+        environmentRenderTarget?.dispose?.();
+        environmentRenderTarget?.texture?.dispose?.();
+        if (scene.environment === environmentRenderTarget?.texture) {
+            scene.environment = null;
+        }
+        renderer.domElement.remove();
+        renderer.dispose();
+    };
 }
 export function resizeViewerScene() {
     if (!window.camera || !window.renderer)

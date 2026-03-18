@@ -99,6 +99,8 @@ const FAST_COLLISION_PRIMITIVE_SEGMENTS = {
   capsuleCap: 8,
   capsuleRadial: 12,
 };
+const VISUAL_SEGMENT_PATTERN = /(?:^|\/)visuals?(?:$|[/.])/i;
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
 const PRIMITIVE_GEOMETRY_TEMPLATE_CACHE = new Map();
 
 function toPrimitiveKeyNumber(value, digits = 6) {
@@ -146,6 +148,7 @@ class HydraMesh {
     // being overwritten by coarse resolved-prim transforms during post-sync.
     this._lastProtoBlobTransformMatrix = null;
     this._lastGeomSubsetSignature = '';
+    this._pendingGeomSubsetSections = null;
     this._decomposeScratchPositionA = new Vector3();
     this._decomposeScratchQuaternionA = new Quaternion();
     this._decomposeScratchScaleA = new Vector3();
@@ -211,7 +214,7 @@ class HydraMesh {
     const typeId = this._typeId || "";
     const meshId = this._id || "";
     const source = `${typeId}|${meshId}`.toLowerCase();
-    const isCollisionMeshId = source.includes('/collisions.') || source.includes('/collisions/') || source.includes('/collision.') || source.includes('/collision/');
+    const isCollisionMeshId = COLLISION_SEGMENT_PATTERN.test(source);
 
     if (source.includes("proto_box") || source.includes("cube") || source.includes("box")) {
       return "box";
@@ -232,7 +235,7 @@ class HydraMesh {
   isCollisionProtoMesh() {
     if (!this._id || !this._id.includes(".proto_")) return false;
     const loweredId = this._id.toLowerCase();
-    return loweredId.includes('/collisions.') || loweredId.includes('/collisions/') || loweredId.includes('/collision.') || loweredId.includes('/collision/');
+    return COLLISION_SEGMENT_PATTERN.test(loweredId);
   }
 
   isVisualProtoMesh() {
@@ -258,6 +261,15 @@ class HydraMesh {
     this._mesh.material = inheritedMaterial;
     this._pendingMaterialId = undefined;
     return true;
+  }
+
+  tryApplyPendingGeomSubsetMaterials(profile = null) {
+    const pendingSections = Array.isArray(this._pendingGeomSubsetSections)
+      ? this._pendingGeomSubsetSections
+      : [];
+    if (pendingSections.length === 0) return false;
+    this.setGeomSubsetMaterial(pendingSections, profile);
+    return !Array.isArray(this._pendingGeomSubsetSections) || this._pendingGeomSubsetSections.length === 0;
   }
 
   ensurePrimitiveFallbackGeometry() {
@@ -571,7 +583,13 @@ class HydraMesh {
       }
       this._mesh.matrix.copy(localMatrix);
       this._mesh.matrixAutoUpdate = false;
-    } else if (overridePayload.worldTransform && this._setMatrixFromRowMajorSource(overridePayload.worldTransform)) {
+    } else if (
+      (overridePayload.worldTransform || overridePayload.worldTransformElements)
+      && this._setMatrixFromTransformOverride(
+        overridePayload.worldTransform,
+        overridePayload.worldTransformElements,
+      )
+    ) {
       this._mesh.matrixAutoUpdate = false;
     } else {
       const resolvedPath = normalizeHydraPath(overridePayload.resolvedPrimPath);
@@ -767,6 +785,18 @@ class HydraMesh {
     return this._lastAppliedResolvedPrimPath === normalizedPath;
   }
 
+  shouldDeferProtoStageSyncUntilSceneSnapshot() {
+    const renderInterface = this._interface;
+    if (!renderInterface || renderInterface.strictOneShotSceneLoad !== true) return false;
+    if (typeof renderInterface.shouldDeferProtoStageSyncUntilSceneSnapshot === 'function') {
+      return renderInterface.shouldDeferProtoStageSyncUntilSceneSnapshot() === true;
+    }
+    if (typeof renderInterface.hasResolvedRobotSceneSnapshot === 'function') {
+      return renderInterface.hasResolvedRobotSceneSnapshot() !== true;
+    }
+    return false;
+  }
+
   applyResolvedPrimGeometryAndTransform(primPath) {
     const normalizedPrimPath = normalizeHydraPath(primPath);
     if (!normalizedPrimPath || !normalizedPrimPath.startsWith('/')) return false;
@@ -828,7 +858,13 @@ class HydraMesh {
           }
           this._mesh.matrix.copy(localMatrix);
           this._mesh.matrixAutoUpdate = false;
-        } else if (primOverrideData.worldTransform && this._setMatrixFromRowMajorSource(primOverrideData.worldTransform)) {
+        } else if (
+          (primOverrideData.worldTransform || primOverrideData.worldTransformElements)
+          && this._setMatrixFromTransformOverride(
+            primOverrideData.worldTransform,
+            primOverrideData.worldTransformElements,
+          )
+        ) {
           this._mesh.matrixAutoUpdate = false;
         }
 
@@ -1228,7 +1264,7 @@ class HydraMesh {
   applyCollisionGeometryFromOverrides() {
     if (!this._id) return false;
     const loweredId = this._id.toLowerCase();
-    const isCollision = loweredId.includes('/collisions.') || loweredId.includes('/collisions/') || loweredId.includes('/collision.') || loweredId.includes('/collision/');
+    const isCollision = COLLISION_SEGMENT_PATTERN.test(loweredId);
     if (!isCollision) return false;
 
     const driverOverride = this._interface?.getCollisionProtoOverride?.(this._id) || null;
@@ -1247,7 +1283,7 @@ class HydraMesh {
   }
 
   applyVisualColorOverride() {
-    if (!this._id || this._id.includes('/collisions.')) return;
+    if (!this._id || COLLISION_SEGMENT_PATTERN.test(this._id)) return;
     const override = this._interface.getVisualColorOverride(this._id);
     if (!override) return;
 
@@ -1414,6 +1450,14 @@ class HydraMesh {
     if (!matrix) return false;
     this._mesh.matrix.copy(matrix);
     return true;
+  }
+
+  _setMatrixFromTransformOverride(transformOverride, rowMajorSource = null) {
+    if (transformOverride && transformOverride.isMatrix4 === true && typeof transformOverride.clone === 'function') {
+      this._mesh.matrix.copy(transformOverride);
+      return true;
+    }
+    return this._setMatrixFromRowMajorSource(rowMajorSource || transformOverride);
   }
 
   _buildGeomSubsetSignature(sections) {
@@ -1603,6 +1647,11 @@ class HydraMesh {
       }
 
       if (this._id.includes(".proto_")) {
+        if (this.shouldDeferProtoStageSyncUntilSceneSnapshot()) {
+          this._hasCompletedProtoSync = false;
+          this._mesh.matrixAutoUpdate = false;
+          return;
+        }
         if (this.isCollisionProtoMesh()) {
           const resolvedPrimPath = this._interface.getResolvedPrimPathForMeshId(this._id);
           let geometryApplied = this._appliedCollisionOverride === true;
@@ -1778,13 +1827,15 @@ class HydraMesh {
     const subsetsTotalStart = this._nowMs();
     if (!Array.isArray(sections) || sections.length === 0) {
       this._lastGeomSubsetSignature = '';
+      this._pendingGeomSubsetSections = null;
       if (profile) {
         profile.subsetCount = 0;
       }
       return;
     }
     const subsetSignature = this._buildGeomSubsetSignature(sections);
-    if (subsetSignature && subsetSignature === this._lastGeomSubsetSignature) {
+    const hasPendingSubsetMaterials = Array.isArray(this._pendingGeomSubsetSections) && this._pendingGeomSubsetSections.length > 0;
+    if (!hasPendingSubsetMaterials && subsetSignature && subsetSignature === this._lastGeomSubsetSignature) {
       if (profile) {
         profile.subsetCount = Number(sections.length) || 0;
         profile.subsetsTotalMs = (Number(profile.subsetsTotalMs) || 0) + (this._nowMs() - subsetsTotalStart);
@@ -1804,6 +1855,8 @@ class HydraMesh {
 
     this._geometry.clearGroups();
     const nextMaterials = [];
+    const pendingSections = [];
+    let hasUnresolvedSectionMaterials = false;
     const subsetsLoopStart = this._nowMs();
 
     for (let i = 0; i < sections.length; i++) {
@@ -1815,9 +1868,21 @@ class HydraMesh {
       if (!Number.isFinite(start) || !Number.isFinite(length) || length <= 0) continue;
 
       const sectionMaterialId = normalizeHydraPath(section.materialId);
-      let sectionMaterial = this._interface.getOrCreateMaterialById(sectionMaterialId, this._id)?._material || this._interface.materials[sectionMaterialId]?._material;
+      const resolvedSectionMaterialId = this._interface.resolveMaterialIdForMesh(sectionMaterialId, this._id) || sectionMaterialId;
+      let sectionMaterial = this._interface.materials[resolvedSectionMaterialId]?._material
+        || this._interface.materials[sectionMaterialId]?._material
+        || this._interface.getOrCreateMaterialById(resolvedSectionMaterialId, this._id)?._material
+        || (resolvedSectionMaterialId !== sectionMaterialId ? this._interface.getOrCreateMaterialById(sectionMaterialId, this._id)?._material : null);
       if (!sectionMaterial) {
         sectionMaterial = fallbackMaterial;
+        if (sectionMaterialId) {
+          hasUnresolvedSectionMaterials = true;
+          pendingSections.push({
+            start,
+            length,
+            materialId: sectionMaterialId,
+          });
+        }
       }
 
       let materialIndex = nextMaterials.indexOf(sectionMaterial);
@@ -1850,6 +1915,7 @@ class HydraMesh {
 
     this._materials = Array.isArray(meshMaterial) ? meshMaterial : [meshMaterial];
     this._lastGeomSubsetSignature = subsetSignature;
+    this._pendingGeomSubsetSections = hasUnresolvedSectionMaterials ? pendingSections : null;
     const proto = parseProtoMeshIdentifier(this._id);
     if (proto?.sectionName === 'visuals' && proto.linkPath) {
       this._interface._preferredVisualMaterialByLinkCache?.delete?.(proto.linkPath);
@@ -1994,7 +2060,7 @@ class HydraMesh {
 
   ensureFallbackNormalsIfMissing() {
     if (!this._needsNormalFallback) return;
-    if (!this._id || !/\/visuals\.|\/visuals\//i.test(this._id)) {
+    if (!this._id || !VISUAL_SEGMENT_PATTERN.test(this._id)) {
       this._needsNormalFallback = false;
       return;
     }
@@ -2281,6 +2347,11 @@ class HydraMesh {
       this._pendingMaterialId = undefined;
       trackStep('pendingMaterialMs', this._nowMs() - materialStart);
     }
+    if (Array.isArray(this._pendingGeomSubsetSections) && this._pendingGeomSubsetSections.length > 0) {
+      const subsetMaterialStart = this._nowMs();
+      this.tryApplyPendingGeomSubsetMaterials();
+      trackStep('pendingSubsetMaterialMs', this._nowMs() - subsetMaterialStart);
+    }
 
     const primitiveFallbackStart = this._nowMs();
     this.ensurePrimitiveFallbackGeometry();
@@ -2324,6 +2395,11 @@ class HydraMesh {
       trackStep('meshCount', 1);
       return;
     }
+    if (this.shouldDeferProtoStageSyncUntilSceneSnapshot()) {
+      trackStep('meshTotalMs', this._nowMs() - commitStart);
+      trackStep('meshCount', 1);
+      return;
+    }
     const protoSyncStart = this._nowMs();
     this.applyProtoStageSync();
     trackStep('protoSyncMs', this._nowMs() - protoSyncStart);
@@ -2361,7 +2437,7 @@ class HydraMesh {
     };
 
     try {
-    const blob = useBlobOverride
+    let blob = useBlobOverride
       ? blobOverride
       : this._interface?.getProtoDataBlob?.(this._id, { forceRefresh });
     if ((!blob || blob.valid !== true) && allowForceRefreshRetry && !forceRefresh && !useBlobOverride) {
@@ -2372,6 +2448,17 @@ class HydraMesh {
       });
     }
     if (!blob || blob.valid !== true) return false;
+    if (useBlobOverride) {
+      const cachedBlob = this._interface?.getProtoDataBlob?.(this._id, { forceRefresh: false }) || null;
+      const overrideSections = Array.isArray(blob?.geomSubsetSections) ? blob.geomSubsetSections : [];
+      const cachedSections = Array.isArray(cachedBlob?.geomSubsetSections) ? cachedBlob.geomSubsetSections : [];
+      if (overrideSections.length <= 0 && cachedSections.length > 0) {
+        blob = {
+          ...blob,
+          geomSubsetSections: cachedSections,
+        };
+      }
+    }
 
     const heapViews = this._resolveWasmHeapViews();
     const moduleRef = heapViews?.moduleRef || null;
@@ -2470,6 +2557,23 @@ class HydraMesh {
       }
       return copied;
     };
+    const expandFloat32PayloadByIndices = (source, indices, dimension) => {
+      const safeDimension = Math.max(1, normalizeLength(dimension));
+      if (!(source instanceof Float32Array) || !(indices instanceof Uint32Array)) return null;
+      const indexCount = normalizeLength(indices.length);
+      if (indexCount <= 0) return null;
+      const expanded = new Float32Array(indexCount * safeDimension);
+      const sourceLength = normalizeLength(source.length);
+      for (let index = 0; index < indexCount; index++) {
+        const sourceBase = indices[index] * safeDimension;
+        const targetBase = index * safeDimension;
+        if ((sourceBase + safeDimension) > sourceLength) continue;
+        for (let component = 0; component < safeDimension; component++) {
+          expanded[targetBase + component] = source[sourceBase + component];
+        }
+      }
+      return expanded;
+    };
 
     // Single-shot path: resolve matrix from direct heap pointer first.
     // Fallback to blob.transform only when pointer-based view is unavailable.
@@ -2505,6 +2609,10 @@ class HydraMesh {
     // Geometry payload from WASM must be copied before storing in BufferAttributes.
     // Keeping HEAP-backed views here causes silent corruption after later draws/reallocations.
     const numVertices = normalizeLength(blob.numVertices);
+    let pointsCopy = null;
+    let indicesCopy = null;
+    let uvCopy = null;
+    let normalsCopy = null;
     const pointValueCount = numVertices * 3;
     const positionAttribute = this._geometry.getAttribute('position');
     if ((replaceExistingGeometry || !positionAttribute || positionAttribute.count === 0) && pointValueCount > 0) {
@@ -2513,7 +2621,7 @@ class HydraMesh {
         pointValueCount,
         (blob.points && typeof blob.points.length === 'number') ? blob.points : null,
       );
-      const pointsCopy = pointsSource ? measureWasmStage(() => copyFloat32Payload(pointsSource, pointValueCount)) : null;
+      pointsCopy = pointsSource ? measureWasmStage(() => copyFloat32Payload(pointsSource, pointValueCount)) : null;
       if (pointsCopy) {
         this._points = pointsCopy;
         this._hasHydraGeometryPayload = true;
@@ -2531,7 +2639,7 @@ class HydraMesh {
         numIndices,
         (blob.indices && typeof blob.indices.length === 'number') ? blob.indices : null,
       );
-      const indicesCopy = indicesSource ? measureWasmStage(() => copyUint32Payload(indicesSource, numIndices)) : null;
+      indicesCopy = indicesSource ? measureWasmStage(() => copyUint32Payload(indicesSource, numIndices)) : null;
       if (indicesCopy) {
         this._indices = indicesCopy;
         this._hasHydraGeometryPayload = true;
@@ -2551,7 +2659,7 @@ class HydraMesh {
         uvValueCount,
         (blob.uv && typeof blob.uv.length === 'number') ? blob.uv : null,
       );
-      const uvCopy = uvSource ? measureWasmStage(() => copyFloat32Payload(uvSource, uvValueCount)) : null;
+      uvCopy = uvSource ? measureWasmStage(() => copyFloat32Payload(uvSource, uvValueCount)) : null;
       if (uvCopy) {
         this._uvs = uvCopy;
         measureThreeBuildStage(() => {
@@ -2571,7 +2679,7 @@ class HydraMesh {
         normalValueCount,
         ((blob as any).normals && typeof (blob as any).normals.length === 'number') ? (blob as any).normals : null,
       );
-      const normalsCopy = normalsSource ? measureWasmStage(() => copyFloat32Payload(normalsSource, normalValueCount)) : null;
+      normalsCopy = normalsSource ? measureWasmStage(() => copyFloat32Payload(normalsSource, normalValueCount)) : null;
       if (normalsCopy) {
         this._normals = normalsCopy;
         measureThreeBuildStage(() => {
@@ -2581,9 +2689,57 @@ class HydraMesh {
       }
     }
 
+    const shouldExpandToNonIndexedGeometry = !!(
+      pointsCopy instanceof Float32Array
+      && indicesCopy instanceof Uint32Array
+      && numVertices > 0
+      && numIndices > 0
+      && numVertices !== numIndices
+      && (
+        (numNormals > 0 && numNormals === numIndices)
+        || (uvDimension >= 2 && numUVs === numIndices)
+      )
+    );
+    if (shouldExpandToNonIndexedGeometry) {
+      const expandedPoints = expandFloat32PayloadByIndices(pointsCopy, indicesCopy, 3);
+      const expandedNormals = normalsCopy instanceof Float32Array
+        ? (numNormals === numVertices
+          ? expandFloat32PayloadByIndices(normalsCopy, indicesCopy, normalsDimension)
+          : normalsCopy)
+        : null;
+      const expandedUvs = uvCopy instanceof Float32Array
+        ? (numUVs === numVertices
+          ? expandFloat32PayloadByIndices(uvCopy, indicesCopy, uvDimension)
+          : uvCopy)
+        : null;
+      if (expandedPoints) {
+        this._points = expandedPoints;
+        this._indices = undefined;
+        if (expandedNormals) this._normals = expandedNormals;
+        if (expandedUvs) this._uvs = expandedUvs;
+        measureThreeBuildStage(() => {
+          this._geometry.setIndex(null);
+          this._geometry.setAttribute('position', new Float32BufferAttribute(expandedPoints, 3));
+          if (expandedNormals) {
+            this._geometry.setAttribute('normal', new Float32BufferAttribute(expandedNormals, normalsDimension));
+          }
+          if (expandedUvs && uvDimension >= 2) {
+            this._geometry.setAttribute('uv', new Float32BufferAttribute(expandedUvs, uvDimension));
+            this._geometry.attributes.uv2 = this._geometry.attributes.uv;
+          }
+        });
+      }
+    }
+
     const materialId = normalizeHydraPath((blob as any).materialId);
     if (typeof materialId === 'string' && materialId.length > 0) {
       measureThreeBuildStage(() => this.setMaterial(materialId));
+    }
+    const geomSubsetSections = Array.isArray((blob as any).geomSubsetSections)
+      ? (blob as any).geomSubsetSections
+      : [];
+    if (geomSubsetSections.length > 0) {
+      measureThreeBuildStage(() => this.setGeomSubsetMaterial(geomSubsetSections));
     }
 
     if (this._geometry.getAttribute('normal')?.count > 0) {
@@ -2622,6 +2778,7 @@ class HydraMesh {
 
   applyProtoStageSync(options = {}) {
     if (!this._id.includes(".proto_")) return;
+    if (this.shouldDeferProtoStageSyncUntilSceneSnapshot()) return;
     const allowDeferredFinalBatch = options?.allowDeferredFinalBatch !== false;
     const finalizeProtoSync = () => {
       if (this.isCollisionProtoMesh() && !this._appliedCollisionOverride) {

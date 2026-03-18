@@ -77,6 +77,7 @@ function createViewerUrl(options: DumpOptions): string {
   url.searchParams.set("showCollisions", options.showCollisions ? "1" : "0");
   // Force deterministic one-shot load path to avoid async reload/upgrades while dumping metadata.
   url.searchParams.set("strictOneShot", "1");
+  url.searchParams.set("sceneSnapshotMode", "1");
   url.searchParams.set("twoPassSelectionUpgrade", "0");
   url.searchParams.set("preloadHiddenPrims", "1");
   url.searchParams.set("deferStageOverrides", "0");
@@ -180,7 +181,8 @@ async function main(): Promise<void> {
       const rawLinkDynamics = Array.isArray(snapshot?.linkDynamicsEntries) ? snapshot.linkDynamicsEntries : [];
       const joints = rawJoints
         .map((entry: any) => ({
-          linkPath: String(entry?.linkPath || ""),
+          linkPath: String(entry?.linkPath || entry?.childLinkPath || ""),
+          childLinkPath: String(entry?.childLinkPath || entry?.linkPath || ""),
           jointPath: String(entry?.jointPath || ""),
           jointName: String(entry?.jointName || ""),
           jointType: String(entry?.jointType || ""),
@@ -205,7 +207,19 @@ async function main(): Promise<void> {
             : null,
           principalAxesLocal: Array.isArray(entry?.principalAxesLocal)
             ? entry.principalAxesLocal.map((value: any) => Number(value))
-            : [0, 0, 0, 1],
+            : (
+              Array.isArray(entry?.principalAxesLocalWxyz)
+                ? [
+                  Number(entry.principalAxesLocalWxyz[1]),
+                  Number(entry.principalAxesLocalWxyz[2]),
+                  Number(entry.principalAxesLocalWxyz[3]),
+                  Number(entry.principalAxesLocalWxyz[0]),
+                ]
+                : [0, 0, 0, 1]
+            ),
+          principalAxesLocalWxyz: Array.isArray(entry?.principalAxesLocalWxyz)
+            ? entry.principalAxesLocalWxyz.map((value: any) => Number(value))
+            : null,
         }))
         .sort((left: any, right: any) => String(left.linkPath || "").localeCompare(String(right.linkPath || "")));
 

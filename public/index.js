@@ -1,4 +1,3 @@
-import { Group, Mesh, MeshStandardMaterial, BoxGeometry, SphereGeometry, CylinderGeometry } from "three";
 import { parseBooleanFlag, getSavedBooleanState, saveBooleanState, normalizeUsdPath } from "./viewer/path-utils.js";
 import { applyMeshVisibilityFilters } from "./viewer/visibility.js";
 import { UsdFsHelper } from "./viewer/usd-fs.js";
@@ -10,9 +9,10 @@ import { runAnimationFrame } from "./viewer/animation-loop.js";
 import { LinkRotationController } from "./viewer/link-rotation.js";
 import { JointPanelController } from "./viewer/joint-panel.js";
 import { LinkDynamicsController } from "./viewer/link-dynamics.js";
+import { getRenderRobotMetadataSnapshot, warmupRenderRobotMetadataSnapshot } from "./viewer/robot-metadata.js";
 // Keep this cache key aligned with the bindings build generation so JS/WASM/data
 // are always fetched from the same build.
-const EMHD_BINDINGS_CACHE_KEY = "20260225a";
+const EMHD_BINDINGS_CACHE_KEY = "20260318a";
 const withEmHdBindingsCacheKey = (resourcePath) => {
     if (!resourcePath)
         return resourcePath;
@@ -160,7 +160,7 @@ const isNonCriticalHydraWarningMessage = (message) => {
         || text.includes("has illegal material reference to prim"));
 };
 class ViewerApp {
-    constructor() {
+    constructor(options = {}) {
         this.USD = null;
         this.driver = null;
         this.messageLog = null;
@@ -169,12 +169,9 @@ class ViewerApp {
         this.params = new URL(document.location.href).searchParams;
         this.filename = normalizeUsdPath(this.params.get("file") || "");
         this.currentDisplayFilename = "";
-        // Keep first paint responsive by default; metadata truth alignment is loaded
-        // asynchronously after the primary mesh pass.
+        // Keep truth extraction opt-in; default robot loading now relies on the
+        // one-shot scene snapshot rather than late JS-side metadata fallbacks.
         this.truthFirst = parseBooleanFlag(this.params.get("truthFirst"), false);
-        // Strict one-shot keeps load completion aligned with interactivity: no heavy
-        // background upgrade/warmup tails after the first visible frame.
-        this.strictOneShot = parseBooleanFlag(this.params.get("strictOneShot"), true);
         this.wasmThreadCap = this.getWasmThreadCap();
         this.wasmThreadCount = this.getPreferredWasmThreadCount();
         this.prewarmWorkers = parseBooleanFlag(this.params.get("prewarmWorkers"), true);
@@ -186,18 +183,11 @@ class ViewerApp {
         this.drawBurstCount = this.getDrawBurstCount();
         this.drawBurstBudgetMs = this.getDrawBurstBudgetMs();
         this.frameDelayMs = this.getFrameDelayMs();
-        this.initialJointPanelRefreshDelayMs = this.getDurationParamMs("initialJointPanelRefreshDelayMs", 0, 0, 60000);
         this.jointPanelRetryDelayMs = this.getDurationParamMs("jointPanelRetryDelayMs", 120, 0, 60000);
-        this.jointPanelRetryMaxAttempts = this.getCountParam("jointPanelRetryMaxAttempts", 40, 0, 240);
-        this.backgroundUpgradeDelayMs = this.getDurationParamMs("backgroundUpgradeDelayMs", 2200, 0, 60000);
-        this.backgroundUpgradeQuietMs = this.getDurationParamMs("backgroundUpgradeQuietMs", 700, 0, 10000);
-        this.backgroundUpgradeMaxWaitMs = this.getDurationParamMs("backgroundUpgradeMaxWaitMs", 8000, 0, 120000);
-        this.postLoadUiRefreshDelayMs = this.getDurationParamMs("postLoadUiRefreshDelayMs", 1200, 0, 60000);
-        this.postLoadUiRefreshQuietMs = this.getDurationParamMs("postLoadUiRefreshQuietMs", 500, 0, 10000);
-        this.postLoadUiRefreshMaxWaitMs = this.getDurationParamMs("postLoadUiRefreshMaxWaitMs", 4000, 0, 120000);
+        // The strict one-shot path already blocks on metadata readiness; default to a
+        // single synchronous panel build and keep the old retry loop opt-in.
+        this.jointPanelRetryMaxAttempts = this.getCountParam("jointPanelRetryMaxAttempts", 0, 0, 240);
         this.idlePoseRefreshSuppressionAfterInputMs = this.getDurationParamMs("idlePoseRefreshSuppressionAfterInputMs", 450, 0, 10000);
-        this.pauseAnimationForInitialUi = parseBooleanFlag(this.params.get("pauseAnimationForInitialUi"), false);
-        this.pauseAnimationForInitialUiMaxMs = this.getDurationParamMs("pauseAnimationForInitialUiMaxMs", 12000, 0, 120000);
         this.drawFrameCounter = 0;
         this.lastUserInteractionAtMs = 0;
         this.showLinkDynamics = false;
@@ -206,19 +196,8 @@ class ViewerApp {
         this.loadedCollisionPrims = false;
         this.loadedVisualPrims = false;
         this.readStageMetadata = true;
-        this.preferredPrimaryLoadKind = "visual";
-        this.visualProxyFirst = parseBooleanFlag(this.params.get("visualProxyFirst"), true);
-        this.twoPassSelectionUpgrade = this.strictOneShot
-            ? false
-            : parseBooleanFlag(this.params.get("twoPassSelectionUpgrade"), true);
-        this.forceFullPrimPreload = parseBooleanFlag(this.params.get("forceFullPrimPreload"), false);
-        // Default to full preload so visual/collision toggles do not trigger stage reloads.
-        this.preloadHiddenPrims = this.strictOneShot
-            ? true
-            : parseBooleanFlag(this.params.get("preloadHiddenPrims"), true);
-        this.silentBackgroundUpgradeUi = parseBooleanFlag(this.params.get("silentBackgroundUpgradeUi"), true);
-        this.throttleBackgroundUpgrade = parseBooleanFlag(this.params.get("throttleBackgroundUpgrade"), true);
-        this.stageReloadProxyRoot = null;
+        // Load both visual and collision prims in the primary pass so toggles do not
+        // trigger a second-stage reload or any silent background completion work.
         this.linkDynamicsStorageKey = "usdViewer.showLinkDynamics";
         this.visualMeshesStorageKey = "usdViewer.showVisualMeshes";
         this.collisionMeshesStorageKey = "usdViewer.showCollisionMeshes";
@@ -227,17 +206,16 @@ class ViewerApp {
         this.ready = false;
         this.drawFailed = false;
         this.stopped = false;
-        this.blockAnimationForInitialUi = false;
-        this.blockAnimationResumeTimer = null;
         this.filePickerOpen = false;
         this.meshFilterRefreshFrames = 0;
         this.pendingMaterialBindingWarningCount = 0;
         this.pendingMaterialBindingWarningTimer = null;
         this.robotMetadataEventRefreshScheduled = false;
         this.activeLoadToken = 0;
-        this.asyncUpgradeGeneration = 0;
-        this.backgroundUpgradePending = false;
-        this.backgroundUpgradeActive = false;
+        this.disposed = false;
+        this.uiCleanup = null;
+        this.sceneCleanup = null;
+        this.interactionCleanup = null;
         this.linkRotationController = new LinkRotationController();
         this.linkDynamicsController = new LinkDynamicsController();
         this.usdFsHelper = new UsdFsHelper(() => this.USD, debugFileHandling);
@@ -256,8 +234,198 @@ class ViewerApp {
                 }
             });
         };
+        this.exposeGlobal = options.exposeGlobal !== false;
+        this.linkDynamicsController.setCurrentLinkFrameResolver((linkPath) => this.linkRotationController.getCurrentLinkFrameMatrix(linkPath));
+        this.publicApi = this.createPublicApi();
+    }
+    getApi() {
+        return this.publicApi;
+    }
+    createPublicApi() {
+        return {
+            getState: () => this.getStateSnapshot(),
+            waitUntilReady: (options) => this.waitUntilReady(options),
+            loadUsdFromPath: (path, options) => this.loadUsdFromPath(path, options),
+            loadFiles: (fileList) => this.loadFilesIntoViewer(fileList),
+            clear: (options) => this.clearForApi(options),
+            getVisibility: () => this.getVisibilityState(),
+            setVisibility: (visibility) => this.setVisibilityState(visibility),
+            getJointInfos: () => this.linkRotationController.getAllJointInfos(),
+            setJointAngle: (linkPath, angleDeg) => this.linkRotationController.setJointAngleForLink(linkPath, angleDeg),
+            getRobotMetadata: () => this.getRobotMetadataSnapshot(),
+            warmupRobotMetadata: (options) => this.warmupRobotMetadata(options),
+            exportRoundtripUsd: (options) => this.exportRoundtripUsdWithOptions(options),
+            dispose: () => this.disposeApp(),
+        };
+    }
+    assertNotDisposed(action) {
+        if (!this.disposed)
+            return;
+        throw new Error(`ViewerApp has been disposed and cannot ${action}.`);
+    }
+    getVisibilityState() {
+        return {
+            visuals: this.showVisualMeshes,
+            collisions: this.showCollisionMeshes,
+            dynamics: this.showLinkDynamics,
+        };
+    }
+    getStateSnapshot() {
+        return {
+            file: this.filename,
+            displayName: this.currentDisplayFilename,
+            ready: this.ready,
+            stopped: this.stopped,
+            disposed: this.disposed,
+            loadedVisualPrims: this.loadedVisualPrims,
+            loadedCollisionPrims: this.loadedCollisionPrims,
+            visibility: this.getVisibilityState(),
+        };
+    }
+    getRobotMetadataSnapshot() {
+        const stageSourcePath = this.filename || window.renderInterface?.getStageSourcePath?.() || null;
+        return getRenderRobotMetadataSnapshot(window.renderInterface, stageSourcePath);
+    }
+    async warmupRobotMetadata(options = {}) {
+        this.assertNotDisposed("warm up robot metadata");
+        const stageSourcePath = this.filename || window.renderInterface?.getStageSourcePath?.() || null;
+        return await warmupRenderRobotMetadataSnapshot(window.renderInterface, {
+            stageSourcePath,
+            ...options,
+        });
+    }
+    async waitUntilReady(options = {}) {
+        this.assertNotDisposed("wait for readiness");
+        const timeoutMs = Math.max(0, Math.floor(options.timeoutMs ?? 30000));
+        const pollIntervalMs = Math.max(10, Math.floor(options.pollIntervalMs ?? 32));
+        const startMs = this.getNowMs();
+        while (!this.disposed) {
+            if (this.ready)
+                return this.getStateSnapshot();
+            if (!this.filename && !this.driver && !window.renderInterface) {
+                return this.getStateSnapshot();
+            }
+            if (timeoutMs > 0 && this.getNowMs() - startMs >= timeoutMs) {
+                throw new Error(`Viewer did not become ready within ${timeoutMs}ms.`);
+            }
+            await new Promise((resolve) => window.setTimeout(resolve, pollIntervalMs));
+        }
+        throw new Error("Viewer was disposed before it became ready.");
+    }
+    normalizeRequestedUsdPath(requestedFile) {
+        const normalizedPath = normalizeUsdPath(String(requestedFile || "").trim(), this.filename);
+        return String(normalizedPath || "").split("?")[0];
+    }
+    async loadUsdFromPath(requestedFile, options = {}) {
+        this.assertNotDisposed("load a USD path");
+        const normalizedPath = this.normalizeRequestedUsdPath(requestedFile);
+        if (!normalizedPath) {
+            throw new Error("loadUsdFromPath requires a valid USD file path.");
+        }
+        const loadToken = this.createLoadToken();
+        this.filename = normalizedPath;
+        this.setFilenameText(this.filename);
+        this.updateUrl();
+        await this.clearStage({ clearVirtualFs: options.clearVirtualFs === true });
+        if (!this.isLoadTokenActive(loadToken))
+            return this.getStateSnapshot();
+        await this.loadUsdFile(this.filename, normalizedPath, loadToken);
+        return this.getStateSnapshot();
+    }
+    async loadFilesIntoViewer(fileList) {
+        this.assertNotDisposed("load uploaded files");
+        await this.handleUploadedFileList(fileList);
+        if (this.ready || !this.filename)
+            return this.getStateSnapshot();
+        return await this.waitUntilReady();
+    }
+    async clearForApi(options = {}) {
+        this.assertNotDisposed("clear the stage");
+        this.createLoadToken();
+        await this.clearStage({
+            clearVirtualFs: options.clearVirtualFs !== false,
+        });
+        this.filename = "";
+        this.setFilenameText("");
+        this.updateUrl();
+        if (this.messageLog) {
+            this.messageLog.textContent = "Stage cleared.";
+        }
+    }
+    async setVisibilityState(visibility) {
+        this.assertNotDisposed("change visibility");
+        if (typeof visibility.visuals === "boolean") {
+            this.setShowVisualMeshes(visibility.visuals);
+        }
+        if (typeof visibility.collisions === "boolean") {
+            this.setShowCollisionMeshes(visibility.collisions);
+        }
+        if (typeof visibility.dynamics === "boolean") {
+            await this.setShowLinkDynamicsAsync(visibility.dynamics);
+        }
+        return this.getStateSnapshot();
+    }
+    async exportRoundtripUsdWithOptions(options = {}) {
+        this.assertNotDisposed("export roundtrip USD");
+        const renderInterface = window.renderInterface;
+        if (!renderInterface || typeof renderInterface.exportLoadedStageSnapshot !== "function") {
+            return { ok: false, error: "export-unavailable" };
+        }
+        const result = await renderInterface.exportLoadedStageSnapshot({
+            stageSourcePath: this.filename,
+            persistToServer: true,
+            overwrite: true,
+            ...options,
+        });
+        return (result || { ok: false, error: "unknown-export-error" });
+    }
+    async disposeApp() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this.stopped = true;
+        this.createLoadToken();
+        window.removeEventListener("usd:robot-metadata-ready", this.handleRobotMetadataReady);
+        if (this.pendingMaterialBindingWarningTimer !== null) {
+            window.clearTimeout(this.pendingMaterialBindingWarningTimer);
+            this.pendingMaterialBindingWarningTimer = null;
+        }
+        try {
+            await this.clearStage({ clearVirtualFs: true });
+        }
+        catch { }
+        this.linkRotationController.clear();
+        this.linkRotationController.setRenderInterface(null);
+        this.linkRotationController.setStageSourcePath(null);
+        this.linkDynamicsController.setStageSourcePath(null);
+        this.jointPanelController?.dispose();
+        this.jointPanelController = null;
+        this.interactionCleanup?.();
+        this.interactionCleanup = null;
+        this.uiCleanup?.();
+        this.uiCleanup = null;
+        this.sceneCleanup?.();
+        this.sceneCleanup = null;
+        window.usdViewerApi = undefined;
+        window.exportLoadedStageSnapshot = undefined;
+        window.linkRotationController = undefined;
+        window.linkDynamicsController = undefined;
+        window.renderInterface = undefined;
+        window.driver = undefined;
+        window.usdStage = undefined;
+        window.USD = undefined;
+        window.camera = undefined;
+        window.scene = undefined;
+        window.renderer = undefined;
+        window._controls = undefined;
+        window.usdRoot = undefined;
+        document.body.classList.remove("file-picker-open");
     }
     async run() {
+        this.assertNotDisposed("run");
+        if (this.exposeGlobal) {
+            window.usdViewerApi = this.publicApi;
+        }
         this.messageLog = document.querySelector("#message-log");
         this.progressBar = document.querySelector("#loading-bar");
         this.progressLabel = document.querySelector("#loading-percent");
@@ -280,19 +448,6 @@ class ViewerApp {
             // Self-heal stale/shared URLs that disabled both layers and looked like a load failure.
             this.showVisualMeshes = true;
         }
-        const loadPriorityParam = String(this.params.get("loadPriority") || "").trim().toLowerCase();
-        if (loadPriorityParam === "collision") {
-            this.preferredPrimaryLoadKind = "collision";
-        }
-        else if (loadPriorityParam === "visual") {
-            this.preferredPrimaryLoadKind = "visual";
-        }
-        else if (this.showCollisionMeshes && !this.showVisualMeshes) {
-            this.preferredPrimaryLoadKind = "collision";
-        }
-        else {
-            this.preferredPrimaryLoadKind = "visual";
-        }
         this.loadedCollisionPrims = false;
         this.loadedVisualPrims = false;
         this.readStageMetadata = parseBooleanFlag(this.params.get("readStageMetadata"), this.truthFirst);
@@ -301,7 +456,10 @@ class ViewerApp {
             this.messageLog.textContent = "Initializing...";
         warmupEmHdBindingsAssets();
         const usdInitPromise = this.initUsd();
-        await initializeViewerScene({
+        if (this.filename) {
+            this.setOneShotLoadingVisibility(true);
+        }
+        this.sceneCleanup = await initializeViewerScene({
             params: this.params,
             onDrop: (event) => this.dropHandler(event),
             onTogglePause: () => {
@@ -309,13 +467,18 @@ class ViewerApp {
             },
             onResize: () => this.onWindowResize(),
         });
+        if (this.disposed)
+            return;
         this.registerInteractionSignals();
         this.linkRotationController.setEnabled(true);
         this.linkRotationController.setRenderInterface(window.renderInterface || null);
         window.linkRotationController = this.linkRotationController;
         window.linkDynamicsController = this.linkDynamicsController;
         await usdInitPromise;
+        if (this.disposed)
+            return;
         this.bindUi();
+        window.exportLoadedStageSnapshot = (options = {}) => this.exportRoundtripUsdWithOptions(options);
         this.initializeJointPanel();
         window.addEventListener("usd:robot-metadata-ready", this.handleRobotMetadataReady);
         this.animate();
@@ -352,9 +515,6 @@ class ViewerApp {
         window.history.pushState({}, this.filename || "", currentUrl);
     }
     createLoadToken() {
-        this.asyncUpgradeGeneration += 1;
-        this.backgroundUpgradePending = false;
-        this.backgroundUpgradeActive = false;
         this.activeLoadToken += 1;
         return this.activeLoadToken;
     }
@@ -367,70 +527,12 @@ class ViewerApp {
             loadCollisionPrims: !!this.showCollisionMeshes,
         };
     }
-    shouldPreloadAllPrims() {
-        return this.preloadHiddenPrims || this.forceFullPrimPreload;
-    }
-    getBackgroundUpgradeTargetSelection() {
-        const desired = this.getDesiredPrimitiveSelection();
-        if (!this.shouldPreloadAllPrims())
-            return desired;
-        if (!desired.loadVisualPrims && !desired.loadCollisionPrims)
-            return desired;
-        return {
-            loadVisualPrims: true,
-            loadCollisionPrims: true,
-        };
-    }
-    shouldUseVisualProxyFirst() {
-        if (this.shouldPreloadAllPrims())
-            return false;
-        if (!this.visualProxyFirst)
-            return false;
-        if (!this.showVisualMeshes)
-            return false;
-        if (this.showCollisionMeshes)
-            return false;
-        return true;
-    }
     getPrimaryPrimitiveSelection() {
-        if (this.shouldUseVisualProxyFirst()) {
-            return { loadVisualPrims: true, loadCollisionPrims: false };
-        }
         const desired = this.getDesiredPrimitiveSelection();
-        if (this.shouldPreloadAllPrims() && (desired.loadVisualPrims || desired.loadCollisionPrims)) {
+        if (desired.loadVisualPrims || desired.loadCollisionPrims) {
             return { loadVisualPrims: true, loadCollisionPrims: true };
         }
-        if (desired.loadVisualPrims && desired.loadCollisionPrims && !this.twoPassSelectionUpgrade) {
-            return desired;
-        }
-        if (!(desired.loadVisualPrims && desired.loadCollisionPrims)) {
-            return desired;
-        }
-        if (this.preferredPrimaryLoadKind === "collision") {
-            return { loadVisualPrims: false, loadCollisionPrims: true };
-        }
-        return { loadVisualPrims: true, loadCollisionPrims: false };
-    }
-    getMissingPrimitiveLabels(targetSelection) {
-        const missing = [];
-        if (targetSelection.loadVisualPrims && !this.loadedVisualPrims) {
-            missing.push("visual meshes");
-        }
-        if (targetSelection.loadCollisionPrims && !this.loadedCollisionPrims) {
-            missing.push("collision meshes");
-        }
-        return missing;
-    }
-    needsSelectionUpgrade(targetSelection) {
-        return this.getMissingPrimitiveLabels(targetSelection).length > 0;
-    }
-    describeMissingPrimitiveSelection(targetSelection) {
-        const missing = this.getMissingPrimitiveLabels(targetSelection);
-        if (missing.length <= 0)
-            return "remaining data";
-        if (missing.length === 1)
-            return missing[0];
-        return `${missing[0]} and ${missing[1]}`;
+        return desired;
     }
     disposeDriver(driverToDispose) {
         if (!driverToDispose)
@@ -454,117 +556,13 @@ class ViewerApp {
         }
         catch { }
     }
-    clearStageReloadProxy() {
-        if (!this.stageReloadProxyRoot)
-            return;
-        try {
-            if (typeof this.stageReloadProxyRoot.removeFromParent === "function") {
-                this.stageReloadProxyRoot.removeFromParent();
-            }
-            else if (window.scene?.remove) {
-                window.scene.remove(this.stageReloadProxyRoot);
-            }
-        }
-        catch { }
-        this.stageReloadProxyRoot = null;
-    }
-    showVisualLoadingProxy(pathToLoad) {
-        if (!this.shouldUseVisualProxyFirst())
-            return;
-        const scene = window.scene;
-        if (!scene)
-            return;
-        this.clearStageReloadProxy();
-        const proxyRoot = new Group();
-        proxyRoot.name = "USD Loading Proxy";
-        const material = new MeshStandardMaterial({
-            color: 0x8f99a8,
-            roughness: 0.82,
-            metalness: 0.04,
-            transparent: true,
-            opacity: 0.82,
-        });
-        const addBox = (w, h, d, x, y, z) => {
-            const mesh = new Mesh(new BoxGeometry(w, h, d), material);
-            mesh.position.set(x, y, z);
-            proxyRoot.add(mesh);
-        };
-        const addCylinder = (radius, height, x, y, z, rx = 0) => {
-            const mesh = new Mesh(new CylinderGeometry(radius, radius, height, 12), material);
-            mesh.position.set(x, y, z);
-            mesh.rotation.x = rx;
-            proxyRoot.add(mesh);
-        };
-        const addSphere = (radius, x, y, z) => {
-            const mesh = new Mesh(new SphereGeometry(radius, 12, 10), material);
-            mesh.position.set(x, y, z);
-            proxyRoot.add(mesh);
-        };
-        const normalized = String(pathToLoad || "").toLowerCase();
-        if (normalized.includes("/h1/") || normalized.includes("h1_2") || normalized.includes("/g1/")) {
-            addBox(0.34, 0.72, 0.22, 0, 0.36, 0);
-            addSphere(0.13, 0, 0.84, 0);
-            addCylinder(0.055, 0.46, -0.24, 0.48, 0, Math.PI / 2);
-            addCylinder(0.055, 0.46, 0.24, 0.48, 0, Math.PI / 2);
-            addCylinder(0.07, 0.88, -0.1, -0.08, 0);
-            addCylinder(0.07, 0.88, 0.1, -0.08, 0);
-            addBox(0.26, 0.12, 0.12, 0, -0.52, 0);
-        }
-        else if (normalized.includes("go2") || normalized.includes("b2")) {
-            addBox(0.52, 0.2, 0.26, 0, 0.28, 0);
-            addSphere(0.1, 0.18, 0.33, 0);
-            addCylinder(0.045, 0.34, -0.2, 0.08, 0.13);
-            addCylinder(0.045, 0.34, 0.2, 0.08, 0.13);
-            addCylinder(0.045, 0.34, -0.2, 0.08, -0.13);
-            addCylinder(0.045, 0.34, 0.2, 0.08, -0.13);
-        }
-        else {
-            addBox(0.44, 0.76, 0.28, 0, 0.4, 0);
-            addSphere(0.14, 0, 0.9, 0);
-            addCylinder(0.06, 0.9, -0.12, -0.05, 0);
-            addCylinder(0.06, 0.9, 0.12, -0.05, 0);
-        }
-        scene.add(proxyRoot);
-        this.stageReloadProxyRoot = proxyRoot;
-        console.info("[ViewerApp] Showing visual loading proxy.");
-    }
-    captureStageReloadProxy() {
-        const scene = window.scene;
-        const usdRoot = window.usdRoot;
-        if (!scene || !usdRoot)
-            return false;
-        if (!usdRoot.children || usdRoot.children.length <= 0)
-            return false;
-        this.clearStageReloadProxy();
-        try {
-            const proxyClone = usdRoot.clone(true);
-            proxyClone.name = "USD Loading Proxy";
-            proxyClone.traverse?.((node) => {
-                if (!node)
-                    return;
-                if (typeof node.updateWorldMatrix === "function") {
-                    node.updateWorldMatrix(false, false);
-                }
-            });
-            scene.add(proxyClone);
-            this.stageReloadProxyRoot = proxyClone;
-            return true;
-        }
-        catch (error) {
-            console.warn("Failed to capture stage reload proxy.", error);
-            this.stageReloadProxyRoot = null;
-            return false;
-        }
-    }
     getWasmThreadCap() {
         const minThreads = 1;
         const absoluteMaxThreads = 128;
         const hardwareConcurrency = Number(navigator?.hardwareConcurrency || 4);
         const requestedThreadsRaw = this.params.get("threads");
         const requestedThreads = Number(requestedThreadsRaw);
-        const reservedMainThread = Math.max(1, Math.floor(hardwareConcurrency) - 2);
-        const minRecommendedThreads = hardwareConcurrency >= 4 ? 2 : 1;
-        const recommendedThreads = Math.max(minRecommendedThreads, Math.floor(reservedMainThread * 0.9));
+        const recommendedThreads = Math.max(2, Math.floor(hardwareConcurrency) - 2);
         const defaultCap = Math.max(minThreads, Math.min(absoluteMaxThreads, Math.min(8, recommendedThreads)));
         const requestedCapRaw = this.params.get("threadCap");
         if (requestedCapRaw === null || requestedCapRaw === "") {
@@ -582,10 +580,7 @@ class ViewerApp {
         const minThreads = 1;
         const maxThreads = this.wasmThreadCap;
         const hardwareConcurrency = Number(navigator?.hardwareConcurrency || 4);
-        const reservedMainThread = Math.max(1, Math.floor(hardwareConcurrency) - 2);
-        // Keep at least one spare core for UI + browser scheduling.
-        const minRecommendedThreads = hardwareConcurrency >= 4 ? 2 : 1;
-        const recommendedThreads = Math.max(minRecommendedThreads, Math.floor(reservedMainThread * 0.9));
+        const recommendedThreads = Math.max(2, Math.floor(hardwareConcurrency) - 2);
         const defaultThreads = Math.max(minThreads, Math.min(maxThreads, Math.min(8, recommendedThreads)));
         const requestedRaw = this.params.get("threads");
         if (requestedRaw === null || requestedRaw === "")
@@ -664,7 +659,18 @@ class ViewerApp {
     markUserInteraction() {
         this.lastUserInteractionAtMs = this.getNowMs();
     }
+    setOneShotLoadingVisibility(active) {
+        if (!document.body)
+            return;
+        if (active) {
+            document.body.setAttribute("data-one-shot-loading", "1");
+        }
+        else {
+            document.body.removeAttribute("data-one-shot-loading");
+        }
+    }
     registerInteractionSignals() {
+        this.interactionCleanup?.();
         this.markUserInteraction();
         const mark = () => this.markUserInteraction();
         const domElement = window.renderer?.domElement;
@@ -672,55 +678,12 @@ class ViewerApp {
         domElement?.addEventListener("pointermove", mark, { passive: true });
         domElement?.addEventListener("wheel", mark, { passive: true });
         window.addEventListener("keydown", mark, { passive: true });
-    }
-    async waitForInteractionQuietPeriod(quietMs, maxWaitMs) {
-        const normalizedQuietMs = Math.max(0, Math.floor(quietMs));
-        const normalizedMaxWaitMs = Math.max(0, Math.floor(maxWaitMs));
-        if (normalizedQuietMs <= 0)
-            return;
-        const startedAt = this.getNowMs();
-        for (;;) {
-            const now = this.getNowMs();
-            const sinceLastInteraction = now - this.lastUserInteractionAtMs;
-            if (sinceLastInteraction >= normalizedQuietMs)
-                return;
-            if (normalizedMaxWaitMs > 0 && (now - startedAt) >= normalizedMaxWaitMs)
-                return;
-            await new Promise((resolve) => window.setTimeout(resolve, 80));
-        }
-    }
-    async waitForBrowserIdleSlice(timeoutMs) {
-        const normalizedTimeoutMs = Math.max(1, Math.floor(timeoutMs));
-        const requestIdle = window.requestIdleCallback;
-        if (typeof requestIdle !== "function") {
-            await new Promise((resolve) => window.setTimeout(resolve, Math.min(120, normalizedTimeoutMs)));
-            return;
-        }
-        await new Promise((resolve) => {
-            let done = false;
-            const finish = () => {
-                if (done)
-                    return;
-                done = true;
-                resolve();
-            };
-            try {
-                requestIdle(() => finish(), { timeout: normalizedTimeoutMs });
-            }
-            catch {
-                finish();
-                return;
-            }
-            window.setTimeout(finish, normalizedTimeoutMs + 40);
-        });
-    }
-    async waitForDeferredHeavyWork(delayMs, quietMs, maxWaitMs) {
-        const normalizedDelayMs = Math.max(0, Math.floor(delayMs));
-        if (normalizedDelayMs > 0) {
-            await new Promise((resolve) => window.setTimeout(resolve, normalizedDelayMs));
-        }
-        await this.waitForInteractionQuietPeriod(quietMs, maxWaitMs);
-        await this.waitForBrowserIdleSlice(Math.max(200, Math.min(maxWaitMs, 2000)));
+        this.interactionCleanup = () => {
+            domElement?.removeEventListener("pointerdown", mark);
+            domElement?.removeEventListener("pointermove", mark);
+            domElement?.removeEventListener("wheel", mark);
+            window.removeEventListener("keydown", mark);
+        };
     }
     shouldRunUsdDraw() {
         if (!this.liveUsdDraw)
@@ -822,24 +785,22 @@ class ViewerApp {
             this.messageLog.textContent = "Loading done";
     }
     bindUi() {
-        bindViewerUi({
+        this.uiCleanup?.();
+        this.uiCleanup = bindViewerUi({
             showLinkDynamics: this.showLinkDynamics,
             showVisualMeshes: this.showVisualMeshes,
             showCollisionMeshes: this.showCollisionMeshes,
-            onToggleLinkDynamics: (enabled) => this.setShowLinkDynamics(enabled),
+            onToggleLinkDynamics: (enabled) => this.setShowLinkDynamicsAsync(enabled),
             onToggleVisualMeshes: (enabled) => this.setShowVisualMeshes(enabled),
             onToggleCollisionMeshes: (enabled) => this.setShowCollisionMeshes(enabled),
+            onExportRoundtripUsd: async () => {
+                await this.exportRoundtripUsd();
+            },
             onUploadedFileList: async (files) => {
                 await this.handleUploadedFileList(files);
             },
             onSelectUsdFilePath: async (requestedFile) => {
-                const loadToken = this.createLoadToken();
-                this.filename = requestedFile;
-                this.setFilenameText(this.filename);
-                await this.clearStage({ clearVirtualFs: false });
-                if (!this.isLoadTokenActive(loadToken))
-                    return;
-                await this.loadUsdFile(this.filename, this.filename, loadToken);
+                await this.loadUsdFromPath(requestedFile, { clearVirtualFs: false });
             },
             onFilePickerStateChange: (isOpen) => this.setFilePickerState(isOpen),
         });
@@ -862,72 +823,48 @@ class ViewerApp {
         this.jointPanelController.initialize();
         this.jointPanelController.clear();
     }
-    setShowLinkDynamics(enabled) {
+    async setShowLinkDynamicsAsync(enabled) {
         this.showLinkDynamics = !!enabled;
         saveBooleanState(this.linkDynamicsStorageKey, this.showLinkDynamics);
-        void this.rebuildLinkDynamics();
+        await this.rebuildLinkDynamics();
         this.updateUrl();
     }
-    reloadStageForSelectionUpgrade(reasonText) {
-        if (!this.filename)
-            return;
-        const loadToken = this.createLoadToken();
+    async exportRoundtripUsd() {
         if (this.messageLog)
-            this.messageLog.textContent = `Reloading stage to include ${reasonText}...`;
-        void (async () => {
-            await this.clearStage({ clearVirtualFs: false });
-            if (!this.isLoadTokenActive(loadToken))
-                return;
-            await this.loadUsdFile(this.filename, this.filename, loadToken);
-        })();
+            this.messageLog.textContent = "Exporting roundtrip USD...";
+        const result = await this.exportRoundtripUsdWithOptions({
+            flattenStage: false,
+        });
+        if (!result?.ok) {
+            const reason = String(result?.error || "unknown-export-error");
+            if (this.messageLog) {
+                this.messageLog.textContent = reason === "export-unavailable"
+                    ? "Roundtrip export is not available yet."
+                    : `Roundtrip export failed: ${reason}`;
+            }
+            return;
+        }
+        const exportedPath = String(result.filePath || result.outputVirtualPath || result.outputFileName || "").trim();
+        if (this.messageLog) {
+            this.messageLog.textContent = exportedPath
+                ? `Roundtrip USD exported: ${exportedPath}`
+                : "Roundtrip USD exported.";
+        }
     }
     setShowVisualMeshes(enabled) {
         this.showVisualMeshes = !!enabled;
-        this.clearStageReloadProxy();
-        if (this.showVisualMeshes) {
-            this.preferredPrimaryLoadKind = "visual";
-        }
         saveBooleanState(this.visualMeshesStorageKey, this.showVisualMeshes);
-        if (this.showVisualMeshes && !this.loadedVisualPrims && this.driver) {
-            if (this.shouldPreloadAllPrims()) {
-                if (!this.silentBackgroundUpgradeUi && this.messageLog) {
-                    this.messageLog.textContent = "Visual meshes are still loading in background...";
-                }
-                this.scheduleBackgroundSelectionUpgrade(this.filename, this.filename, this.activeLoadToken);
-            }
-            else {
-                this.reloadStageForSelectionUpgrade("visual meshes");
-                this.updateUrl();
-                return;
-            }
-        }
         this.applyMeshFilters();
         this.requestMeshFilterRefresh(6);
+        this.render();
         this.updateUrl();
     }
     setShowCollisionMeshes(enabled) {
-        const wasEnabled = this.showCollisionMeshes;
         this.showCollisionMeshes = !!enabled;
-        this.clearStageReloadProxy();
-        if (this.showCollisionMeshes) {
-            this.preferredPrimaryLoadKind = "collision";
-        }
         saveBooleanState(this.collisionMeshesStorageKey, this.showCollisionMeshes);
-        if (!wasEnabled && this.showCollisionMeshes && !this.loadedCollisionPrims && this.driver) {
-            if (this.shouldPreloadAllPrims()) {
-                if (!this.silentBackgroundUpgradeUi && this.messageLog) {
-                    this.messageLog.textContent = "Collision meshes are still loading in background...";
-                }
-                this.scheduleBackgroundSelectionUpgrade(this.filename, this.filename, this.activeLoadToken);
-            }
-            else {
-                this.reloadStageForSelectionUpgrade("collision meshes");
-                this.updateUrl();
-                return;
-            }
-        }
         this.applyMeshFilters();
         this.requestMeshFilterRefresh(6);
+        this.render();
         this.updateUrl();
     }
     applyMeshFilters() {
@@ -935,28 +872,6 @@ class ViewerApp {
     }
     requestMeshFilterRefresh(frames = 8) {
         this.meshFilterRefreshFrames = Math.max(this.meshFilterRefreshFrames, frames);
-    }
-    beginInitialUiAnimationBlock() {
-        if (!this.pauseAnimationForInitialUi)
-            return;
-        this.blockAnimationForInitialUi = true;
-        if (this.blockAnimationResumeTimer !== null) {
-            window.clearTimeout(this.blockAnimationResumeTimer);
-            this.blockAnimationResumeTimer = null;
-        }
-        const timeoutMs = Math.max(0, Math.floor(this.pauseAnimationForInitialUiMaxMs));
-        if (timeoutMs <= 0)
-            return;
-        this.blockAnimationResumeTimer = window.setTimeout(() => {
-            this.endInitialUiAnimationBlock();
-        }, timeoutMs);
-    }
-    endInitialUiAnimationBlock() {
-        this.blockAnimationForInitialUi = false;
-        if (this.blockAnimationResumeTimer !== null) {
-            window.clearTimeout(this.blockAnimationResumeTimer);
-            this.blockAnimationResumeTimer = null;
-        }
     }
     rebuildLinkAxes() {
         // Link-axes overlay was removed in robot-focused mode.
@@ -981,9 +896,6 @@ class ViewerApp {
         const previousDriver = this.driver;
         const clearVirtualFs = options.clearVirtualFs !== false;
         this.robotMetadataEventRefreshScheduled = false;
-        if (!options.preserveStageReloadProxy) {
-            this.clearStageReloadProxy();
-        }
         this.ready = false;
         this.drawFailed = false;
         this.timeout = 40;
@@ -1003,7 +915,6 @@ class ViewerApp {
         if (!options.preserveJointPanel) {
             this.jointPanelController?.clear();
         }
-        this.endInitialUiAnimationBlock();
         if (window.usdRoot) {
             if (clearVirtualFs) {
                 this.usdFsHelper.clearStageFiles(window.usdRoot);
@@ -1018,197 +929,106 @@ class ViewerApp {
             return false;
         if (!this.isLoadTokenActive(loadToken))
             return false;
-        this.ready = false;
-        this.drawFailed = false;
-        const loadParams = new URLSearchParams(this.params.toString());
-        const eagerBridgeWarmup = this.truthFirst || this.shouldPreloadAllPrims() || selection.loadCollisionPrims;
-        if (loadParams.get("threads") === null) {
-            loadParams.set("threads", String(this.wasmThreadCount));
-        }
-        if (loadParams.get("strictOneShot") === null) {
-            loadParams.set("strictOneShot", this.strictOneShot ? "1" : "0");
-        }
-        if (loadParams.get("prewarmWorkers") === null) {
-            loadParams.set("prewarmWorkers", this.prewarmWorkers ? "1" : "0");
-        }
-        if (loadParams.get("allowDriverStageLookup") === null) {
-            loadParams.set("allowDriverStageLookup", this.truthFirst ? "1" : "0");
-        }
-        if (this.truthFirst && loadParams.get("deferStageOverrides") === null) {
-            loadParams.set("deferStageOverrides", "0");
-        }
-        if (this.truthFirst && loadParams.get("postDrawProtoResync") === null) {
-            loadParams.set("postDrawProtoResync", "1");
-        }
-        if (loadParams.get("prefetchStageTransforms") === null) {
-            if (loadParams.get("prefetchStageTransformsBeforeDraw") === null) {
-                loadParams.set("prefetchStageTransformsBeforeDraw", eagerBridgeWarmup ? "1" : "0");
+        this.setOneShotLoadingVisibility(true);
+        let loadCompleted = false;
+        try {
+            this.ready = false;
+            this.drawFailed = false;
+            const loadParams = new URLSearchParams(this.params.toString());
+            if (loadParams.get("threads") === null) {
+                loadParams.set("threads", String(this.wasmThreadCount));
             }
-            if (loadParams.get("prefetchStageTransformsPostDraw") === null) {
-                loadParams.set("prefetchStageTransformsPostDraw", "1");
+            if (loadParams.get("prewarmWorkers") === null) {
+                loadParams.set("prewarmWorkers", this.prewarmWorkers ? "1" : "0");
             }
-        }
-        if (loadParams.get("prefetchProtoDataBlobsBeforeDraw") === null) {
-            loadParams.set("prefetchProtoDataBlobsBeforeDraw", eagerBridgeWarmup ? "1" : "0");
-        }
-        if (loadParams.get("prefetchProtoDataBlobsMode") === null) {
-            loadParams.set("prefetchProtoDataBlobsMode", eagerBridgeWarmup ? "immediate" : "idle");
-        }
-        if (loadParams.get("prefetchProtoDataBlobsStartDelayMs") === null) {
-            loadParams.set("prefetchProtoDataBlobsStartDelayMs", eagerBridgeWarmup ? "0" : "300");
-        }
-        if (loadParams.get("warmupRuntimeBridge") === null) {
-            loadParams.set("warmupRuntimeBridge", eagerBridgeWarmup ? "1" : "0");
-        }
-        if (loadParams.get("warmupRuntimeBridgeBeforeDraw") === null) {
-            loadParams.set("warmupRuntimeBridgeBeforeDraw", eagerBridgeWarmup ? "1" : "0");
-        }
-        if (loadParams.get("warmupRuntimeBridgeAfterDraw") === null) {
-            loadParams.set("warmupRuntimeBridgeAfterDraw", "1");
-        }
-        if (loadParams.get("warmupRobotMetadata") === null) {
-            loadParams.set("warmupRobotMetadata", "1");
-        }
-        if (this.strictOneShot) {
-            loadParams.set("deferStageOverrides", "0");
-            loadParams.set("applyVisualStageOverrides", "0");
-            loadParams.set("resolveRobotMetadataBeforeReady", "1");
-            loadParams.set("requireCompleteRobotMetadata", "1");
-            loadParams.set("warmupRuntimeBridge", "1");
-            loadParams.set("warmupRuntimeBridgeBeforeDraw", "1");
-            loadParams.set("warmupRuntimeBridgeAfterDraw", "1");
-            loadParams.set("prefetchProtoDataBlobs", "1");
-            loadParams.set("prefetchProtoDataBlobsBeforeDraw", "1");
-            loadParams.set("prefetchProtoDataBlobsMode", "immediate");
-            loadParams.set("prefetchProtoDataBlobsStartDelayMs", "0");
-            loadParams.set("prefetchStageTransformsBeforeDraw", "1");
-            loadParams.set("allowJsRobotMetadataFallback", "0");
-            loadParams.set("allowStageJointCatalogFallback", "0");
-            loadParams.set("allowStageLinkDynamicsFallback", "0");
-        }
-        if (this.truthFirst && loadParams.get("stageMetadataBudgetMs") === null) {
-            loadParams.set("stageMetadataBudgetMs", "2200");
-        }
-        if (loadParams.get("aggressiveInitialDraw") === null) {
-            const shouldAggressivelyDraw = selection.loadVisualPrims && !selection.loadCollisionPrims;
-            loadParams.set("aggressiveInitialDraw", shouldAggressivelyDraw ? "1" : "0");
-        }
-        if (loadParams.get("initialDrawYieldMs") === null) {
-            loadParams.set("initialDrawYieldMs", this.truthFirst ? "1" : "8");
-        }
-        if (loadParams.get("enableProtoBlobFastPath") === null) {
-            loadParams.set("enableProtoBlobFastPath", "1");
-        }
-        if (loadParams.get("autoBatchProtoBlobsOnFirstAccess") === null) {
-            loadParams.set("autoBatchProtoBlobsOnFirstAccess", "1");
-        }
-        if (loadParams.get("autoBatchPrimTransformsOnFirstAccess") === null) {
-            loadParams.set("autoBatchPrimTransformsOnFirstAccess", "1");
-        }
-        if (typeof options.maxVisualPrims === "number") {
-            loadParams.set("maxVisualPrims", String(Math.max(0, Math.floor(options.maxVisualPrims))));
-        }
-        if (typeof options.directStageMeshRead === "boolean") {
-            loadParams.set("directStageMeshRead", options.directStageMeshRead ? "1" : "0");
-        }
-        if (options.lowPriorityBackground && !this.strictOneShot) {
-            // Keep background upgrade non-intrusive: avoid aggressive draw bursts and
-            // defer expensive override work in small chunks.
-            loadParams.set("fastLoad", "0");
-            loadParams.set("aggressiveInitialDraw", "0");
-            loadParams.set("initialDrawBurst", "1");
-            loadParams.set("initialDrawBudgetMs", "280");
-            loadParams.set("initialDrawYieldMs", "16");
-            loadParams.set("eagerRenderDuringLoad", "0");
-            loadParams.set("deferStageOverrides", "1");
-            loadParams.set("deferStageOverridesStartDelayMs", "80");
-            loadParams.set("deferStageOverridesChunkSize", "1");
-            loadParams.set("deferStageOverridesChunkDelayMs", "24");
-            loadParams.set("prefetchProtoDataBlobs", "0");
-            loadParams.set("postDrawProtoResync", "0");
-            loadParams.set("warmupRuntimeBridge", "0");
-            loadParams.set("warmupRobotMetadata", "0");
-        }
-        const loadState = await loadUsdStage({
-            USD: this.USD,
-            usdFsHelper: this.usdFsHelper,
-            messageLog: this.messageLog,
-            progressBar: this.progressBar,
-            progressLabel: this.progressLabel,
-            showLoadUi: !options.silentUi,
-            readStageMetadata: this.readStageMetadata,
-            loadCollisionPrims: selection.loadCollisionPrims,
-            loadVisualPrims: selection.loadVisualPrims,
-            loadPassLabel,
-            params: loadParams,
-            displayName,
-            pathToLoad,
-            isLoadActive: () => this.isLoadTokenActive(loadToken),
-            debugFileHandling,
-            onResolvedFilename: (normalizedPath, resolvedDisplayName) => {
-                if (!this.isLoadTokenActive(loadToken))
-                    return;
-                this.filename = normalizedPath;
-                this.updateUrl();
-                this.setFilenameText(resolvedDisplayName || normalizedPath);
-            },
-            applyMeshFilters: () => this.applyMeshFilters(),
-            rebuildLinkAxes: () => this.rebuildLinkAxes(),
-            renderFrame: () => this.render(),
-        });
-        if (!this.isLoadTokenActive(loadToken)) {
-            if (loadState?.driver) {
-                this.disposeDriver(loadState.driver);
+            loadParams.set("fastLoad", "1");
+            if (this.truthFirst && loadParams.get("stageMetadataBudgetMs") === null) {
+                loadParams.set("stageMetadataBudgetMs", "2200");
             }
-            return false;
-        }
-        if (!loadState)
-            return false;
-        const readyAfterLoad = loadState.ready;
-        this.driver = loadState.driver;
-        this.ready = false;
-        this.drawFailed = loadState.drawFailed;
-        this.timeout = loadState.timeout;
-        this.endTimeCode = loadState.endTimeCode;
-        this.loadedCollisionPrims = !!loadState.loadedCollisionPrims;
-        this.loadedVisualPrims = typeof options.markVisualPrimsLoaded === "boolean"
-            ? options.markVisualPrimsLoaded
-            : !!loadState.loadedVisualPrims;
-        this.requestMeshFilterRefresh(20);
-        this.linkRotationController.setStageSourcePath(loadState.normalizedPath || this.filename);
-        this.linkRotationController.setRenderInterface(window.renderInterface || null);
-        this.linkDynamicsController.setStageSourcePath(loadState.normalizedPath || this.filename);
-        if (this.strictOneShot) {
-            await this.prewarmInteractiveControllers(loadToken);
+            loadParams.set("aggressiveInitialDraw", "1");
+            if (loadParams.get("initialDrawYieldMs") === null) {
+                loadParams.set("initialDrawYieldMs", this.truthFirst ? "1" : "4");
+            }
+            if (loadParams.get("enableProtoBlobFastPath") === null) {
+                loadParams.set("enableProtoBlobFastPath", "1");
+            }
+            if (typeof options.maxVisualPrims === "number") {
+                loadParams.set("maxVisualPrims", String(Math.max(0, Math.floor(options.maxVisualPrims))));
+            }
+            const loadState = await loadUsdStage({
+                USD: this.USD,
+                usdFsHelper: this.usdFsHelper,
+                messageLog: this.messageLog,
+                progressBar: this.progressBar,
+                progressLabel: this.progressLabel,
+                showLoadUi: !options.silentUi,
+                readStageMetadata: this.readStageMetadata,
+                loadCollisionPrims: selection.loadCollisionPrims,
+                loadVisualPrims: selection.loadVisualPrims,
+                loadPassLabel,
+                params: loadParams,
+                displayName,
+                pathToLoad,
+                isLoadActive: () => this.isLoadTokenActive(loadToken),
+                debugFileHandling,
+                onResolvedFilename: (normalizedPath, resolvedDisplayName) => {
+                    if (!this.isLoadTokenActive(loadToken))
+                        return;
+                    this.filename = normalizedPath;
+                    this.updateUrl();
+                    this.setFilenameText(resolvedDisplayName || normalizedPath);
+                },
+                applyMeshFilters: () => this.applyMeshFilters(),
+                rebuildLinkAxes: () => this.rebuildLinkAxes(),
+                renderFrame: () => this.render(),
+            });
+            if (!this.isLoadTokenActive(loadToken)) {
+                if (loadState?.driver) {
+                    this.disposeDriver(loadState.driver);
+                }
+                return false;
+            }
+            if (!loadState)
+                return false;
+            const readyAfterLoad = loadState.ready;
+            this.driver = loadState.driver;
+            this.ready = false;
+            this.drawFailed = loadState.drawFailed;
+            this.timeout = loadState.timeout;
+            this.endTimeCode = loadState.endTimeCode;
+            this.loadedCollisionPrims = !!loadState.loadedCollisionPrims;
+            this.loadedVisualPrims = typeof options.markVisualPrimsLoaded === "boolean"
+                ? options.markVisualPrimsLoaded
+                : !!loadState.loadedVisualPrims;
+            this.requestMeshFilterRefresh(20);
+            this.linkRotationController.setStageSourcePath(loadState.normalizedPath || this.filename);
+            this.linkRotationController.setRenderInterface(window.renderInterface || null);
+            this.linkDynamicsController.setStageSourcePath(loadState.normalizedPath || this.filename);
+            await this.refreshJointPanelSynchronously(loadToken);
             if (!this.isLoadTokenActive(loadToken))
                 return false;
-        }
-        this.ready = readyAfterLoad;
-        if (this.strictOneShot) {
-            await this.refreshJointPanelSynchronously(loadToken);
+            this.prewarmJointInteractionCaches();
+            await this.prewarmInteractiveControllers(loadToken);
             if (!this.isLoadTokenActive(loadToken))
                 return false;
             await this.prepareLinkDynamicsForOneShot(loadToken);
             if (!this.isLoadTokenActive(loadToken))
                 return false;
+            this.ready = readyAfterLoad;
+            loadCompleted = true;
             return true;
         }
-        this.scheduleInteractiveMetadataWarmup(loadToken);
-        this.beginInitialUiAnimationBlock();
-        this.scheduleImmediateJointPanelRefresh(loadToken);
-        this.schedulePostLoadUiRefresh(loadToken);
-        return true;
+        finally {
+            if (loadCompleted || this.isLoadTokenActive(loadToken)) {
+                this.setOneShotLoadingVisibility(false);
+            }
+        }
     }
     async prewarmInteractiveControllers(loadToken) {
         if (!this.isLoadTokenActive(loadToken))
             return;
-        try {
-            await this.linkRotationController.prewarmJointCatalog();
-            this.linkRotationController.prewarmInteractivePoseCaches();
-        }
-        catch {
-            // Keep one-shot preload resilient; panel refresh has fallback paths.
-        }
+        if (!this.showLinkDynamics)
+            return;
         if (!this.isLoadTokenActive(loadToken))
             return;
         const renderInterface = window.renderInterface;
@@ -1221,6 +1041,14 @@ class ViewerApp {
             // Keep one-shot preload resilient; runtime rebuild path remains.
         }
     }
+    prewarmJointInteractionCaches() {
+        try {
+            this.linkRotationController.prewarmInteractivePoseCaches();
+        }
+        catch {
+            // Keep one-shot preload resilient; runtime interaction keeps fallback paths.
+        }
+    }
     async refreshJointPanelSynchronously(loadToken) {
         if (!this.jointPanelController)
             return;
@@ -1228,7 +1056,7 @@ class ViewerApp {
             await this.jointPanelController.refresh();
             if (!this.isLoadTokenActive(loadToken))
                 return;
-            if (this.isJointPanelMissingRows()) {
+            if (this.jointPanelRetryMaxAttempts > 0 && this.isJointPanelMissingRows()) {
                 await this.refreshJointPanelWithRetries(loadToken);
             }
         }
@@ -1239,81 +1067,12 @@ class ViewerApp {
     async prepareLinkDynamicsForOneShot(loadToken) {
         if (!this.isLoadTokenActive(loadToken))
             return;
+        if (!this.showLinkDynamics)
+            return;
         const renderInterface = window.renderInterface;
         if (!window.usdRoot || !renderInterface)
             return;
-        if (this.showLinkDynamics) {
-            await this.rebuildLinkDynamics();
-            return;
-        }
-        try {
-            await this.linkDynamicsController.prebuildHiddenOverlay(window.usdRoot, renderInterface);
-        }
-        catch {
-            // Keep one-shot preload resilient when hidden overlay prebuild fails.
-        }
-    }
-    scheduleInteractiveMetadataWarmup(loadToken) {
-        window.requestAnimationFrame(() => {
-            window.setTimeout(() => {
-                if (!this.isLoadTokenActive(loadToken))
-                    return;
-                if (!this.ready)
-                    return;
-                const renderInterface = window.renderInterface;
-                if (!renderInterface)
-                    return;
-                this.linkDynamicsController.prewarmCatalog(renderInterface);
-            }, 0);
-        });
-    }
-    scheduleImmediateJointPanelRefresh(loadToken) {
-        if (!this.jointPanelController) {
-            this.endInitialUiAnimationBlock();
-            return;
-        }
-        const profileJointPanel = /(?:\?|&)profileJointCatalog=(?:1|true|yes|on)(?:&|$)/i.test(String(window.location?.search || ""));
-        const delayMs = Math.max(0, Math.floor(this.initialJointPanelRefreshDelayMs));
-        if (profileJointPanel) {
-            const nowMs = (typeof performance !== "undefined" && typeof performance.now === "function")
-                ? Math.round(performance.now())
-                : Date.now();
-            console.info("[ViewerApp] scheduleImmediateJointPanelRefresh delay=", delayMs, "at", nowMs, "ms");
-        }
-        void (async () => {
-            try {
-                if (delayMs > 0) {
-                    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
-                }
-                if (profileJointPanel) {
-                    const nowMs = (typeof performance !== "undefined" && typeof performance.now === "function")
-                        ? Math.round(performance.now())
-                        : Date.now();
-                    console.info("[ViewerApp] immediate joint panel refresh started at", nowMs, "ms");
-                }
-                if (!this.isLoadTokenActive(loadToken))
-                    return;
-                await this.jointPanelController?.refresh();
-                if (!this.isLoadTokenActive(loadToken))
-                    return;
-                if (this.isJointPanelMissingRows()) {
-                    await this.refreshJointPanelWithRetries(loadToken);
-                }
-                if (!this.isLoadTokenActive(loadToken))
-                    return;
-                window.setTimeout(() => {
-                    if (!this.isLoadTokenActive(loadToken))
-                        return;
-                    this.linkRotationController.prewarmJointPosePipeline();
-                }, 0);
-            }
-            catch (error) {
-                console.warn("Failed to refresh joint panel immediately after load.", error);
-            }
-            finally {
-                this.endInitialUiAnimationBlock();
-            }
-        })();
+        await this.rebuildLinkDynamics();
     }
     isJointPanelMissingRows() {
         const panel = document.getElementById("joint-panel");
@@ -1353,115 +1112,18 @@ class ViewerApp {
             }
         }
     }
-    scheduleBackgroundSelectionUpgrade(displayName, pathToLoad, loadToken, options = {}) {
-        if (this.strictOneShot)
-            return;
-        if (this.backgroundUpgradePending || this.backgroundUpgradeActive)
-            return;
-        const scheduledGeneration = this.asyncUpgradeGeneration;
-        const initialTargetSelection = this.getBackgroundUpgradeTargetSelection();
-        if (!this.needsSelectionUpgrade(initialTargetSelection))
-            return;
-        const initialMissing = this.describeMissingPrimitiveSelection(initialTargetSelection);
-        this.backgroundUpgradePending = true;
-        if (!this.silentBackgroundUpgradeUi && this.messageLog) {
-            this.messageLog.textContent = `Primary selection loaded. You can interact now. ${initialMissing} will load in background...`;
-        }
-        void (async () => {
-            try {
-                await this.waitForDeferredHeavyWork(this.backgroundUpgradeDelayMs, this.backgroundUpgradeQuietMs, this.backgroundUpgradeMaxWaitMs);
-                if (!this.isLoadTokenActive(loadToken))
-                    return;
-                if (scheduledGeneration !== this.asyncUpgradeGeneration)
-                    return;
-                const targetSelection = this.getBackgroundUpgradeTargetSelection();
-                if (!this.needsSelectionUpgrade(targetSelection))
-                    return;
-                const missing = this.describeMissingPrimitiveSelection(targetSelection);
-                if (!this.silentBackgroundUpgradeUi && this.messageLog) {
-                    this.messageLog.textContent = `Loading ${missing} in background...`;
-                }
-                this.backgroundUpgradeActive = true;
-                const keepProxyVisibleDuringReload = !!options.keepProxyVisibleDuringReload;
-                const capturedProxy = keepProxyVisibleDuringReload && this.captureStageReloadProxy();
-                if (!capturedProxy) {
-                    this.clearStageReloadProxy();
-                }
-                await this.clearStage({
-                    preserveStageReloadProxy: capturedProxy,
-                    preserveJointPanel: true,
-                    clearVirtualFs: false,
-                });
-                if (!this.isLoadTokenActive(loadToken))
-                    return;
-                if (scheduledGeneration !== this.asyncUpgradeGeneration)
-                    return;
-                const passLabel = `background-v${Number(targetSelection.loadVisualPrims)}-c${Number(targetSelection.loadCollisionPrims)}`;
-                const loaded = await this.performUsdLoadPass(displayName, pathToLoad, loadToken, targetSelection, passLabel, {
-                    silentUi: this.silentBackgroundUpgradeUi,
-                    lowPriorityBackground: this.throttleBackgroundUpgrade,
-                });
-                if (!this.isLoadTokenActive(loadToken))
-                    return;
-                if (scheduledGeneration !== this.asyncUpgradeGeneration)
-                    return;
-                if (loaded || !capturedProxy) {
-                    this.clearStageReloadProxy();
-                }
-                this.applyMeshFilters();
-                this.requestMeshFilterRefresh(8);
-            }
-            finally {
-                this.backgroundUpgradeActive = false;
-                this.backgroundUpgradePending = false;
-            }
-        })();
-    }
     async loadUsdFile(displayName, pathToLoad, loadToken) {
         if (!this.USD || !window.usdRoot)
             return;
         if (!this.isLoadTokenActive(loadToken))
             return;
-        this.showVisualLoadingProxy(pathToLoad);
         const primarySelection = this.getPrimaryPrimitiveSelection();
-        const usingVisualProxyFirst = this.shouldUseVisualProxyFirst()
-            && primarySelection.loadVisualPrims
-            && !primarySelection.loadCollisionPrims;
-        const primaryLoadOptions = {};
         const primaryPassLabel = `primary-v${Number(primarySelection.loadVisualPrims)}-c${Number(primarySelection.loadCollisionPrims)}`;
-        const loadedPrimary = await this.performUsdLoadPass(displayName, pathToLoad, loadToken, primarySelection, primaryPassLabel, primaryLoadOptions);
-        if (!loadedPrimary) {
-            this.clearStageReloadProxy();
+        const loadedPrimary = await this.performUsdLoadPass(displayName, pathToLoad, loadToken, primarySelection, primaryPassLabel, {});
+        if (!loadedPrimary)
             return;
-        }
         if (!this.isLoadTokenActive(loadToken))
             return;
-        this.clearStageReloadProxy();
-        const backgroundTargetSelection = this.getBackgroundUpgradeTargetSelection();
-        if (!this.needsSelectionUpgrade(backgroundTargetSelection)) {
-            this.clearStageReloadProxy();
-            return;
-        }
-        this.scheduleBackgroundSelectionUpgrade(displayName, pathToLoad, loadToken, {
-            keepProxyVisibleDuringReload: usingVisualProxyFirst,
-        });
-    }
-    schedulePostLoadUiRefresh(loadToken) {
-        void (async () => {
-            try {
-                await this.waitForDeferredHeavyWork(this.postLoadUiRefreshDelayMs, this.postLoadUiRefreshQuietMs, this.postLoadUiRefreshMaxWaitMs);
-                if (!this.isLoadTokenActive(loadToken))
-                    return;
-                if (this.showLinkDynamics) {
-                    await this.rebuildLinkDynamics();
-                    if (!this.isLoadTokenActive(loadToken))
-                        return;
-                }
-            }
-            catch (error) {
-                console.warn("Failed to refresh post-load inspector panels.", error);
-            }
-        })();
     }
     async loadFile(file, isRootFile, fullPath, loadToken) {
         await loadVirtualFile({
@@ -1520,11 +1182,10 @@ class ViewerApp {
         return changed;
     }
     async animate() {
-        if (this.stopped) {
-            requestAnimationFrame(() => this.animate());
+        if (this.disposed) {
             return;
         }
-        if (this.blockAnimationForInitialUi) {
+        if (this.stopped) {
             requestAnimationFrame(() => this.animate());
             return;
         }
@@ -1552,10 +1213,13 @@ class ViewerApp {
             },
             renderFrame: () => this.render(),
         });
-        requestAnimationFrame(() => this.animate());
+        if (!this.disposed) {
+            requestAnimationFrame(() => this.animate());
+        }
     }
 }
-export async function init() {
-    const app = new ViewerApp();
+export async function init(options = {}) {
+    const app = new ViewerApp(options);
     await app.run();
+    return app.getApi();
 }

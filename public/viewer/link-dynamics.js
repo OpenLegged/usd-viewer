@@ -1,6 +1,5 @@
 import { BoxGeometry, BufferGeometry, Group, Line, LineBasicMaterial, Matrix4, Mesh, MeshBasicMaterial, Quaternion, SphereGeometry, Vector3, } from "three";
 import { getRenderRobotMetadataSnapshot, warmupRenderRobotMetadataSnapshot, } from "./robot-metadata.js";
-import { parseBooleanFlag } from "./path-utils.js";
 const linkDynamicsCacheByStagePath = new Map();
 const maxLinkDynamicsCacheEntries = 8;
 function getLinkPathFromMeshId(meshId) {
@@ -27,6 +26,10 @@ function getLinkPathFromMeshId(meshId) {
     return null;
 }
 function toFiniteNumber(value) {
+    if (value === null || value === undefined)
+        return null;
+    if (typeof value === "string" && value.trim() === "")
+        return null;
     const numeric = Number(value);
     if (!Number.isFinite(numeric))
         return null;
@@ -77,27 +80,6 @@ function cloneMatrix4FromUnknown(value) {
     if (!numeric.every((entry) => Number.isFinite(entry)))
         return null;
     return new Matrix4().fromArray(numeric);
-}
-function quaternionAngularErrorDeg(left, right) {
-    const normalizedLeft = left.clone().normalize();
-    const normalizedRight = right.clone().normalize();
-    const dot = Math.abs(normalizedLeft.dot(normalizedRight));
-    const clamped = Math.min(1, Math.max(-1, dot));
-    return 2 * Math.acos(clamped) * (180 / Math.PI);
-}
-function median(values) {
-    if (!Array.isArray(values) || values.length <= 0)
-        return 0;
-    const sorted = values
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value))
-        .sort((left, right) => left - right);
-    if (sorted.length <= 0)
-        return 0;
-    const half = Math.floor(sorted.length / 2);
-    if ((sorted.length % 2) === 1)
-        return sorted[half];
-    return (sorted[half - 1] + sorted[half]) * 0.5;
 }
 function getRequestedDynamicsFrameModeFromUrl() {
     if (typeof window === "undefined" || !window.location)
@@ -479,8 +461,7 @@ export class LinkDynamicsController {
         this.stageSourcePath = null;
         this.linkDynamicsByLinkPath = new Map();
         this.markerGroupByLinkPath = new Map();
-        this.strictOneShot = this.getBooleanParamFromQuery("strictOneShot", true);
-        this.allowStageLinkDynamicsFallback = this.getBooleanParamFromQuery("allowStageLinkDynamicsFallback", !this.strictOneShot);
+        this.currentLinkFrameResolver = null;
         this.preferredDynamicsFrameMode = null;
         this.linkDynamicsBuildPromise = null;
         this.rebuildRequestId = 0;
@@ -495,6 +476,9 @@ export class LinkDynamicsController {
         this.markerGroupByLinkPath.clear();
         this.preferredDynamicsFrameMode = null;
         this.linkDynamicsBuildPromise = null;
+    }
+    setCurrentLinkFrameResolver(resolver) {
+        this.currentLinkFrameResolver = typeof resolver === "function" ? resolver : null;
     }
     clear(usdRoot, options = {}) {
         if (options.invalidateRequestId !== false) {
@@ -542,15 +526,6 @@ export class LinkDynamicsController {
         }
         catch {
             // Keep one-shot preload resilient.
-        }
-    }
-    async prebuildHiddenOverlay(usdRoot, renderInterface) {
-        if (!usdRoot || !renderInterface?.meshes)
-            return;
-        await this.prewarmCatalogForInteractive(renderInterface);
-        await this.rebuild(usdRoot, renderInterface, true);
-        if (this.linkDynamicsGroup) {
-            this.linkDynamicsGroup.visible = false;
         }
     }
     async rebuild(usdRoot, renderInterface, showLinkDynamics) {
@@ -636,6 +611,13 @@ export class LinkDynamicsController {
      * reads and block the main thread for several seconds on large stages.
      */
     prefetchLinkWorldTransforms(renderInterface, options = {}) {
+        const cachedStagePath = String(renderInterface?.getStageSourcePath?.() || "").trim() || null;
+        const cachedSceneSnapshot = typeof renderInterface?.getCachedRobotSceneSnapshot === "function"
+            ? renderInterface.getCachedRobotSceneSnapshot(cachedStagePath)
+            : null;
+        if (renderInterface?._primTransformBatchPrimed === true || cachedSceneSnapshot) {
+            return;
+        }
         const prefetch = renderInterface?.prefetchPrimTransformsFromDriver;
         if (typeof prefetch !== "function")
             return;
@@ -728,43 +710,7 @@ export class LinkDynamicsController {
         if (cacheKey && this.restoreLinkDynamicsFromCache(cacheKey)) {
             return Promise.resolve();
         }
-        if (!this.allowStageLinkDynamicsFallback) {
-            this.linkDynamicsBuildPromise = Promise.resolve()
-                .then(async () => {
-                const warmedSnapshot = await warmupRenderRobotMetadataSnapshot(renderInterface, {
-                    stageSourcePath: this.stageSourcePath,
-                    force: true,
-                    skipIdleWait: true,
-                    skipUrdfTruthFallback: true,
-                });
-                this.ingestLinkDynamicsFromRenderSnapshot(warmedSnapshot, renderInterface);
-                if (!cacheKey)
-                    return;
-                this.saveLinkDynamicsToCache(cacheKey);
-            })
-                .catch(() => {
-                // Keep strict one-shot warmup resilient.
-            })
-                .finally(() => {
-                this.linkDynamicsBuildPromise = null;
-            });
-            return this.linkDynamicsBuildPromise;
-        }
-        if (!stage)
-            return null;
-        this.linkDynamicsBuildPromise = this.buildLinkDynamicsCatalog(stage, renderInterface)
-            .then(() => {
-            if (!cacheKey)
-                return;
-            this.saveLinkDynamicsToCache(cacheKey);
-        })
-            .catch((error) => {
-            console.warn("Failed to build link dynamics catalog.", error);
-        })
-            .finally(() => {
-            this.linkDynamicsBuildPromise = null;
-        });
-        return this.linkDynamicsBuildPromise;
+        return null;
     }
     getLinkDynamicsCacheKey(renderInterface, stage) {
         const fromController = String(this.stageSourcePath || "").trim();
@@ -784,15 +730,6 @@ export class LinkDynamicsController {
         }
         catch {
             return null;
-        }
-    }
-    getBooleanParamFromQuery(paramName, fallback) {
-        try {
-            const params = new URLSearchParams(String(window?.location?.search || ""));
-            return parseBooleanFlag(params.get(paramName), fallback);
-        }
-        catch {
-            return fallback;
         }
     }
     restoreLinkDynamicsFromCache(cacheKey) {
@@ -1027,51 +964,23 @@ export class LinkDynamicsController {
         if (this.preferredDynamicsFrameMode)
             return this.preferredDynamicsFrameMode;
         const requestedMode = getRequestedDynamicsFrameModeFromUrl();
+        if (requestedMode === "stage") {
+            this.preferredDynamicsFrameMode = "stage";
+            return this.preferredDynamicsFrameMode;
+        }
         if (requestedMode === "visual") {
             this.preferredDynamicsFrameMode = "visual";
             return this.preferredDynamicsFrameMode;
         }
-        // Dynamics overlays (COM/inertia/principal axes) are authored in physics link
-        // frame. Keep stage frame as default to avoid quarter-turn visual-frame skew.
-        this.preferredDynamicsFrameMode = "stage";
+        // Default to the delegate's preferred physical link frame. Visual mesh
+        // matrices can include extra authored offsets (for example Go2 visuals are
+        // rotated relative to the rigid-body link frame), which would rotate COM
+        // and inertia overlays away from the actual physics frame.
+        void renderInterface;
+        this.preferredDynamicsFrameMode = "auto";
         return this.preferredDynamicsFrameMode;
     }
-    inferAutoPreferredDynamicsFrameMode(renderInterface) {
-        if (!renderInterface)
-            return "stage";
-        const linkPaths = Array.from(this.linkDynamicsByLinkPath.keys());
-        if (linkPaths.length < 4)
-            return "stage";
-        const translationMagnitudes = [];
-        const rotationAnglesDeg = [];
-        for (const linkPath of linkPaths) {
-            const stageMatrix = this.getStageLinkWorldMatrixForPath(renderInterface, linkPath);
-            const visualMatrix = this.getVisualLinkWorldMatrixForPath(renderInterface, linkPath);
-            if (!stageMatrix || !visualMatrix)
-                continue;
-            const deltaMatrix = stageMatrix.clone().invert().multiply(visualMatrix);
-            const deltaPosition = new Vector3();
-            const deltaRotation = new Quaternion();
-            const deltaScale = new Vector3();
-            deltaMatrix.decompose(deltaPosition, deltaRotation, deltaScale);
-            if (!Number.isFinite(deltaPosition.lengthSq()))
-                continue;
-            const angleDeg = quaternionAngularErrorDeg(new Quaternion(), deltaRotation);
-            if (!Number.isFinite(angleDeg))
-                continue;
-            translationMagnitudes.push(deltaPosition.length());
-            rotationAnglesDeg.push(angleDeg);
-        }
-        if (rotationAnglesDeg.length < 4 || translationMagnitudes.length < 4)
-            return "stage";
-        const translationMedian = median(translationMagnitudes);
-        const rotationMedian = median(rotationAnglesDeg);
-        const translationNearZero = translationMedian <= 1e-4;
-        const isQuarterTurnLike = ((rotationMedian >= 70 && rotationMedian <= 110)
-            || (rotationMedian >= 170 && rotationMedian <= 190));
-        return (translationNearZero && isQuarterTurnLike) ? "visual" : "stage";
-    }
-    getStageLinkWorldMatrixForPath(renderInterface, linkPath) {
+    getDirectStageLinkWorldMatrixForPath(renderInterface, linkPath) {
         if (!renderInterface || !linkPath)
             return null;
         const worldGetter = renderInterface?.getWorldTransformForPrimPath;
@@ -1090,6 +999,11 @@ export class LinkDynamicsController {
                 catch { }
             }
         }
+        return null;
+    }
+    getPreferredLinkWorldMatrixForPath(renderInterface, linkPath) {
+        if (!renderInterface || !linkPath)
+            return null;
         const preferredGetter = renderInterface?.getPreferredLinkWorldTransform;
         if (typeof preferredGetter === "function") {
             try {
@@ -1108,7 +1022,8 @@ export class LinkDynamicsController {
             }
             catch { }
         }
-        return null;
+        return this.getDirectStageLinkWorldMatrixForPath(renderInterface, linkPath)
+            || this.getVisualLinkWorldMatrixForPath(renderInterface, linkPath);
     }
     getVisualLinkWorldMatrixForPath(renderInterface, linkPath) {
         if (!renderInterface || !linkPath)
@@ -1143,12 +1058,36 @@ export class LinkDynamicsController {
     getRepresentativeMatrixForLinkPath(renderInterface, linkPath, preferredFrameMode) {
         if (!linkPath)
             return null;
-        const stageMatrix = this.getStageLinkWorldMatrixForPath(renderInterface, linkPath);
+        const currentLinkFrameMatrix = this.currentLinkFrameResolver?.(linkPath) || null;
+        const preferredMatrix = this.getPreferredLinkWorldMatrixForPath(renderInterface, linkPath);
+        const stageMatrix = this.getDirectStageLinkWorldMatrixForPath(renderInterface, linkPath);
         const visualMatrix = this.getVisualLinkWorldMatrixForPath(renderInterface, linkPath);
+        const currentPhysicalFrameMatrix = this.composeCurrentPhysicalLinkWorldMatrix(currentLinkFrameMatrix, preferredMatrix, stageMatrix);
         if (preferredFrameMode === "visual") {
-            return visualMatrix || stageMatrix || null;
+            return currentLinkFrameMatrix || visualMatrix || preferredMatrix || stageMatrix || null;
         }
-        return stageMatrix || visualMatrix || null;
+        if (preferredFrameMode === "stage") {
+            return currentPhysicalFrameMatrix || stageMatrix || currentLinkFrameMatrix || preferredMatrix || visualMatrix || null;
+        }
+        return currentPhysicalFrameMatrix || stageMatrix || currentLinkFrameMatrix || preferredMatrix || visualMatrix || null;
+    }
+    composeCurrentPhysicalLinkWorldMatrix(currentLinkFrameMatrix, preferredLinkFrameMatrix, stageLinkFrameMatrix) {
+        if (!stageLinkFrameMatrix)
+            return currentLinkFrameMatrix || preferredLinkFrameMatrix || null;
+        if (!currentLinkFrameMatrix || !preferredLinkFrameMatrix)
+            return stageLinkFrameMatrix.clone();
+        const preferredDeterminant = preferredLinkFrameMatrix.determinant();
+        if (!Number.isFinite(preferredDeterminant) || Math.abs(preferredDeterminant) <= 1e-12) {
+            return stageLinkFrameMatrix.clone();
+        }
+        // Link rotations are authored relative to the controller's preferred base
+        // link frame, which may fall back to a visual basis when stage/world
+        // transforms look degenerate. COM/inertia overlays must stay in the
+        // physical link frame, so preserve the posed delta from the preferred base
+        // and reapply it onto the direct stage/physics base.
+        return currentLinkFrameMatrix.clone()
+            .multiply(preferredLinkFrameMatrix.clone().invert())
+            .multiply(stageLinkFrameMatrix.clone());
     }
     createMarkerGroupForLink(record) {
         const markerGroup = new Group();

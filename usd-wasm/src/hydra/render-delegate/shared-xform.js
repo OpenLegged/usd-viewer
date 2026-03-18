@@ -1,5 +1,5 @@
 import { Euler, Matrix4, Quaternion } from 'three';
-import { toArrayLike, toFiniteQuaternionWxyzTuple, toFiniteVector3Tuple } from './shared-basic.js';
+import { toArrayLike, toFiniteQuaternionWxyzTuple, toFiniteVector3Tuple } from './shared-basic.js?v=20260318a';
 export function getAngleInRadians(value) {
     return value * Math.PI / 180;
 }
@@ -142,6 +142,10 @@ export function normalizeHydraPath(value) {
     return '';
 }
 export function toFiniteNumber(value) {
+    if (value === null || value === undefined)
+        return undefined;
+    if (typeof value === 'string' && value.trim() === '')
+        return undefined;
     const numeric = Number(value);
     if (!Number.isFinite(numeric))
         return undefined;

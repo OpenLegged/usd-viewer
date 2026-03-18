@@ -8,6 +8,29 @@ endif()
 
 set(BINDINGS_NAME "emHdBindings")
 
+set(
+    PXR_HD_EMSCRIPTEN_OPT_LEVEL
+    "$ENV{PXR_HD_EMSCRIPTEN_OPT_LEVEL}"
+    CACHE STRING
+    "Optimization level for hdEmscripten wasm targets"
+)
+if(NOT PXR_HD_EMSCRIPTEN_OPT_LEVEL)
+    set(PXR_HD_EMSCRIPTEN_OPT_LEVEL "-O3")
+endif()
+
+option(
+    PXR_HD_EMSCRIPTEN_ENABLE_SIMD
+    "Enable wasm SIMD for hdEmscripten targets"
+    ON
+)
+
+set(PXR_HD_EMSCRIPTEN_COMPILE_FLAGS "${PXR_HD_EMSCRIPTEN_OPT_LEVEL} -lembind -pthread")
+set(PXR_HD_EMSCRIPTEN_LINK_ARCH_FLAGS "")
+if(PXR_HD_EMSCRIPTEN_ENABLE_SIMD)
+    string(APPEND PXR_HD_EMSCRIPTEN_COMPILE_FLAGS " -msimd128")
+    string(APPEND PXR_HD_EMSCRIPTEN_LINK_ARCH_FLAGS " -msimd128")
+endif()
+
 pxr_library(hdEmscripten
     LIBRARIES
       hd
@@ -26,8 +49,8 @@ pxr_library(hdEmscripten
 )
 
 
-target_link_options(hdEmscripten_internal PRIVATE "SHELL: -Oz")
-target_compile_options(hdEmscripten_internal PRIVATE "SHELL: -lembind -pthread")
+target_link_options(hdEmscripten_internal PRIVATE "SHELL: ${PXR_HD_EMSCRIPTEN_OPT_LEVEL}${PXR_HD_EMSCRIPTEN_LINK_ARCH_FLAGS}")
+target_compile_options(hdEmscripten_internal PRIVATE "SHELL: ${PXR_HD_EMSCRIPTEN_COMPILE_FLAGS}")
 
 set(RESOURCE_PARAMETERS "")
 function(add_resources target)
@@ -86,7 +109,7 @@ set_target_properties(${BINDINGS_NAME}
     PROPERTIES
         SUFFIX ".js"
 )
-target_link_options(${BINDINGS_NAME} PRIVATE "SHELL: -Oz -s EXPORT_NAME='getUsdModule' \
+target_link_options(${BINDINGS_NAME} PRIVATE "SHELL: ${PXR_HD_EMSCRIPTEN_OPT_LEVEL}${PXR_HD_EMSCRIPTEN_LINK_ARCH_FLAGS} -s EXPORT_NAME='getUsdModule' \
     -s MODULARIZE=1 -lembind -s PTHREAD_POOL_SIZE=10 -s ASYNCIFY -s ASYNCIFY_ADVISE \
     -sIMPORTED_MEMORY=1 --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/js/MemoryConfiguration.js  \
     -s ASYNCIFY_REMOVE=['__vfprintf_internal','__fseeko_unlocked','*::itanium_demangle::*','*VtArray*','*_Clear*','*dlfree*','*TfType*','*Tf_Registry*','*Tf_Post*','*tao::PXR_INTERNAL_NS_pegtl*','*UsdObject*','*TfSmallVector*','*TfMallocTag*','*__cxa_guard_acquire*,'*UsdSchema*','*Usd_CrateFile*','*TfEnum*','*TfErrorMark*','*VtStreamOutArray*','*SdfSpec*']")

@@ -19,15 +19,24 @@
 #include "pxr/base/tf/stringUtils.h"
 #include "pxr/base/vt/array.h"
 #include "pxr/base/gf/quatd.h"
+#include "pxr/base/gf/vec2d.h"
+#include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/base/gf/vec3d.h"
+#include "pxr/usd/sdf/assetPath.h"
 #include "pxr/usd/usdGeom/xformable.h"
 #include "pxr/usd/usdGeom/xformCache.h"
+#include "pxr/usd/usdGeom/metrics.h"
 #include "pxr/usd/usdGeom/mesh.h"
+#include "pxr/usd/usdGeom/subset.h"
 #include "pxr/usd/usdGeom/cube.h"
 #include "pxr/usd/usdGeom/sphere.h"
 #include "pxr/usd/usdGeom/cylinder.h"
 #include "pxr/usd/usdGeom/capsule.h"
+#include "pxr/usd/usd/stageLoadRules.h"
+#include "pxr/usd/usd/variantSets.h"
+#include "pxr/usd/usdShade/material.h"
+#include "pxr/usd/usdShade/materialBindingAPI.h"
 #include "pxr/usd/usd/primFlags.h"
 #include "pxr/usd/usd/primRange.h"
 
@@ -35,6 +44,9 @@
 #include "pxr/imaging/hd/unitTestNullRenderPass.h"
 #include <emscripten/bind.h>
 #include "pxr/usd/usdSkel/bakeSkinning.h"
+#include "pxr/usd/usdSkel/bindingAPI.h"
+#include "pxr/usd/usdSkel/root.h"
+#include "pxr/usd/usdSkel/skeleton.h"
 
 #include <algorithm>
 #include <array>
@@ -42,6 +54,8 @@
 #include <cctype>
 #include <cstdint>
 #include <cmath>
+#include <cstdio>
+#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -116,7 +130,7 @@ public:
         TfTokenVector renderTags;
         renderTags.push_back(HdRenderTagTokens->geometry);
 
-        _Init(UsdStage::Open(usdFilePath),
+        _Init(_OpenStageForPath(renderDelegateInterface, usdFilePath),
               collection,
               SdfPath::AbsoluteRootPath(),
               renderTags);
@@ -210,36 +224,52 @@ public:
     }
 
     emscripten::val GetPrimTransforms() {
-        emscripten::val worldMap = emscripten::val::object();
-        emscripten::val localMap = emscripten::val::object();
+        emscripten::val result = emscripten::val::object();
+        result.set("format", std::string("packed-v1"));
+        result.set("paths", emscripten::val::array());
+        result.set("world", _FloatVectorToJsFloat32Array({}));
+        result.set("local", _FloatVectorToJsFloat32Array({}));
+        result.set("stride", 16.0);
+        result.set("count", 0.0);
 
         if (!_stage) {
-            emscripten::val emptyResult = emscripten::val::object();
-            emptyResult.set("world", worldMap);
-            emptyResult.set("local", localMap);
-            emptyResult.set("count", 0);
-            return emptyResult;
+            return result;
         }
 
         const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
-        size_t primCount = 0;
         const GfMatrix4d identity(1.0);
+        std::vector<std::string> primPaths;
+        std::vector<float> worldValues;
+        std::vector<float> localValues;
 
         for (const UsdPrim& rootPrim : _stage->GetPseudoRoot().GetChildren()) {
             _CollectPrimTransformsRecursive(
                 rootPrim,
                 identity,
                 timeCode,
-                worldMap,
-                localMap,
-                &primCount);
+                &primPaths,
+                &worldValues,
+                &localValues);
         }
 
-        emscripten::val result = emscripten::val::object();
-        result.set("world", worldMap);
-        result.set("local", localMap);
-        result.set("count", static_cast<double>(primCount));
+        result.set("paths", _StringVectorToJsArray(primPaths));
+        result.set("world", _FloatVectorToJsFloat32Array(worldValues));
+        result.set("local", _FloatVectorToJsFloat32Array(localValues));
+        result.set("count", static_cast<double>(primPaths.size()));
         return result;
+    }
+
+    emscripten::val GetPrimTransformsForPaths(emscripten::val primPaths) {
+        return _BuildPrimTransformsForNormalizedPaths(
+            _NormalizeUniquePathsFromJsArray(primPaths));
+    }
+
+    emscripten::val GetLastInitProfile() const {
+        return _DriverInitProfileToJsVal(_lastInitProfile);
+    }
+
+    emscripten::val GetLastRobotSceneSnapshotProfile() const {
+        return _RobotSceneSnapshotProfileToJsVal(_lastRobotSceneSnapshotProfile);
     }
 
     emscripten::val GetPrimPathSet() {
@@ -390,7 +420,15 @@ public:
                 timeCode,
                 &principalAxesLocalWxyz);
 
-            if (!hasMass && !hasCenterOfMass && !hasDiagonalInertia && !hasPrincipalAxes) {
+            if (!_HasMeaningfulPhysicsDynamics(
+                    hasMass,
+                    mass,
+                    hasCenterOfMass,
+                    centerOfMassLocal,
+                    hasDiagonalInertia,
+                    diagonalInertia,
+                    hasPrincipalAxes,
+                    principalAxesLocalWxyz)) {
                 continue;
             }
 
@@ -417,437 +455,576 @@ public:
     emscripten::val GetRobotMetadataSnapshot(
         emscripten::val linkPaths,
         std::string const& stageSourcePath = std::string()) {
+        return _BuildRobotMetadataSnapshotFromNormalizedLinkPaths(
+            _NormalizeUniquePathsFromJsArray(linkPaths),
+            stageSourcePath);
+    }
+
+    emscripten::val GetRobotSceneSnapshot(
+        emscripten::val runtimeLinkPaths,
+        std::string const& stageSourcePath = std::string()) {
         emscripten::val snapshot = emscripten::val::object();
-        emscripten::val emptyPairs = emscripten::val::array();
-        emscripten::val emptyJointEntries = emscripten::val::array();
-        emscripten::val emptyDynamicsEntries = emscripten::val::array();
-        snapshot.set("stageSourcePath", emscripten::val::null());
+        emscripten::val stageInfo = emscripten::val::object();
+        emscripten::val robotTree = emscripten::val::object();
+        emscripten::val physics = emscripten::val::object();
+        emscripten::val render = emscripten::val::object();
+        emscripten::val buffers = emscripten::val::object();
+        emscripten::val emptyArray = emscripten::val::array();
+        emscripten::val emptyObject = emscripten::val::object();
+        RobotSceneSnapshotProfile snapshotProfile;
+        const double snapshotStartedAtMs = _NowSteadyMs();
+        const double inputDecodeStartedAtMs = snapshotStartedAtMs;
+        const std::vector<std::string> requestedRuntimeLinkPaths =
+            _NormalizeUniquePathsFromJsArray(runtimeLinkPaths);
+        snapshotProfile.inputDecodeMs = _NowSteadyMs() - inputDecodeStartedAtMs;
+        snapshotProfile.requestedRuntimeLinkPathCount =
+            static_cast<int>(requestedRuntimeLinkPaths.size());
+
         snapshot.set("generatedAtMs", 0.0);
-        snapshot.set("source", "mesh-only");
-        snapshot.set("linkParentPairs", emptyPairs);
-        snapshot.set("jointCatalogEntries", emptyJointEntries);
-        snapshot.set("linkDynamicsEntries", emptyDynamicsEntries);
-        if (!_stage) return snapshot;
+        snapshot.set("stage", stageInfo);
+        snapshot.set("robotTree", robotTree);
+        snapshot.set("physics", physics);
+        snapshot.set("render", render);
+        snapshot.set("buffers", buffers);
+        snapshot.set("robotMetadataSnapshot", emptyObject);
+        snapshot.set("driverInitProfile", _DriverInitProfileToJsVal(_lastInitProfile));
+        snapshot.set("nativeProfile", emscripten::val::object());
 
-        auto normalizePathToken = [](std::string value) -> std::string {
-            value = TfStringTrim(value);
-            if (value.empty()) return std::string();
-            value.erase(
-                std::remove_if(
-                    value.begin(),
-                    value.end(),
-                    [](char ch) { return ch == '<' || ch == '>'; }),
-                value.end());
-            value = TfStringTrim(value);
-            if (value.empty()) return std::string();
-            if (value[0] != '/') value = "/" + value;
-            while (value.size() > 1 && value.back() == '/') {
-                value.pop_back();
-            }
-            return value;
-        };
+        stageInfo.set("stageSourcePath", emscripten::val::null());
+        stageInfo.set("rootLayerIdentifier", emscripten::val::null());
+        stageInfo.set("defaultPrimPath", emscripten::val::null());
+        stageInfo.set("upAxis", emscripten::val::null());
+        stageInfo.set("startTimeCode", 0.0);
+        stageInfo.set("endTimeCode", 0.0);
+        stageInfo.set("timeCodesPerSecond", 0.0);
+        stageInfo.set("framesPerSecond", 0.0);
+        stageInfo.set("metersPerUnit", 0.0);
 
-        auto getRootPathFromPrimPath = [](std::string const& primPath) -> std::string {
-            if (primPath.empty() || primPath[0] != '/') return std::string();
-            const size_t secondSlash = primPath.find('/', 1);
-            if (secondSlash == std::string::npos) return primPath;
-            return primPath.substr(0, secondSlash);
-        };
+        robotTree.set("linkParentPairs", emptyArray);
+        robotTree.set("jointCatalogEntries", emptyArray);
+        robotTree.set("rootLinkPaths", emptyArray);
 
-        auto getPathWithoutRoot = [&](std::string const& primPath) -> std::string {
-            const std::string rootPath = getRootPathFromPrimPath(primPath);
-            if (rootPath.empty()) return std::string();
-            if (primPath.size() <= rootPath.size()) return "/";
-            return primPath.substr(rootPath.size());
-        };
+        physics.set("linkDynamicsEntries", emptyArray);
 
-        auto axisVectorFromToken = [](std::string const& axisToken) -> GfVec3d {
-            const std::string token = _ToLowerAscii(axisToken);
-            if (token == "y") return GfVec3d(0.0, 1.0, 0.0);
-            if (token == "z") return GfVec3d(0.0, 0.0, 1.0);
-            return GfVec3d(1.0, 0.0, 0.0);
-        };
+        render.set("primPathSet", emscripten::val::undefined());
+        render.set("primTransforms", emptyObject);
+        render.set("protoDataBlobs", emscripten::val::undefined());
+        render.set("finalStageOverrideBatch", emscripten::val::undefined());
+        render.set("meshDescriptorFormat", std::string("packed-v2"));
+        render.set("meshDescriptorStrings", emptyArray);
+        render.set("meshDescriptorHeaderStride", 30.0);
+        render.set("meshDescriptorScalarStride", 6.0);
+        render.set("meshDescriptorHeaders", emptyArray);
+        render.set("meshDescriptorScalars", emptyArray);
+        render.set("meshDescriptorGeomSubsetSections", emptyObject);
+        render.set("meshDescriptors", emptyArray);
+        render.set("materials", emptyArray);
 
-        auto rotateAxisByQuaternionWxyz = [&](std::string const& axisToken, std::array<double, 4> const& localRotWxyz) -> std::array<double, 3> {
-            GfVec3d axis = axisVectorFromToken(axisToken);
-            const double w = localRotWxyz[0];
-            const double x = localRotWxyz[1];
-            const double y = localRotWxyz[2];
-            const double z = localRotWxyz[3];
-            GfQuatd quat(w, GfVec3d(x, y, z));
-            const double quatLen = quat.GetLength();
-            if (std::isfinite(quatLen) && quatLen > 1e-6) {
-                quat.Normalize();
-                axis = quat.Transform(axis);
-            }
-            const double axisLen = axis.GetLength();
-            if (!std::isfinite(axisLen) || axisLen <= 1e-12) {
-                return {1.0, 0.0, 0.0};
-            }
-            axis /= axisLen;
-            return {axis[0], axis[1], axis[2]};
-        };
+        buffers.set("positions", emptyArray);
+        buffers.set("indices", emptyArray);
+        buffers.set("normals", emptyArray);
+        buffers.set("uvs", emptyArray);
+        buffers.set("transforms", emptyArray);
+        buffers.set("rangesByMeshId", emscripten::val::undefined());
 
+        if (!_stage) {
+            snapshotProfile.totalMs = _NowSteadyMs() - snapshotStartedAtMs;
+            _lastRobotSceneSnapshotProfile = snapshotProfile;
+            snapshot.set(
+                "nativeProfile",
+                _RobotSceneSnapshotProfileToJsVal(snapshotProfile));
+            return snapshot;
+        }
+
+        snapshot.set("generatedAtMs", _NowSteadyMs());
+
+        const double stageInfoStartedAtMs = _NowSteadyMs();
         std::string normalizedStageSourcePath = TfStringTrim(stageSourcePath);
         const size_t queryMarker = normalizedStageSourcePath.find('?');
         if (queryMarker != std::string::npos) {
             normalizedStageSourcePath = normalizedStageSourcePath.substr(0, queryMarker);
         }
-        if (!normalizedStageSourcePath.empty()) {
-            snapshot.set("stageSourcePath", normalizedStageSourcePath);
-        }
 
-        std::unordered_set<std::string> linkPathSet;
-        std::vector<std::string> sortedLinkPaths;
-        int linkPathCount = 0;
-        try {
-            linkPathCount = linkPaths["length"].as<int>();
-        } catch (...) {
-            linkPathCount = 0;
+        const SdfLayerHandle rootLayer = _stage->GetRootLayer();
+        const std::string rootLayerIdentifier = rootLayer ? rootLayer->GetIdentifier() : std::string();
+        if (normalizedStageSourcePath.empty()) {
+            normalizedStageSourcePath = rootLayerIdentifier;
         }
-        if (linkPathCount > 0) {
-            for (int index = 0; index < linkPathCount; ++index) {
-                std::string rawPath;
-                try {
-                    rawPath = linkPaths[index].as<std::string>();
-                } catch (...) {
-                    continue;
-                }
-                const std::string normalizedPath = normalizePathToken(rawPath);
-                if (normalizedPath.empty()) continue;
-                if (!linkPathSet.insert(normalizedPath).second) continue;
-                sortedLinkPaths.push_back(normalizedPath);
+        const UsdPrim defaultPrim = _stage->GetDefaultPrim();
+        const std::string defaultPrimPath = defaultPrim && defaultPrim.IsValid()
+            ? defaultPrim.GetPath().GetString()
+            : std::string();
+
+        const TfToken upAxisToken = UsdGeomGetStageUpAxis(_stage);
+        const double metersPerUnit = UsdGeomGetStageMetersPerUnit(_stage);
+
+        stageInfo.set(
+            "stageSourcePath",
+            normalizedStageSourcePath.empty() ? emscripten::val::null() : emscripten::val(normalizedStageSourcePath));
+        stageInfo.set(
+            "rootLayerIdentifier",
+            rootLayerIdentifier.empty() ? emscripten::val::null() : emscripten::val(rootLayerIdentifier));
+        stageInfo.set(
+            "defaultPrimPath",
+            defaultPrimPath.empty() ? emscripten::val::null() : emscripten::val(defaultPrimPath));
+        stageInfo.set(
+            "upAxis",
+            upAxisToken.IsEmpty() ? emscripten::val::null() : emscripten::val(upAxisToken.GetString()));
+        stageInfo.set("startTimeCode", _stage->GetStartTimeCode());
+        stageInfo.set("endTimeCode", _stage->GetEndTimeCode());
+        stageInfo.set("timeCodesPerSecond", _stage->GetTimeCodesPerSecond());
+        stageInfo.set("framesPerSecond", _stage->GetFramesPerSecond());
+        stageInfo.set("metersPerUnit", metersPerUnit);
+        snapshotProfile.stageInfoMs = _NowSteadyMs() - stageInfoStartedAtMs;
+
+        auto makeFloat32ArrayCopy = [](std::vector<float> const& values) {
+            emscripten::val ctor = emscripten::val::global("Float32Array");
+            if (values.empty()) {
+                return ctor.new_(0);
             }
-        }
-        std::sort(sortedLinkPaths.begin(), sortedLinkPaths.end());
-
-        const auto now = std::chrono::steady_clock::now().time_since_epoch();
-        const double nowMs = std::chrono::duration<double, std::milli>(now).count();
-        snapshot.set("generatedAtMs", nowMs);
-
-        if (sortedLinkPaths.empty()) {
-            return snapshot;
-        }
-
-        std::unordered_map<std::string, std::vector<std::string>> runtimeLinkPathsByName;
-        std::vector<std::string> rootPaths;
-        std::unordered_set<std::string> rootPathSet;
-        runtimeLinkPathsByName.reserve(sortedLinkPaths.size());
-        rootPathSet.reserve(sortedLinkPaths.size());
-
-        for (std::string const& linkPath : sortedLinkPaths) {
-            const std::string linkName = _GetPathBasename(linkPath);
-            if (!linkName.empty()) {
-                runtimeLinkPathsByName[linkName].push_back(linkPath);
-            }
-            const std::string rootPath = getRootPathFromPrimPath(linkPath);
-            if (!rootPath.empty() && rootPathSet.insert(rootPath).second) {
-                rootPaths.push_back(rootPath);
-            }
-        }
-        std::sort(rootPaths.begin(), rootPaths.end());
-        for (auto& item : runtimeLinkPathsByName) {
-            std::vector<std::string>& paths = item.second;
-            std::sort(paths.begin(), paths.end());
-            paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
-        }
-
-        auto sortByPreferredRoot = [&](std::vector<std::string>* paths, std::string const& preferredRootPath) {
-            if (!paths) return;
-            std::sort(
-                paths->begin(),
-                paths->end(),
-                [&](std::string const& left, std::string const& right) {
-                    const int leftPreferred = (!preferredRootPath.empty() && getRootPathFromPrimPath(left) == preferredRootPath) ? 0 : 1;
-                    const int rightPreferred = (!preferredRootPath.empty() && getRootPathFromPrimPath(right) == preferredRootPath) ? 0 : 1;
-                    if (leftPreferred != rightPreferred) {
-                        return leftPreferred < rightPreferred;
-                    }
-                    return left < right;
-                });
+            return ctor.new_(emscripten::val(emscripten::typed_memory_view(values.size(), values.data())));
         };
+        auto makeUint32ArrayCopy = [](std::vector<uint32_t> const& values) {
+            emscripten::val ctor = emscripten::val::global("Uint32Array");
+            if (values.empty()) {
+                return ctor.new_(0);
+            }
+            return ctor.new_(emscripten::val(emscripten::typed_memory_view(values.size(), values.data())));
+        };
+        auto makeInt32ArrayCopy = [](std::vector<int32_t> const& values) {
+            emscripten::val ctor = emscripten::val::global("Int32Array");
+            if (values.empty()) {
+                return ctor.new_(0);
+            }
+            return ctor.new_(emscripten::val(emscripten::typed_memory_view(values.size(), values.data())));
+        };
+        std::vector<std::string> meshDescriptorStrings;
+        std::unordered_map<std::string, int32_t> meshDescriptorStringToIndex;
+        std::vector<int32_t> meshDescriptorHeaders;
+        std::vector<float> meshDescriptorScalars;
+        emscripten::val meshDescriptorGeomSubsetSections = emscripten::val::object();
+        std::vector<float> positionPool;
+        std::vector<uint32_t> indexPool;
+        std::vector<float> normalPool;
+        std::vector<float> uvPool;
+        std::vector<float> transformPool;
+        std::unordered_set<std::string> snapshotRuntimeLinkPathSet;
+        std::vector<std::string> snapshotRuntimeLinkPaths;
+        std::unordered_set<std::string> snapshotTransformPathSet;
+        std::vector<std::string> snapshotTransformPaths;
+        constexpr int kMeshDescriptorHeaderStride = 30;
+        constexpr int kMeshDescriptorScalarStride = 6;
 
-        auto resolveRuntimeLinkPathsFromSourcePath = [&](std::string const& sourcePath, std::string const& preferredRootPath) -> std::vector<std::string> {
-            std::vector<std::string> matches;
-            const std::string normalizedSourcePath = normalizePathToken(sourcePath);
-            if (normalizedSourcePath.empty()) return matches;
+        auto appendSnapshotTransformPath = [&](std::string const& rawPath) {
+            const std::string normalizedPath = _NormalizeRuntimePathToken(rawPath);
+            if (normalizedPath.empty() || normalizedPath == "/") return;
+            if (!snapshotTransformPathSet.insert(normalizedPath).second) return;
+            snapshotTransformPaths.push_back(normalizedPath);
+        };
+        appendSnapshotTransformPath(defaultPrimPath);
 
-            auto addMatch = [&](std::string const& candidatePath) {
-                if (candidatePath.empty()) return;
-                if (linkPathSet.find(candidatePath) == linkPathSet.end()) return;
-                if (std::find(matches.begin(), matches.end(), candidatePath) != matches.end()) return;
-                matches.push_back(candidatePath);
+        auto appendPackedStringIndex = [&](std::string const& rawValue) {
+            const std::string value = TfStringTrim(rawValue);
+            if (value.empty()) {
+                return static_cast<int32_t>(-1);
+            }
+            auto it = meshDescriptorStringToIndex.find(value);
+            if (it != meshDescriptorStringToIndex.end()) {
+                return it->second;
+            }
+            const int32_t index = static_cast<int32_t>(meshDescriptorStrings.size());
+            meshDescriptorStrings.push_back(value);
+            meshDescriptorStringToIndex.emplace(value, index);
+            return index;
+        };
+        auto appendPackedRangeTriplet = [&](std::vector<int32_t>* headerValues,
+                                            std::pair<size_t, size_t> const& range,
+                                            int stride) {
+            headerValues->push_back(range.second > 0 ? static_cast<int32_t>(range.first) : static_cast<int32_t>(-1));
+            headerValues->push_back(static_cast<int32_t>(range.second));
+            headerValues->push_back(range.second > 0 ? std::max(1, stride) : 0);
+        };
+        auto appendFloatVectorComponents = [&](std::vector<float>& destination,
+                                               std::vector<float> const& source,
+                                               size_t expectedCount) {
+            const size_t offset = destination.size();
+            if (source.empty() || expectedCount == 0) {
+                return std::make_pair(offset, static_cast<size_t>(0));
+            }
+            const size_t copyCount = std::min(expectedCount, source.size());
+            destination.insert(destination.end(), source.begin(), source.begin() + copyCount);
+            return std::make_pair(offset, copyCount);
+        };
+        auto appendUintVectorComponents = [&](std::vector<uint32_t>& destination,
+                                              std::vector<uint32_t> const& source,
+                                              size_t expectedCount) {
+            const size_t offset = destination.size();
+            if (source.empty() || expectedCount == 0) {
+                return std::make_pair(offset, static_cast<size_t>(0));
+            }
+            const size_t copyCount = std::min(expectedCount, source.size());
+            destination.insert(destination.end(), source.begin(), source.begin() + copyCount);
+            return std::make_pair(offset, copyCount);
+        };
+        auto appendMatrixComponents = [&](std::vector<float>& destination, GfMatrix4d const& matrix) {
+            const size_t offset = destination.size();
+            for (int row = 0; row < 4; ++row) {
+                for (int column = 0; column < 4; ++column) {
+                    destination.push_back(static_cast<float>(matrix[row][column]));
+                }
+            }
+            return std::make_pair(offset, static_cast<size_t>(16));
+        };
+        auto appendPackedDescriptorFromSnapshotOverride =
+            [&](std::string const& meshId,
+                std::string const& sectionName,
+                bool applyGeometry,
+                uint32_t sectionDirtyMask,
+                SnapshotPrimOverrideData const& rawEntry) {
+            if (meshId.empty()) return;
+            appendSnapshotTransformPath(meshId);
+            appendSnapshotTransformPath(rawEntry.resolvedPrimPath);
+
+            const bool valid = rawEntry.valid;
+            const int32_t dirtyMask = static_cast<int32_t>(rawEntry.dirtyMask | sectionDirtyMask);
+            const int32_t meshIdIndex = appendPackedStringIndex(meshId);
+            const int32_t sectionNameIndex = appendPackedStringIndex(sectionName);
+            const int32_t resolvedPrimPathIndex = appendPackedStringIndex(rawEntry.resolvedPrimPath);
+            const int32_t primTypeIndex = appendPackedStringIndex(rawEntry.primType);
+            const int32_t axisIndex = appendPackedStringIndex(rawEntry.axis);
+            const float sizeValue = rawEntry.hasSize
+                ? static_cast<float>(rawEntry.size)
+                : static_cast<float>(NAN);
+            const float radiusValue = rawEntry.hasRadius
+                ? static_cast<float>(rawEntry.radius)
+                : static_cast<float>(NAN);
+            const float heightValue = rawEntry.hasHeight
+                ? static_cast<float>(rawEntry.height)
+                : static_cast<float>(NAN);
+            const std::array<float, 3> extentSizeValue = {
+                rawEntry.hasExtentSize ? static_cast<float>(rawEntry.extentSize[0]) : static_cast<float>(NAN),
+                rawEntry.hasExtentSize ? static_cast<float>(rawEntry.extentSize[1]) : static_cast<float>(NAN),
+                rawEntry.hasExtentSize ? static_cast<float>(rawEntry.extentSize[2]) : static_cast<float>(NAN),
             };
 
-            addMatch(normalizedSourcePath);
+            int numVertices = 0;
+            int numIndices = 0;
+            int numNormals = 0;
+            int normalsDimension = 0;
+            int numUVs = 0;
+            int uvDimension = 0;
+            int32_t materialIdIndex = -1;
 
-            const std::string linkName = _GetPathBasename(normalizedSourcePath);
-            if (!linkName.empty()) {
-                const auto found = runtimeLinkPathsByName.find(linkName);
-                if (found != runtimeLinkPathsByName.end()) {
-                    for (std::string const& candidatePath : found->second) {
-                        addMatch(candidatePath);
+            std::pair<size_t, size_t> positionRange = {0, 0};
+            std::pair<size_t, size_t> indexRange = {0, 0};
+            std::pair<size_t, size_t> normalRange = {0, 0};
+            std::pair<size_t, size_t> uvRange = {0, 0};
+
+            if (rawEntry.hasMeshPayload) {
+                WebRenderDelegate::ProtoDataBlobRecord const& meshPayload = rawEntry.meshPayload;
+                numVertices = std::max(0, meshPayload.numVertices);
+                numIndices = std::max(0, meshPayload.numIndices);
+                numNormals = std::max(0, meshPayload.numNormals);
+                normalsDimension = std::max(1, meshPayload.normalsDimension > 0 ? meshPayload.normalsDimension : 3);
+                numUVs = std::max(0, meshPayload.numUVs);
+                uvDimension = std::max(1, meshPayload.uvDimension > 0 ? meshPayload.uvDimension : 2);
+
+                positionRange = appendFloatVectorComponents(
+                    positionPool,
+                    meshPayload.points,
+                    numVertices > 0 ? static_cast<size_t>(numVertices * 3) : 0);
+                indexRange = appendUintVectorComponents(
+                    indexPool,
+                    meshPayload.indices,
+                    static_cast<size_t>(numIndices));
+                normalRange = appendFloatVectorComponents(
+                    normalPool,
+                    meshPayload.normals,
+                    numNormals > 0 ? static_cast<size_t>(numNormals * normalsDimension) : 0);
+                uvRange = appendFloatVectorComponents(
+                    uvPool,
+                    meshPayload.uv,
+                    numUVs > 0 ? static_cast<size_t>(numUVs * uvDimension) : 0);
+                materialIdIndex = appendPackedStringIndex(meshPayload.materialId);
+                if (!meshPayload.geomSubsetSections.empty()) {
+                    meshDescriptorGeomSubsetSections.set(
+                        meshId,
+                        _GeomSubsetSectionsToJsArray(meshPayload.geomSubsetSections));
+                }
+            }
+
+            const auto transformRange = appendMatrixComponents(transformPool, rawEntry.worldTransform);
+
+            meshDescriptorHeaders.push_back(meshIdIndex);
+            meshDescriptorHeaders.push_back(sectionNameIndex);
+            meshDescriptorHeaders.push_back(resolvedPrimPathIndex);
+            meshDescriptorHeaders.push_back(primTypeIndex);
+            meshDescriptorHeaders.push_back(axisIndex);
+            meshDescriptorHeaders.push_back(materialIdIndex);
+            meshDescriptorHeaders.push_back(valid ? 1 : 0);
+            meshDescriptorHeaders.push_back(applyGeometry ? 1 : 0);
+            meshDescriptorHeaders.push_back(dirtyMask);
+            appendPackedRangeTriplet(&meshDescriptorHeaders, positionRange, 3);
+            appendPackedRangeTriplet(&meshDescriptorHeaders, indexRange, 1);
+            appendPackedRangeTriplet(&meshDescriptorHeaders, normalRange, normalsDimension > 0 ? normalsDimension : 3);
+            appendPackedRangeTriplet(&meshDescriptorHeaders, uvRange, uvDimension > 0 ? uvDimension : 2);
+            appendPackedRangeTriplet(&meshDescriptorHeaders, transformRange, 16);
+            meshDescriptorHeaders.push_back(numVertices);
+            meshDescriptorHeaders.push_back(numIndices);
+            meshDescriptorHeaders.push_back(numNormals);
+            meshDescriptorHeaders.push_back(numUVs);
+            meshDescriptorHeaders.push_back(uvDimension);
+            meshDescriptorHeaders.push_back(normalsDimension);
+
+            meshDescriptorScalars.push_back(sizeValue);
+            meshDescriptorScalars.push_back(radiusValue);
+            meshDescriptorScalars.push_back(heightValue);
+            meshDescriptorScalars.push_back(extentSizeValue[0]);
+            meshDescriptorScalars.push_back(extentSizeValue[1]);
+            meshDescriptorScalars.push_back(extentSizeValue[2]);
+        };
+
+        const double liveRprimScanStartedAtMs = _NowSteadyMs();
+        try {
+            const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+            UsdGeomXformCache xformCache(timeCode);
+            const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
+            _EnsureProtoCandidateMapsPrimed(acceptableTypes);
+
+            _renderDelegate.ReadAllLiveRprimPaths(
+                [&](std::string const& rprimPath) {
+                    if (rprimPath.find(".proto_") == std::string::npos) return;
+                    const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(rprimPath);
+                    if (!proto.valid) return;
+                    if (proto.sectionName != "collisions" && proto.sectionName != "visuals") return;
+                    if (!proto.linkPath.empty() && snapshotRuntimeLinkPathSet.insert(proto.linkPath).second) {
+                        snapshotRuntimeLinkPaths.push_back(proto.linkPath);
+                        appendSnapshotTransformPath(proto.linkPath);
                     }
-                }
-            }
 
-            const std::string sourceWithoutRoot = getPathWithoutRoot(normalizedSourcePath);
-            if (!sourceWithoutRoot.empty() && sourceWithoutRoot != "/") {
-                if (!preferredRootPath.empty()) {
-                    addMatch(preferredRootPath + sourceWithoutRoot);
-                }
-                for (std::string const& rootPath : rootPaths) {
-                    if (!preferredRootPath.empty() && rootPath == preferredRootPath) continue;
-                    addMatch(rootPath + sourceWithoutRoot);
-                }
-            }
+                    WebRenderDelegate::ProtoDataBlobRecord reusableMeshPayload;
+                    const bool hasReusableMeshPayload = _renderDelegate.ReadProtoDataBlob(
+                        rprimPath,
+                        [&](WebRenderDelegate::ProtoDataBlobRecord const& record) {
+                            reusableMeshPayload = record;
+                        });
+                    WebRenderDelegate::ProtoDataBlobRecord const* reusableMeshPayloadPtr =
+                        hasReusableMeshPayload ? &reusableMeshPayload : nullptr;
 
-            sortByPreferredRoot(&matches, preferredRootPath);
-            return matches;
-        };
+                    SnapshotPrimOverrideData overrideData;
+                    bool valid = false;
+                    bool applyGeometry = false;
+                    uint32_t sectionDirtyMask = 0;
+                    if (proto.sectionName == "collisions") {
+                        valid = _BuildCollisionSnapshotOverride(
+                            rprimPath,
+                            timeCode,
+                            &xformCache,
+                            &overrideData,
+                            &_collisionCandidateMapCache,
+                            reusableMeshPayloadPtr);
+                        applyGeometry = true;
+                        sectionDirtyMask = (
+                            kFinalStageDirtySectionCollision
+                            | kFinalStageDirtyApplyGeometry);
+                    } else {
+                        valid = _BuildVisualSnapshotOverride(
+                            rprimPath,
+                            timeCode,
+                            &xformCache,
+                            &overrideData,
+                            &_visualCandidateMapCache,
+                            reusableMeshPayloadPtr);
+                        applyGeometry = false;
+                        sectionDirtyMask = kFinalStageDirtySectionVisual;
+                    }
 
-        struct JointCatalogRecord {
-            std::string jointPath;
-            std::string jointName;
-            std::string jointType;
-            std::string parentLinkPath;
-            std::string axisToken;
-            std::array<double, 3> axisLocal = {1.0, 0.0, 0.0};
-            std::array<double, 3> localPivotInLink = {0.0, 0.0, 0.0};
-            bool hasLocalPivotInLink = false;
-            double lowerLimitDeg = -180.0;
-            double upperLimitDeg = 180.0;
-        };
+                    if (!valid || !overrideData.valid) return;
 
-        std::unordered_map<std::string, JointCatalogRecord> stageJointRecordByChildLinkPath;
-        std::unordered_map<std::string, std::string> linkParentPathByChildLinkPath;
-        stageJointRecordByChildLinkPath.reserve(sortedLinkPaths.size());
-        linkParentPathByChildLinkPath.reserve(sortedLinkPaths.size());
+                    appendPackedDescriptorFromSnapshotOverride(
+                        rprimPath,
+                        proto.sectionName,
+                        applyGeometry,
+                        sectionDirtyMask,
+                        overrideData);
+                });
+        } catch (...) {
+        }
+        snapshotProfile.liveRprimScanMs = _NowSteadyMs() - liveRprimScanStartedAtMs;
 
-        const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
-        const Usd_PrimFlagsPredicate predicate = UsdTraverseInstanceProxies(UsdPrimAllPrimsPredicate);
-        for (const UsdPrim& prim : UsdPrimRange::Stage(_stage, predicate)) {
-            if (!prim) continue;
-
-            const std::string primTypeName = prim.GetTypeName().GetString();
-            const std::string normalizedTypeName = _ToLowerAscii(primTypeName);
-            if (normalizedTypeName.find("joint") == std::string::npos) continue;
-
-            const bool isControllableJoint =
-                normalizedTypeName.find("revolute") != std::string::npos
-                || normalizedTypeName.find("continuous") != std::string::npos;
-
-            const std::string body0Path = normalizePathToken(
-                _ReadFirstRelationshipTargetPath(prim.GetRelationship(TfToken("physics:body0"))));
-            const std::string body1Path = normalizePathToken(
-                _ReadFirstRelationshipTargetPath(prim.GetRelationship(TfToken("physics:body1"))));
-            if (body1Path.empty()) continue;
-
-            const std::string jointPath = normalizePathToken(prim.GetPath().GetString());
-            const std::string jointName = TfStringTrim(prim.GetName().GetString());
-            const std::string axisToken = _ReadAxisToken(prim, timeCode);
-
-            std::array<double, 3> localPos1 = {0.0, 0.0, 0.0};
-            const bool hasLocalPos1 = _TryReadVec3Attr(
-                prim.GetAttribute(TfToken("physics:localPos1")),
-                timeCode,
-                &localPos1);
-
-            std::array<double, 4> localRot1Wxyz = {1.0, 0.0, 0.0, 0.0};
-            _TryReadQuatWxyzAttr(
-                prim.GetAttribute(TfToken("physics:localRot1")),
-                timeCode,
-                &localRot1Wxyz);
-            const std::array<double, 3> axisLocal = rotateAxisByQuaternionWxyz(axisToken, localRot1Wxyz);
-
-            double lowerLimitDeg = -180.0;
-            if (!_TryReadDoubleAttr(prim, "physics:lowerLimit", timeCode, &lowerLimitDeg)) {
-                lowerLimitDeg = -180.0;
-            }
-            double upperLimitDeg = 180.0;
-            if (!_TryReadDoubleAttr(prim, "physics:upperLimit", timeCode, &upperLimitDeg)) {
-                upperLimitDeg = 180.0;
-            }
-
-            const std::vector<std::string> childLinkPaths = resolveRuntimeLinkPathsFromSourcePath(body1Path, std::string());
-            for (std::string const& childLinkPath : childLinkPaths) {
-                if (childLinkPath.empty()) continue;
-                const std::string preferredRootPath = getRootPathFromPrimPath(childLinkPath);
-                const std::vector<std::string> parentCandidates = resolveRuntimeLinkPathsFromSourcePath(body0Path, preferredRootPath);
-                const std::string parentLinkPath = parentCandidates.empty() ? std::string() : parentCandidates[0];
-                if (linkParentPathByChildLinkPath.find(childLinkPath) == linkParentPathByChildLinkPath.end()) {
-                    linkParentPathByChildLinkPath.emplace(childLinkPath, parentLinkPath);
-                }
-
-                if (!isControllableJoint) continue;
-                if (stageJointRecordByChildLinkPath.find(childLinkPath) != stageJointRecordByChildLinkPath.end()) continue;
-
-                JointCatalogRecord record;
-                record.jointPath = jointPath;
-                record.jointName = jointName;
-                record.jointType = primTypeName;
-                record.parentLinkPath = parentLinkPath;
-                record.axisToken = axisToken;
-                record.axisLocal = axisLocal;
-                record.localPivotInLink = localPos1;
-                record.hasLocalPivotInLink = hasLocalPos1;
-                record.lowerLimitDeg = lowerLimitDeg;
-                record.upperLimitDeg = upperLimitDeg;
-                stageJointRecordByChildLinkPath.emplace(childLinkPath, record);
-            }
+        std::sort(snapshotRuntimeLinkPaths.begin(), snapshotRuntimeLinkPaths.end());
+        std::vector<std::string> metadataLinkPaths = snapshotRuntimeLinkPaths.empty()
+            ? requestedRuntimeLinkPaths
+            : snapshotRuntimeLinkPaths;
+        snapshotProfile.resolvedRuntimeLinkPathCount =
+            static_cast<int>(metadataLinkPaths.size());
+        snapshotProfile.meshDescriptorCount = static_cast<int>(
+            meshDescriptorHeaders.size() / kMeshDescriptorHeaderStride);
+        const double metadataStartedAtMs = _NowSteadyMs();
+        std::vector<std::pair<std::string, std::string>> metadataLinkParentPairs;
+        emscripten::val robotMetadataSnapshot =
+            _BuildRobotMetadataSnapshotFromNormalizedLinkPaths(
+                metadataLinkPaths,
+                normalizedStageSourcePath,
+                &metadataLinkParentPairs);
+        snapshotProfile.metadataMs = _NowSteadyMs() - metadataStartedAtMs;
+        snapshot.set("robotMetadataSnapshot", robotMetadataSnapshot);
+        for (std::string const& linkPath : metadataLinkPaths) {
+            appendSnapshotTransformPath(linkPath);
+        }
+        for (std::pair<std::string, std::string> const& pair : metadataLinkParentPairs) {
+            appendSnapshotTransformPath(pair.first);
+            appendSnapshotTransformPath(pair.second);
+        }
+        try {
+            robotTree.set("linkParentPairs", robotMetadataSnapshot["linkParentPairs"]);
+            robotTree.set("jointCatalogEntries", robotMetadataSnapshot["jointCatalogEntries"]);
+            physics.set("linkDynamicsEntries", robotMetadataSnapshot["linkDynamicsEntries"]);
+        } catch (...) {
         }
 
-        emscripten::val jointCatalogEntries = emscripten::val::array();
-        int jointCatalogIndex = 0;
-        for (std::string const& linkPath : sortedLinkPaths) {
-            const auto found = stageJointRecordByChildLinkPath.find(linkPath);
-            if (found == stageJointRecordByChildLinkPath.end()) continue;
-            JointCatalogRecord const& record = found->second;
-
-            const std::string rootPath = getRootPathFromPrimPath(linkPath);
-            const std::string fallbackJointName = record.jointName.empty()
-                ? (_GetPathBasename(linkPath) + "_joint")
-                : record.jointName;
-            const std::string jointPath = record.jointPath.empty()
-                ? (rootPath.empty() ? ("/joints/" + fallbackJointName) : (rootPath + "/joints/" + fallbackJointName))
-                : record.jointPath;
-
-            emscripten::val entry = emscripten::val::object();
-            entry.set("linkPath", linkPath);
-            entry.set("jointPath", jointPath);
-            entry.set("jointName", fallbackJointName);
-            entry.set("jointType", record.jointType.empty() ? std::string("PhysicsRevoluteJoint") : record.jointType);
-            if (record.parentLinkPath.empty()) {
-                entry.set("parentLinkPath", emscripten::val::null());
-            } else {
-                entry.set("parentLinkPath", record.parentLinkPath);
-            }
-            entry.set("axisToken", record.axisToken.empty() ? std::string("X") : record.axisToken);
-            entry.set("axisLocal", _Vec3ToJsArray(record.axisLocal));
-            entry.set("lowerLimitDeg", record.lowerLimitDeg);
-            entry.set("upperLimitDeg", record.upperLimitDeg);
-            if (record.hasLocalPivotInLink) {
-                entry.set("localPivotInLink", _Vec3ToJsArray(record.localPivotInLink));
-            } else {
-                entry.set("localPivotInLink", emscripten::val::null());
-            }
-            jointCatalogEntries.set(jointCatalogIndex++, entry);
+        std::sort(snapshotTransformPaths.begin(), snapshotTransformPaths.end());
+        snapshotProfile.resolvedTransformPathCount =
+            static_cast<int>(snapshotTransformPaths.size());
+        const double primTransformsStartedAtMs = _NowSteadyMs();
+        const emscripten::val primTransformSnapshot =
+            _BuildPrimTransformsForNormalizedPaths(snapshotTransformPaths);
+        snapshotProfile.primTransformsMs =
+            _NowSteadyMs() - primTransformsStartedAtMs;
+        render.set("primTransforms", primTransformSnapshot);
+        try {
+            render.set("primPathSet", primTransformSnapshot["paths"]);
+        } catch (...) {
+            render.set("primPathSet", _StringVectorToJsArray(snapshotTransformPaths));
         }
 
-        emscripten::val linkDynamicsEntries = emscripten::val::array();
-        int dynamicsIndex = 0;
-        for (std::string const& linkPath : sortedLinkPaths) {
-            const SdfPath linkSdfPath(linkPath);
-            if (linkSdfPath.IsEmpty()) continue;
-            const UsdPrim linkPrim = _stage->GetPrimAtPath(linkSdfPath);
-            if (!linkPrim) continue;
-
-            double mass = 0.0;
-            const bool hasMass = _TryReadDoubleAttr(linkPrim, "physics:mass", timeCode, &mass);
-            std::array<double, 3> centerOfMassLocal = {0.0, 0.0, 0.0};
-            const bool hasCenterOfMass = _TryReadVec3Attr(
-                linkPrim.GetAttribute(TfToken("physics:centerOfMass")),
-                timeCode,
-                &centerOfMassLocal);
-            std::array<double, 3> diagonalInertia = {0.0, 0.0, 0.0};
-            const bool hasDiagonalInertia = _TryReadVec3Attr(
-                linkPrim.GetAttribute(TfToken("physics:diagonalInertia")),
-                timeCode,
-                &diagonalInertia);
-            std::array<double, 4> principalAxesWxyz = {1.0, 0.0, 0.0, 0.0};
-            const bool hasPrincipalAxes = _TryReadQuatWxyzAttr(
-                linkPrim.GetAttribute(TfToken("physics:principalAxes")),
-                timeCode,
-                &principalAxesWxyz);
-
-            if (!hasMass && !hasCenterOfMass && !hasDiagonalInertia && !hasPrincipalAxes) {
-                continue;
-            }
-
-            emscripten::val entry = emscripten::val::object();
-            entry.set("linkPath", linkPath);
-            entry.set("mass", hasMass ? emscripten::val(mass) : emscripten::val::null());
-            entry.set("centerOfMassLocal", hasCenterOfMass
-                ? _Vec3ToJsArray(centerOfMassLocal)
-                : _Vec3ToJsArray(std::array<double, 3>{0.0, 0.0, 0.0}));
-            entry.set("diagonalInertia", hasDiagonalInertia
-                ? _Vec3ToJsArray(diagonalInertia)
-                : emscripten::val::null());
-            emscripten::val principalAxesLocal = emscripten::val::array();
-            principalAxesLocal.set(0, principalAxesWxyz[1]);
-            principalAxesLocal.set(1, principalAxesWxyz[2]);
-            principalAxesLocal.set(2, principalAxesWxyz[3]);
-            principalAxesLocal.set(3, principalAxesWxyz[0]);
-            entry.set("principalAxesLocal", principalAxesLocal);
-            linkDynamicsEntries.set(dynamicsIndex++, entry);
+        const double materialRecordsStartedAtMs = _NowSteadyMs();
+        emscripten::val snapshotMaterials =
+            _BuildSnapshotMaterialRecords(UsdTimeCode::Default());
+        snapshotProfile.materialRecordsMs =
+            _NowSteadyMs() - materialRecordsStartedAtMs;
+        try {
+            snapshotProfile.materialCount = snapshotMaterials["length"].as<int>();
+        } catch (...) {
+            snapshotProfile.materialCount = 0;
         }
 
-        std::vector<std::pair<std::string, std::string>> linkParentPairsSorted;
-        linkParentPairsSorted.reserve(linkParentPathByChildLinkPath.size());
-        for (auto const& item : linkParentPathByChildLinkPath) {
-            if (item.first.empty()) continue;
-            linkParentPairsSorted.push_back(item);
-        }
-        std::sort(
-            linkParentPairsSorted.begin(),
-            linkParentPairsSorted.end(),
-            [](std::pair<std::string, std::string> const& left, std::pair<std::string, std::string> const& right) {
-                return left.first < right.first;
-            });
+        const double marshalStartedAtMs = _NowSteadyMs();
+        render.set("meshDescriptorFormat", std::string("packed-v2"));
+        render.set("meshDescriptorStrings", _StringVectorToJsArray(meshDescriptorStrings));
+        render.set("meshDescriptorHeaderStride", static_cast<double>(kMeshDescriptorHeaderStride));
+        render.set("meshDescriptorScalarStride", static_cast<double>(kMeshDescriptorScalarStride));
+        render.set("meshDescriptorHeaders", makeInt32ArrayCopy(meshDescriptorHeaders));
+        render.set("meshDescriptorScalars", makeFloat32ArrayCopy(meshDescriptorScalars));
+        render.set("meshDescriptorGeomSubsetSections", meshDescriptorGeomSubsetSections);
+        render.set("meshDescriptors", emscripten::val::array());
+        render.set("materials", snapshotMaterials);
+        buffers.set("positions", makeFloat32ArrayCopy(positionPool));
+        buffers.set("indices", makeUint32ArrayCopy(indexPool));
+        buffers.set("normals", makeFloat32ArrayCopy(normalPool));
+        buffers.set("uvs", makeFloat32ArrayCopy(uvPool));
+        buffers.set("transforms", makeFloat32ArrayCopy(transformPool));
+        buffers.set("rangesByMeshId", emscripten::val::undefined());
+        snapshotProfile.marshalMs = _NowSteadyMs() - marshalStartedAtMs;
+        snapshotProfile.totalMs = _NowSteadyMs() - snapshotStartedAtMs;
+        _lastRobotSceneSnapshotProfile = snapshotProfile;
+        snapshot.set(
+            "nativeProfile",
+            _RobotSceneSnapshotProfileToJsVal(snapshotProfile));
 
-        emscripten::val linkParentPairs = emscripten::val::array();
-        int pairIndex = 0;
-        for (std::pair<std::string, std::string> const& item : linkParentPairsSorted) {
-            emscripten::val pair = emscripten::val::array();
-            pair.set(0, item.first);
-            if (item.second.empty()) {
-                pair.set(1, emscripten::val::null());
-            } else {
-                pair.set(1, item.second);
-            }
-            linkParentPairs.set(pairIndex++, pair);
-        }
-
-        const bool hasStageMetadata =
-            pairIndex > 0
-            || jointCatalogIndex > 0
-            || dynamicsIndex > 0;
-        snapshot.set("source", hasStageMetadata ? std::string("usd-stage-cpp") : std::string("mesh-only"));
-        snapshot.set("linkParentPairs", linkParentPairs);
-        snapshot.set("jointCatalogEntries", jointCatalogEntries);
-        snapshot.set("linkDynamicsEntries", linkDynamicsEntries);
         return snapshot;
     }
 
-    // One-shot runtime bootstrap payload for JS/WASM bridge warmup.
-    // This consolidates high-cost startup reads into a single call to reduce
-    // cross-boundary overhead and avoid staggered background tails.
-    emscripten::val GetRuntimeBootstrapSnapshot(
-        emscripten::val runtimeLinkPaths,
-        std::string const& stageSourcePath = std::string()) {
-        emscripten::val snapshot = emscripten::val::object();
-        snapshot.set("generatedAtMs", 0.0);
-        snapshot.set("primPathSet", emscripten::val::array());
-        snapshot.set("primTransforms", emscripten::val::object());
-        snapshot.set("protoDataBlobs", emscripten::val::object());
-        snapshot.set("finalStageOverrideBatch", emscripten::val::object());
-        snapshot.set("robotMetadataSnapshot", emscripten::val::object());
-        if (!_stage) return snapshot;
+    emscripten::val ExportLoadedStageSnapshot(emscripten::val options = emscripten::val::object()) {
+        emscripten::val result = emscripten::val::object();
+        result.set("ok", false);
+        result.set("flattened", false);
+        result.set("content", emscripten::val::null());
+        result.set("stageSourcePath", emscripten::val::null());
+        result.set("rootLayerIdentifier", emscripten::val::null());
+        result.set("defaultPrimPath", emscripten::val::null());
+        result.set("outputFileName", emscripten::val::null());
+        result.set("exportMode", emscripten::val::null());
+        if (!_stage) return result;
 
-        const auto now = std::chrono::steady_clock::now().time_since_epoch();
-        const double nowMs = std::chrono::duration<double, std::milli>(now).count();
-        snapshot.set("generatedAtMs", nowMs);
+        bool flattenStage = false;
+        std::string requestedStageSourcePath;
+        try {
+            flattenStage = options["flattenStage"].as<bool>();
+        } catch (...) {
+            flattenStage = false;
+        }
+        try {
+            requestedStageSourcePath = TfStringTrim(options["stageSourcePath"].as<std::string>());
+        } catch (...) {
+            requestedStageSourcePath.clear();
+        }
 
-        snapshot.set("primPathSet", GetPrimPathSet());
-        snapshot.set("primTransforms", GetPrimTransforms());
-        snapshot.set("protoDataBlobs", GetAllProtoDataBlobs());
-        // Final stage override batch supersedes per-section proto overrides and
-        // carries collision/visual split + prim override data in one payload.
-        snapshot.set("finalStageOverrideBatch", GetFinalStageOverrideBatch());
-        snapshot.set(
-            "robotMetadataSnapshot",
-            GetRobotMetadataSnapshot(runtimeLinkPaths, stageSourcePath));
-        return snapshot;
+        const SdfLayerHandle rootLayer = _stage->GetRootLayer();
+        const std::string rootLayerIdentifier = rootLayer ? rootLayer->GetIdentifier() : std::string();
+        std::string resolvedStageSourcePath = requestedStageSourcePath.empty()
+            ? rootLayerIdentifier
+            : requestedStageSourcePath;
+        const size_t queryMarker = resolvedStageSourcePath.find('?');
+        if (queryMarker != std::string::npos) {
+            resolvedStageSourcePath = resolvedStageSourcePath.substr(0, queryMarker);
+        }
+
+        const UsdPrim defaultPrim = _stage->GetDefaultPrim();
+        const std::string defaultPrimPath = defaultPrim && defaultPrim.IsValid()
+            ? defaultPrim.GetPath().GetString()
+            : std::string();
+
+        std::string exportedText;
+        bool exported = false;
+        if (flattenStage) {
+            exported = _stage->ExportToString(&exportedText, false);
+        } else if (rootLayer) {
+            exported = rootLayer->ExportToString(&exportedText);
+        }
+        if (!exported || exportedText.empty()) {
+            return result;
+        }
+
+        auto getPathStem = [](std::string const& filePath) -> std::string {
+            if (filePath.empty()) return std::string("stage");
+            const size_t slashIndex = filePath.find_last_of('/');
+            const std::string fileName = slashIndex == std::string::npos
+                ? filePath
+                : filePath.substr(slashIndex + 1);
+            const size_t dotIndex = fileName.find_last_of('.');
+            if (dotIndex == std::string::npos || dotIndex == 0) return fileName.empty() ? std::string("stage") : fileName;
+            return fileName.substr(0, dotIndex);
+        };
+        auto getPathExtension = [](std::string const& filePath) -> std::string {
+            if (filePath.empty()) return std::string(".usd");
+            const size_t slashIndex = filePath.find_last_of('/');
+            const size_t dotIndex = filePath.find_last_of('.');
+            if (dotIndex == std::string::npos || (slashIndex != std::string::npos && dotIndex < slashIndex)) {
+                return std::string(".usd");
+            }
+            return filePath.substr(dotIndex);
+        };
+
+        const std::string outputFileName = getPathStem(resolvedStageSourcePath)
+            + std::string(".viewer_roundtrip")
+            + getPathExtension(resolvedStageSourcePath);
+
+        result.set("ok", true);
+        result.set("flattened", flattenStage);
+        result.set("content", exportedText);
+        result.set(
+            "stageSourcePath",
+            resolvedStageSourcePath.empty() ? emscripten::val::null() : emscripten::val(resolvedStageSourcePath));
+        result.set(
+            "rootLayerIdentifier",
+            rootLayerIdentifier.empty() ? emscripten::val::null() : emscripten::val(rootLayerIdentifier));
+        result.set(
+            "defaultPrimPath",
+            defaultPrimPath.empty() ? emscripten::val::null() : emscripten::val(defaultPrimPath));
+        result.set("outputFileName", outputFileName);
+        result.set("exportMode", flattenStage ? "flattened-stage" : "root-layer");
+        return result;
     }
 
     emscripten::val GetProtoDataBlob(std::string const& protoPath) {
@@ -1022,8 +1199,8 @@ public:
         size_t collisionCount = 0;
         size_t visualCount = 0;
         size_t protoMeshCount = 0;
-        _renderDelegate.ReadAllProtoDataBlobs(
-            [&](std::string const& rprimPath, WebRenderDelegate::ProtoDataBlobRecord const&) {
+        _renderDelegate.ReadAllLiveRprimPaths(
+            [&](std::string const& rprimPath) {
                 if (rprimPath.find(".proto_") == std::string::npos) return;
                 const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(rprimPath);
                 if (!proto.valid) return;
@@ -1167,6 +1344,25 @@ private:
         int protoIndex = -1;
     };
 
+    struct SnapshotPrimOverrideData {
+        bool valid = false;
+        std::string resolvedPrimPath;
+        std::string primType;
+        GfMatrix4d worldTransform = GfMatrix4d(1.0);
+        uint32_t dirtyMask = 0;
+        bool hasExtentSize = false;
+        std::array<double, 3> extentSize = {0.0, 0.0, 0.0};
+        bool hasSize = false;
+        double size = 0.0;
+        bool hasRadius = false;
+        double radius = 0.0;
+        bool hasHeight = false;
+        double height = 0.0;
+        std::string axis;
+        bool hasMeshPayload = false;
+        WebRenderDelegate::ProtoDataBlobRecord meshPayload;
+    };
+
     using PrimCandidate = std::pair<std::string, UsdPrim>;
     using ProtoCandidateMap = std::unordered_map<std::string, std::vector<PrimCandidate>>;
     using CollisionCandidateMap = ProtoCandidateMap;
@@ -1178,6 +1374,42 @@ private:
     mutable std::unordered_map<std::string, ProtoMeshIdentifier> _protoMeshIdentifierCache;
     mutable std::mutex _primOverrideMeshPayloadMutex;
     mutable std::unordered_map<std::string, WebRenderDelegate::ProtoDataBlobRecord> _primOverrideMeshPayloadCache;
+
+    struct DriverInitProfile {
+        double totalMs = 0.0;
+        double renderIndexCreateMs = 0.0;
+        double delegateCreateMs = 0.0;
+        double stageAssignMs = 0.0;
+        double clearProtoCacheMs = 0.0;
+        double skinningDetectMs = 0.0;
+        double bakeSkinningMs = 0.0;
+        double stageSaveMs = 0.0;
+        double populateMs = 0.0;
+        double geometryPassMs = 0.0;
+        double renderTagsMs = 0.0;
+        bool stageSaveSkipped = false;
+        bool bakeSkinningSkipped = false;
+        bool stageHasSkinning = false;
+    };
+
+    struct RobotSceneSnapshotProfile {
+        double totalMs = 0.0;
+        double inputDecodeMs = 0.0;
+        double stageInfoMs = 0.0;
+        double liveRprimScanMs = 0.0;
+        double metadataMs = 0.0;
+        double primTransformsMs = 0.0;
+        double materialRecordsMs = 0.0;
+        double marshalMs = 0.0;
+        int requestedRuntimeLinkPathCount = 0;
+        int resolvedRuntimeLinkPathCount = 0;
+        int resolvedTransformPathCount = 0;
+        int meshDescriptorCount = 0;
+        int materialCount = 0;
+    };
+
+    DriverInitProfile _lastInitProfile;
+    RobotSceneSnapshotProfile _lastRobotSceneSnapshotProfile;
 
     static constexpr uint32_t kFinalStageDirtyGeometryDescriptor = 1u << 0;
     static constexpr uint32_t kFinalStageDirtyWorldTransform = 1u << 1;
@@ -1199,6 +1431,650 @@ private:
         return parsed;
     }
 
+    std::string _TryDeriveRuntimeLinkPathFromRprimPath(std::string const& rprimPath) const {
+        const std::string normalizedRprimPath = _NormalizeRuntimePathToken(rprimPath);
+        if (normalizedRprimPath.empty()) return std::string();
+
+        const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(normalizedRprimPath);
+        if (proto.valid && !proto.linkPath.empty()) {
+            return proto.linkPath;
+        }
+
+        const std::string lowered = _ToLowerAscii(normalizedRprimPath);
+        static const std::array<std::string, 4> kSectionMarkers = {
+            "/visuals",
+            "/visual",
+            "/collisions",
+            "/collision",
+        };
+        for (std::string const& marker : kSectionMarkers) {
+            size_t markerPos = lowered.find(marker);
+            while (markerPos != std::string::npos) {
+                const size_t afterMarker = markerPos + marker.size();
+                if (afterMarker >= lowered.size()
+                    || lowered[afterMarker] == '/'
+                    || lowered[afterMarker] == '.') {
+                    return _NormalizeRuntimePathToken(normalizedRprimPath.substr(0, markerPos));
+                }
+                markerPos = lowered.find(marker, markerPos + 1);
+            }
+        }
+
+        return std::string();
+    }
+
+    std::vector<std::string> _CollectRuntimeLinkPathsFromLiveRprims() const {
+        std::vector<std::string> runtimeLinkPaths;
+        std::unordered_set<std::string> runtimeLinkPathSet;
+        try {
+            _renderDelegate.ReadAllLiveRprimPaths(
+                [&](std::string const& rprimPath) {
+                    const std::string linkPath = _TryDeriveRuntimeLinkPathFromRprimPath(rprimPath);
+                    if (linkPath.empty()) return;
+                    if (!runtimeLinkPathSet.insert(linkPath).second) return;
+                    runtimeLinkPaths.push_back(linkPath);
+                });
+        } catch (...) {
+        }
+        std::sort(runtimeLinkPaths.begin(), runtimeLinkPaths.end());
+        return runtimeLinkPaths;
+    }
+
+    static double _NowSteadyMs() {
+        const auto now = std::chrono::steady_clock::now().time_since_epoch();
+        return std::chrono::duration<double, std::milli>(now).count();
+    }
+
+    static emscripten::val _DriverInitProfileToJsVal(
+        DriverInitProfile const& profile) {
+        emscripten::val result = emscripten::val::object();
+        result.set("totalMs", profile.totalMs);
+        result.set("renderIndexCreateMs", profile.renderIndexCreateMs);
+        result.set("delegateCreateMs", profile.delegateCreateMs);
+        result.set("stageAssignMs", profile.stageAssignMs);
+        result.set("clearProtoCacheMs", profile.clearProtoCacheMs);
+        result.set("skinningDetectMs", profile.skinningDetectMs);
+        result.set("bakeSkinningMs", profile.bakeSkinningMs);
+        result.set("stageSaveMs", profile.stageSaveMs);
+        result.set("populateMs", profile.populateMs);
+        result.set("geometryPassMs", profile.geometryPassMs);
+        result.set("renderTagsMs", profile.renderTagsMs);
+        result.set("stageSaveSkipped", profile.stageSaveSkipped);
+        result.set("bakeSkinningSkipped", profile.bakeSkinningSkipped);
+        result.set("stageHasSkinning", profile.stageHasSkinning);
+        return result;
+    }
+
+    static emscripten::val _RobotSceneSnapshotProfileToJsVal(
+        RobotSceneSnapshotProfile const& profile) {
+        emscripten::val result = emscripten::val::object();
+        result.set("totalMs", profile.totalMs);
+        result.set("inputDecodeMs", profile.inputDecodeMs);
+        result.set("stageInfoMs", profile.stageInfoMs);
+        result.set("liveRprimScanMs", profile.liveRprimScanMs);
+        result.set("metadataMs", profile.metadataMs);
+        result.set("primTransformsMs", profile.primTransformsMs);
+        result.set("materialRecordsMs", profile.materialRecordsMs);
+        result.set("marshalMs", profile.marshalMs);
+        result.set(
+            "requestedRuntimeLinkPathCount",
+            static_cast<double>(profile.requestedRuntimeLinkPathCount));
+        result.set(
+            "resolvedRuntimeLinkPathCount",
+            static_cast<double>(profile.resolvedRuntimeLinkPathCount));
+        result.set(
+            "resolvedTransformPathCount",
+            static_cast<double>(profile.resolvedTransformPathCount));
+        result.set(
+            "meshDescriptorCount",
+            static_cast<double>(profile.meshDescriptorCount));
+        result.set(
+            "materialCount",
+            static_cast<double>(profile.materialCount));
+        return result;
+    }
+
+    static std::vector<std::string> _NormalizeUniquePathsFromJsArray(
+        emscripten::val values) {
+        std::unordered_set<std::string> pathSet;
+        std::vector<std::string> normalizedPaths;
+
+        int valueCount = 0;
+        try {
+            valueCount = values["length"].as<int>();
+        } catch (...) {
+            valueCount = 0;
+        }
+        if (valueCount <= 0) {
+            return normalizedPaths;
+        }
+
+        pathSet.reserve(static_cast<size_t>(valueCount));
+        normalizedPaths.reserve(static_cast<size_t>(valueCount));
+        for (int index = 0; index < valueCount; ++index) {
+            std::string rawValue;
+            try {
+                rawValue = values[index].as<std::string>();
+            } catch (...) {
+                continue;
+            }
+            const std::string normalizedPath =
+                _NormalizeRuntimePathToken(rawValue);
+            if (normalizedPath.empty() || normalizedPath == "/") continue;
+            if (!pathSet.insert(normalizedPath).second) continue;
+            normalizedPaths.push_back(normalizedPath);
+        }
+        return normalizedPaths;
+    }
+
+    emscripten::val _BuildPrimTransformsForNormalizedPaths(
+        std::vector<std::string> const& requestedPaths) {
+        emscripten::val result = emscripten::val::object();
+        result.set("format", std::string("packed-v1"));
+        result.set("paths", emscripten::val::array());
+        result.set("world", _FloatVectorToJsFloat32Array({}));
+        result.set("local", _FloatVectorToJsFloat32Array({}));
+        result.set("stride", 16.0);
+        result.set("count", 0.0);
+
+        if (!_stage || requestedPaths.empty()) {
+            return result;
+        }
+
+        std::vector<std::string> orderedPaths;
+        orderedPaths.reserve(requestedPaths.size() * 4);
+        std::unordered_set<std::string> orderedPathSet;
+        orderedPathSet.reserve(requestedPaths.size() * 4);
+        auto appendOrderedPath = [&](std::string const& rawPath) {
+            const std::string normalizedPath =
+                _NormalizeRuntimePathToken(rawPath);
+            if (normalizedPath.empty() || normalizedPath == "/") return;
+            if (!orderedPathSet.insert(normalizedPath).second) return;
+            orderedPaths.push_back(normalizedPath);
+        };
+        for (std::string const& requestedPath : requestedPaths) {
+            SdfPath currentPath(requestedPath);
+            if (currentPath.IsEmpty()) continue;
+            while (!currentPath.IsEmpty()
+                   && currentPath != SdfPath::AbsoluteRootPath()) {
+                appendOrderedPath(currentPath.GetString());
+                currentPath = currentPath.GetParentPath();
+            }
+        }
+        if (orderedPaths.empty()) {
+            return result;
+        }
+
+        std::sort(
+            orderedPaths.begin(),
+            orderedPaths.end(),
+            [](std::string const& left, std::string const& right) {
+                const size_t leftDepth = static_cast<size_t>(
+                    std::count(left.begin(), left.end(), '/'));
+                const size_t rightDepth = static_cast<size_t>(
+                    std::count(right.begin(), right.end(), '/'));
+                if (leftDepth != rightDepth) {
+                    return leftDepth < rightDepth;
+                }
+                return left < right;
+            });
+
+        const UsdTimeCode timeCode =
+            _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+        UsdGeomXformCache xformCache(timeCode);
+        std::vector<std::string> validPrimPaths;
+        std::vector<float> worldValues;
+        std::vector<float> localValues;
+        validPrimPaths.reserve(orderedPaths.size());
+        worldValues.reserve(orderedPaths.size() * 16);
+        localValues.reserve(orderedPaths.size() * 16);
+
+        for (std::string const& primPath : orderedPaths) {
+            const SdfPath sdfPath(primPath);
+            if (sdfPath.IsEmpty()) continue;
+            const UsdPrim prim = _stage->GetPrimAtPath(sdfPath);
+            if (!prim) continue;
+
+            GfMatrix4d localMatrix(1.0);
+            bool resetsXformStack = false;
+            const UsdGeomXformable xformable(prim);
+            if (xformable) {
+                xformable.GetLocalTransformation(
+                    &localMatrix,
+                    &resetsXformStack,
+                    timeCode);
+            }
+
+            GfMatrix4d worldMatrix(1.0);
+            try {
+                worldMatrix = xformCache.GetLocalToWorldTransform(prim);
+            } catch (...) {
+                worldMatrix = localMatrix;
+            }
+
+            validPrimPaths.push_back(primPath);
+            _AppendMatrix4dRowMajor(&localValues, localMatrix);
+            _AppendMatrix4dRowMajor(&worldValues, worldMatrix);
+        }
+
+        result.set("paths", _StringVectorToJsArray(validPrimPaths));
+        result.set("world", _FloatVectorToJsFloat32Array(worldValues));
+        result.set("local", _FloatVectorToJsFloat32Array(localValues));
+        result.set("count", static_cast<double>(validPrimPaths.size()));
+        return result;
+    }
+
+    emscripten::val _BuildRobotMetadataSnapshotFromNormalizedLinkPaths(
+        std::vector<std::string> const& normalizedLinkPaths,
+        std::string const& stageSourcePath,
+        std::vector<std::pair<std::string, std::string>>* outLinkParentPairsSorted = nullptr) {
+        emscripten::val snapshot = emscripten::val::object();
+        emscripten::val emptyPairs = emscripten::val::array();
+        emscripten::val emptyJointEntries = emscripten::val::array();
+        emscripten::val emptyDynamicsEntries = emscripten::val::array();
+        snapshot.set("stageSourcePath", emscripten::val::null());
+        snapshot.set("generatedAtMs", 0.0);
+        snapshot.set("source", "mesh-only");
+        snapshot.set("linkParentPairs", emptyPairs);
+        snapshot.set("jointCatalogEntries", emptyJointEntries);
+        snapshot.set("linkDynamicsEntries", emptyDynamicsEntries);
+        if (!_stage) return snapshot;
+
+        auto axisVectorFromToken = [](std::string const& axisToken) -> GfVec3d {
+            const std::string token = _ToLowerAscii(axisToken);
+            if (token == "y") return GfVec3d(0.0, 1.0, 0.0);
+            if (token == "z") return GfVec3d(0.0, 0.0, 1.0);
+            return GfVec3d(1.0, 0.0, 0.0);
+        };
+
+        auto rotateAxisByQuaternionWxyz =
+            [&](std::string const& axisToken,
+                std::array<double, 4> const& localRotWxyz)
+                -> std::array<double, 3> {
+            GfVec3d axis = axisVectorFromToken(axisToken);
+            const double w = localRotWxyz[0];
+            const double x = localRotWxyz[1];
+            const double y = localRotWxyz[2];
+            const double z = localRotWxyz[3];
+            GfQuatd quat(w, GfVec3d(x, y, z));
+            const double quatLen = quat.GetLength();
+            if (std::isfinite(quatLen) && quatLen > 1e-6) {
+                quat.Normalize();
+                axis = quat.Transform(axis);
+            }
+            const double axisLen = axis.GetLength();
+            if (!std::isfinite(axisLen) || axisLen <= 1e-12) {
+                return {1.0, 0.0, 0.0};
+            }
+            axis /= axisLen;
+            return {axis[0], axis[1], axis[2]};
+        };
+
+        std::string normalizedStageSourcePath = TfStringTrim(stageSourcePath);
+        const size_t queryMarker = normalizedStageSourcePath.find('?');
+        if (queryMarker != std::string::npos) {
+            normalizedStageSourcePath =
+                normalizedStageSourcePath.substr(0, queryMarker);
+        }
+        if (!normalizedStageSourcePath.empty()) {
+            snapshot.set("stageSourcePath", normalizedStageSourcePath);
+        }
+
+        std::unordered_set<std::string> linkPathSet;
+        std::vector<std::string> sortedLinkPaths = normalizedLinkPaths;
+        linkPathSet.insert(sortedLinkPaths.begin(), sortedLinkPaths.end());
+        if (sortedLinkPaths.empty()) {
+            sortedLinkPaths = _CollectRuntimeLinkPathsFromLiveRprims();
+            linkPathSet.insert(sortedLinkPaths.begin(), sortedLinkPaths.end());
+        }
+        std::sort(sortedLinkPaths.begin(), sortedLinkPaths.end());
+
+        snapshot.set("generatedAtMs", _NowSteadyMs());
+        if (sortedLinkPaths.empty()) {
+            return snapshot;
+        }
+
+        std::unordered_map<std::string, std::vector<std::string>>
+            runtimeLinkPathsByName;
+        std::vector<std::string> rootPaths;
+        std::unordered_set<std::string> rootPathSet;
+        runtimeLinkPathsByName.reserve(sortedLinkPaths.size());
+        rootPathSet.reserve(sortedLinkPaths.size());
+
+        for (std::string const& linkPath : sortedLinkPaths) {
+            const std::string linkName = _GetPathBasename(linkPath);
+            if (!linkName.empty()) {
+                runtimeLinkPathsByName[linkName].push_back(linkPath);
+            }
+            const std::string rootPath = _GetRootPathFromPrimPath(linkPath);
+            if (!rootPath.empty() && rootPathSet.insert(rootPath).second) {
+                rootPaths.push_back(rootPath);
+            }
+        }
+        std::sort(rootPaths.begin(), rootPaths.end());
+        for (auto& item : runtimeLinkPathsByName) {
+            std::vector<std::string>& paths = item.second;
+            std::sort(paths.begin(), paths.end());
+            paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+        }
+
+        auto sortByPreferredRoot =
+            [&](std::vector<std::string>* paths,
+                std::string const& preferredRootPath) {
+            if (!paths) return;
+            std::sort(
+                paths->begin(),
+                paths->end(),
+                [&](std::string const& left, std::string const& right) {
+                    const int leftPreferred =
+                        (!preferredRootPath.empty()
+                         && _GetRootPathFromPrimPath(left) == preferredRootPath)
+                        ? 0
+                        : 1;
+                    const int rightPreferred =
+                        (!preferredRootPath.empty()
+                         && _GetRootPathFromPrimPath(right) == preferredRootPath)
+                        ? 0
+                        : 1;
+                    if (leftPreferred != rightPreferred) {
+                        return leftPreferred < rightPreferred;
+                    }
+                    return left < right;
+                });
+        };
+
+        auto resolveRuntimeLinkPathsFromSourcePath =
+            [&](std::string const& sourcePath,
+                std::string const& preferredRootPath)
+                -> std::vector<std::string> {
+            std::vector<std::string> matches;
+            const std::string normalizedSourcePath =
+                _NormalizeRuntimePathToken(sourcePath);
+            if (normalizedSourcePath.empty()) return matches;
+
+            auto addMatch = [&](std::string const& candidatePath) {
+                if (candidatePath.empty()) return;
+                if (linkPathSet.find(candidatePath) == linkPathSet.end()) return;
+                if (std::find(matches.begin(), matches.end(), candidatePath)
+                    != matches.end()) {
+                    return;
+                }
+                matches.push_back(candidatePath);
+            };
+
+            addMatch(normalizedSourcePath);
+
+            const std::string linkName = _GetPathBasename(normalizedSourcePath);
+            if (!linkName.empty()) {
+                const auto found = runtimeLinkPathsByName.find(linkName);
+                if (found != runtimeLinkPathsByName.end()) {
+                    for (std::string const& candidatePath : found->second) {
+                        addMatch(candidatePath);
+                    }
+                }
+            }
+
+            const std::string sourceWithoutRoot =
+                _GetPathWithoutRoot(normalizedSourcePath);
+            if (!sourceWithoutRoot.empty() && sourceWithoutRoot != "/") {
+                if (!preferredRootPath.empty()) {
+                    addMatch(preferredRootPath + sourceWithoutRoot);
+                }
+                for (std::string const& rootPath : rootPaths) {
+                    if (!preferredRootPath.empty()
+                        && rootPath == preferredRootPath) {
+                        continue;
+                    }
+                    addMatch(rootPath + sourceWithoutRoot);
+                }
+            }
+
+            sortByPreferredRoot(&matches, preferredRootPath);
+            return matches;
+        };
+
+        struct JointCatalogRecord {
+            std::string jointPath;
+            std::string jointName;
+            std::string jointType;
+            std::string parentLinkPath;
+            std::string axisToken;
+            std::array<double, 3> axisLocal = {1.0, 0.0, 0.0};
+            std::array<double, 3> localPivotInLink = {0.0, 0.0, 0.0};
+            bool hasLocalPivotInLink = false;
+            double lowerLimitDeg = -180.0;
+            double upperLimitDeg = 180.0;
+        };
+
+        std::unordered_map<std::string, JointCatalogRecord>
+            stageJointRecordByChildLinkPath;
+        std::unordered_map<std::string, std::string>
+            linkParentPathByChildLinkPath;
+        stageJointRecordByChildLinkPath.reserve(sortedLinkPaths.size());
+        linkParentPathByChildLinkPath.reserve(sortedLinkPaths.size());
+
+        const UsdTimeCode timeCode =
+            _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+        const Usd_PrimFlagsPredicate predicate =
+            UsdTraverseInstanceProxies(UsdPrimAllPrimsPredicate);
+        for (UsdPrim const& prim : UsdPrimRange::Stage(_stage, predicate)) {
+            const std::string typeName = prim.GetTypeName().GetString();
+            if (typeName != "PhysicsRevoluteJoint"
+                && typeName != "PhysicsPrismaticJoint"
+                && typeName != "PhysicsFixedJoint") {
+                continue;
+            }
+
+            std::string body0;
+            std::string body1;
+            body0 = _NormalizeRuntimePathToken(
+                _ReadFirstRelationshipTargetPath(
+                    prim.GetRelationship(TfToken("physics:body0"))));
+            body1 = _NormalizeRuntimePathToken(
+                _ReadFirstRelationshipTargetPath(
+                    prim.GetRelationship(TfToken("physics:body1"))));
+            if (body1.empty()) continue;
+
+            const std::string preferredRootPath = _GetRootPathFromPrimPath(body1);
+            std::vector<std::string> childMatches =
+                resolveRuntimeLinkPathsFromSourcePath(body1, preferredRootPath);
+            if (childMatches.empty()) continue;
+            std::vector<std::string> parentMatches =
+                resolveRuntimeLinkPathsFromSourcePath(body0, preferredRootPath);
+
+            std::string axisToken = "x";
+            axisToken = _ReadAxisToken(prim, timeCode);
+            std::array<double, 4> localRot1Wxyz = {1.0, 0.0, 0.0, 0.0};
+            _TryReadQuatWxyzAttr(
+                prim.GetAttribute(TfToken("physics:localRot1")),
+                timeCode,
+                &localRot1Wxyz);
+            const std::array<double, 3> axisLocal =
+                rotateAxisByQuaternionWxyz(axisToken, localRot1Wxyz);
+            std::array<double, 3> localPos1 = {0.0, 0.0, 0.0};
+            const bool hasLocalPivot =
+                _TryReadVec3Attr(
+                    prim.GetAttribute(TfToken("physics:localPos1")),
+                    timeCode,
+                    &localPos1);
+
+            double lowerLimitDeg = -180.0;
+            double upperLimitDeg = 180.0;
+            const bool hasLowerLimit =
+                _TryReadDoubleAttr(prim, "physics:lowerLimit", timeCode,
+                                   &lowerLimitDeg);
+            const bool hasUpperLimit =
+                _TryReadDoubleAttr(prim, "physics:upperLimit", timeCode,
+                                   &upperLimitDeg);
+            if (!hasLowerLimit && !hasUpperLimit) {
+                lowerLimitDeg = -180.0;
+                upperLimitDeg = 180.0;
+            } else {
+                if (!hasLowerLimit) lowerLimitDeg = -180.0;
+                if (!hasUpperLimit) upperLimitDeg = 180.0;
+            }
+
+            const std::string jointPath = prim.GetPath().GetString();
+            const std::string jointName = prim.GetName().GetString();
+            const std::string jointType = typeName == "PhysicsPrismaticJoint"
+                ? std::string("prismatic")
+                : (typeName == "PhysicsFixedJoint"
+                    ? std::string("fixed")
+                    : std::string("revolute"));
+
+            for (std::string const& childLinkPath : childMatches) {
+                JointCatalogRecord record;
+                record.jointPath = jointPath;
+                record.jointName = jointName;
+                record.jointType = jointType;
+                record.parentLinkPath =
+                    parentMatches.empty() ? std::string() : parentMatches.front();
+                record.axisToken = axisToken;
+                record.axisLocal = axisLocal;
+                record.localPivotInLink = localPos1;
+                record.hasLocalPivotInLink = hasLocalPivot;
+                record.lowerLimitDeg = lowerLimitDeg;
+                record.upperLimitDeg = upperLimitDeg;
+                stageJointRecordByChildLinkPath[childLinkPath] = record;
+                linkParentPathByChildLinkPath[childLinkPath] =
+                    record.parentLinkPath;
+            }
+        }
+
+        emscripten::val jointCatalogEntries = emscripten::val::array();
+        int jointCatalogIndex = 0;
+        for (std::string const& childLinkPath : sortedLinkPaths) {
+            const auto found = stageJointRecordByChildLinkPath.find(childLinkPath);
+            if (found == stageJointRecordByChildLinkPath.end()) continue;
+            JointCatalogRecord const& record = found->second;
+            emscripten::val entry = emscripten::val::object();
+            entry.set("jointPath", record.jointPath);
+            entry.set("jointName", record.jointName);
+            entry.set("jointType", record.jointType);
+            entry.set("childLinkPath", childLinkPath);
+            entry.set(
+                "parentLinkPath",
+                record.parentLinkPath.empty()
+                    ? emscripten::val::null()
+                    : emscripten::val(record.parentLinkPath));
+            entry.set("axisToken", record.axisToken);
+            entry.set("axisLocal", _Vec3ToJsArray(record.axisLocal));
+            entry.set(
+                "localPivotInLink",
+                record.hasLocalPivotInLink
+                    ? _Vec3ToJsArray(record.localPivotInLink)
+                    : emscripten::val::null());
+            entry.set("lowerLimitDeg", record.lowerLimitDeg);
+            entry.set("upperLimitDeg", record.upperLimitDeg);
+            jointCatalogEntries.set(jointCatalogIndex++, entry);
+        }
+
+        emscripten::val linkDynamicsEntries = emscripten::val::array();
+        int dynamicsIndex = 0;
+        for (std::string const& linkPath : sortedLinkPaths) {
+            const SdfPath linkSdfPath(linkPath);
+            if (linkSdfPath.IsEmpty()) continue;
+            const UsdPrim linkPrim = _stage->GetPrimAtPath(linkSdfPath);
+            if (!linkPrim) continue;
+
+            double mass = 0.0;
+            const bool hasMass =
+                _TryReadDoubleAttr(linkPrim, "physics:mass", timeCode, &mass);
+            std::array<double, 3> centerOfMassLocal = {0.0, 0.0, 0.0};
+            const bool hasCenterOfMass = _TryReadVec3Attr(
+                linkPrim.GetAttribute(TfToken("physics:centerOfMass")),
+                timeCode,
+                &centerOfMassLocal);
+            std::array<double, 3> diagonalInertia = {0.0, 0.0, 0.0};
+            const bool hasDiagonalInertia = _TryReadVec3Attr(
+                linkPrim.GetAttribute(TfToken("physics:diagonalInertia")),
+                timeCode,
+                &diagonalInertia);
+            std::array<double, 4> principalAxesLocalWxyz = {
+                1.0, 0.0, 0.0, 0.0};
+            const bool hasPrincipalAxes = _TryReadQuatWxyzAttr(
+                linkPrim.GetAttribute(TfToken("physics:principalAxes")),
+                timeCode,
+                &principalAxesLocalWxyz);
+
+            if (!_HasMeaningfulPhysicsDynamics(
+                    hasMass,
+                    mass,
+                    hasCenterOfMass,
+                    centerOfMassLocal,
+                    hasDiagonalInertia,
+                    diagonalInertia,
+                    hasPrincipalAxes,
+                    principalAxesLocalWxyz)) {
+                continue;
+            }
+
+            emscripten::val entry = emscripten::val::object();
+            entry.set("linkPath", linkPath);
+            entry.set(
+                "mass",
+                hasMass ? emscripten::val(mass) : emscripten::val::null());
+            entry.set(
+                "centerOfMassLocal",
+                hasCenterOfMass
+                    ? _Vec3ToJsArray(centerOfMassLocal)
+                    : _Vec3ToJsArray(std::array<double, 3>{0.0, 0.0, 0.0}));
+            entry.set(
+                "diagonalInertia",
+                hasDiagonalInertia
+                    ? _Vec3ToJsArray(diagonalInertia)
+                    : emscripten::val::null());
+            entry.set(
+                "principalAxesLocalWxyz",
+                hasPrincipalAxes
+                    ? _Vec4ToJsArray(principalAxesLocalWxyz)
+                    : _Vec4ToJsArray(std::array<double, 4>{1.0, 0.0, 0.0, 0.0}));
+            linkDynamicsEntries.set(dynamicsIndex++, entry);
+        }
+
+        std::vector<std::pair<std::string, std::string>> linkParentPairsSorted;
+        linkParentPairsSorted.reserve(linkParentPathByChildLinkPath.size());
+        for (auto const& item : linkParentPathByChildLinkPath) {
+            if (item.first.empty()) continue;
+            linkParentPairsSorted.push_back(item);
+        }
+        std::sort(
+            linkParentPairsSorted.begin(),
+            linkParentPairsSorted.end(),
+            [](std::pair<std::string, std::string> const& left,
+               std::pair<std::string, std::string> const& right) {
+                return left.first < right.first;
+            });
+        if (outLinkParentPairsSorted) {
+            *outLinkParentPairsSorted = linkParentPairsSorted;
+        }
+
+        emscripten::val linkParentPairs = emscripten::val::array();
+        int pairIndex = 0;
+        for (std::pair<std::string, std::string> const& item
+             : linkParentPairsSorted) {
+            emscripten::val pair = emscripten::val::array();
+            pair.set(0, item.first);
+            if (item.second.empty()) {
+                pair.set(1, emscripten::val::null());
+            } else {
+                pair.set(1, item.second);
+            }
+            linkParentPairs.set(pairIndex++, pair);
+        }
+
+        const bool hasStageMetadata =
+            pairIndex > 0 || jointCatalogIndex > 0 || dynamicsIndex > 0;
+        snapshot.set(
+            "source",
+            hasStageMetadata ? std::string("usd-stage-cpp")
+                             : std::string("mesh-only"));
+        snapshot.set("linkParentPairs", linkParentPairs);
+        snapshot.set("jointCatalogEntries", jointCatalogEntries);
+        snapshot.set("linkDynamicsEntries", linkDynamicsEntries);
+        return snapshot;
+    }
+
     void _EnsureProtoCandidateMapsPrimed(
         std::vector<std::string> const& acceptedTypes) const {
         if (_protoCandidateMapsPrimed) return;
@@ -1216,6 +2092,32 @@ private:
             }
         }
         return values;
+    }
+
+    static void _AppendMatrix4dRowMajor(std::vector<float>* values, GfMatrix4d const& matrix) {
+        if (!values) return;
+        values->reserve(values->size() + 16);
+        for (int row = 0; row < 4; ++row) {
+            for (int column = 0; column < 4; ++column) {
+                values->push_back(static_cast<float>(matrix[row][column]));
+            }
+        }
+    }
+
+    static emscripten::val _FloatVectorToJsFloat32Array(std::vector<float> const& values) {
+        emscripten::val ctor = emscripten::val::global("Float32Array");
+        if (values.empty()) {
+            return ctor.new_(0);
+        }
+        return ctor.new_(emscripten::val(emscripten::typed_memory_view(values.size(), values.data())));
+    }
+
+    static emscripten::val _StringVectorToJsArray(std::vector<std::string> const& values) {
+        emscripten::val array = emscripten::val::array();
+        for (size_t index = 0; index < values.size(); ++index) {
+            array.set(static_cast<unsigned>(index), values[index]);
+        }
+        return array;
     }
 
     static emscripten::val _Float16ToJsArray(std::array<float, 16> const& values16) {
@@ -1247,6 +2149,723 @@ private:
         if (lastSlash == std::string::npos) return path;
         if (lastSlash + 1 >= path.size()) return std::string();
         return path.substr(lastSlash + 1);
+    }
+
+    static std::string _NormalizeRuntimePathToken(std::string value) {
+        value = TfStringTrim(value);
+        if (value.empty()) return std::string();
+        value.erase(
+            std::remove_if(
+                value.begin(),
+                value.end(),
+                [](char ch) { return ch == '<' || ch == '>'; }),
+            value.end());
+        value = TfStringTrim(value);
+        if (value.empty()) return std::string();
+        if (value[0] != '/') value = "/" + value;
+        while (value.size() > 1 && value.back() == '/') {
+            value.pop_back();
+        }
+        return value;
+    }
+
+    static std::string _GetRootPathFromPrimPath(std::string const& primPath) {
+        if (primPath.empty() || primPath[0] != '/') return std::string();
+        const size_t secondSlash = primPath.find('/', 1);
+        if (secondSlash == std::string::npos) return primPath;
+        return primPath.substr(0, secondSlash);
+    }
+
+    static std::string _GetPathWithoutRoot(std::string const& primPath) {
+        const std::string rootPath = _GetRootPathFromPrimPath(primPath);
+        if (rootPath.empty()) return std::string();
+        if (primPath.size() <= rootPath.size()) return "/";
+        return primPath.substr(rootPath.size());
+    }
+
+    static std::string _GetPreferredShaderName(std::string const& materialName) {
+        if (materialName.empty()) return std::string("Shader");
+        const std::string lowered = _ToLowerAscii(materialName);
+        if (lowered == "material_dark" || lowered == "material_white") return std::string("Shader");
+        if (materialName.size() == 18 && TfStringStartsWith(lowered, "material_")) {
+            bool looksNumeric = true;
+            for (size_t index = 9; index < materialName.size(); ++index) {
+                if (!std::isdigit(static_cast<unsigned char>(materialName[index]))) {
+                    looksNumeric = false;
+                    break;
+                }
+            }
+            if (looksNumeric) return std::string("Shader");
+        }
+        return materialName;
+    }
+
+    static std::string _NormalizeMaterialTexturePath(std::string const& value) {
+        std::string normalized = TfStringTrim(value);
+        if (normalized.empty()) return std::string();
+        while (!normalized.empty() && normalized.front() == '@') {
+            normalized.erase(normalized.begin());
+        }
+        while (!normalized.empty() && normalized.back() == '@') {
+            normalized.pop_back();
+        }
+        std::replace(normalized.begin(), normalized.end(), '\\', '/');
+        if (TfStringStartsWith(normalized, "./")) {
+            normalized = normalized.substr(2);
+        }
+        return normalized;
+    }
+
+    static bool _TryInferColorFromMaterialName(
+        std::string const& materialName,
+        std::array<double, 3>* outColor) {
+        if (!outColor) return false;
+        const std::string normalized = TfStringTrim(materialName);
+        if (normalized.size() < 6) return false;
+        const std::string suffix = normalized.substr(normalized.size() - 6);
+        for (char ch : suffix) {
+            if (!std::isxdigit(static_cast<unsigned char>(ch))) {
+                return false;
+            }
+        }
+        const int parsed = std::stoi(suffix, nullptr, 16);
+        (*outColor)[0] = static_cast<double>((parsed >> 16) & 0xff) / 255.0;
+        (*outColor)[1] = static_cast<double>((parsed >> 8) & 0xff) / 255.0;
+        (*outColor)[2] = static_cast<double>(parsed & 0xff) / 255.0;
+        return true;
+    }
+
+    static bool _TryReadBoolAttr(
+        UsdAttribute const& attribute,
+        UsdTimeCode const& timeCode,
+        bool* outValue) {
+        if (!attribute || !outValue) return false;
+
+        bool boolValue = false;
+        if (attribute.Get(&boolValue, timeCode)) {
+            *outValue = boolValue;
+            return true;
+        }
+
+        int intValue = 0;
+        if (attribute.Get(&intValue, timeCode)) {
+            *outValue = intValue != 0;
+            return true;
+        }
+
+        std::string stringValue;
+        if (attribute.Get(&stringValue, timeCode)) {
+            const std::string lowered = _ToLowerAscii(TfStringTrim(stringValue));
+            if (lowered == "true" || lowered == "yes" || lowered == "on") {
+                *outValue = true;
+                return true;
+            }
+            if (lowered == "false" || lowered == "no" || lowered == "off") {
+                *outValue = false;
+                return true;
+            }
+        }
+
+        TfToken tokenValue;
+        if (attribute.Get(&tokenValue, timeCode) && !tokenValue.IsEmpty()) {
+            const std::string lowered = _ToLowerAscii(tokenValue.GetString());
+            if (lowered == "true" || lowered == "yes" || lowered == "on") {
+                *outValue = true;
+                return true;
+            }
+            if (lowered == "false" || lowered == "no" || lowered == "off") {
+                *outValue = false;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool _TryReadStringAttr(
+        UsdAttribute const& attribute,
+        UsdTimeCode const& timeCode,
+        std::string* outValue) {
+        if (!attribute || !outValue) return false;
+
+        std::string stringValue;
+        if (attribute.Get(&stringValue, timeCode) && !stringValue.empty()) {
+            *outValue = stringValue;
+            return true;
+        }
+
+        TfToken tokenValue;
+        if (attribute.Get(&tokenValue, timeCode) && !tokenValue.IsEmpty()) {
+            *outValue = tokenValue.GetString();
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool _TryReadVec2Attr(
+        UsdAttribute const& attribute,
+        UsdTimeCode const& timeCode,
+        std::array<double, 2>* outValue) {
+        if (!attribute || !outValue) return false;
+
+        GfVec2f valueF(0.0f);
+        if (attribute.Get(&valueF, timeCode)) {
+            (*outValue)[0] = static_cast<double>(valueF[0]);
+            (*outValue)[1] = static_cast<double>(valueF[1]);
+            return true;
+        }
+
+        GfVec2d valueD(0.0);
+        if (attribute.Get(&valueD, timeCode)) {
+            (*outValue)[0] = valueD[0];
+            (*outValue)[1] = valueD[1];
+            return true;
+        }
+
+        double scalarValue = 0.0;
+        if (_TryReadDoubleAttr(attribute.GetPrim(), attribute.GetName().GetText(), timeCode, &scalarValue)) {
+            (*outValue)[0] = scalarValue;
+            (*outValue)[1] = scalarValue;
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool _TryReadTexturePathAttr(
+        UsdAttribute const& attribute,
+        UsdTimeCode const& timeCode,
+        std::string* outValue) {
+        if (!attribute || !outValue) return false;
+
+        SdfAssetPath assetPath;
+        if (attribute.Get(&assetPath, timeCode)) {
+            const std::string resolvedPath = _NormalizeMaterialTexturePath(assetPath.GetResolvedPath());
+            if (!resolvedPath.empty()) {
+                *outValue = resolvedPath;
+                return true;
+            }
+            const std::string authoredPath = _NormalizeMaterialTexturePath(assetPath.GetAssetPath());
+            if (!authoredPath.empty()) {
+                *outValue = authoredPath;
+                return true;
+            }
+        }
+
+        std::string stringValue;
+        if (_TryReadStringAttr(attribute, timeCode, &stringValue)) {
+            const std::string normalized = _NormalizeMaterialTexturePath(stringValue);
+            if (!normalized.empty()) {
+                *outValue = normalized;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool _TryReadDisplayColor(
+        UsdPrim const& prim,
+        UsdTimeCode const& timeCode,
+        std::array<double, 3>* outColor,
+        double* outOpacity = nullptr) {
+        if (!prim || !outColor) return false;
+
+        for (UsdPrim current = prim; current; current = current.GetParent()) {
+            bool hasColor = false;
+            const UsdAttribute displayColorAttr = current.GetAttribute(TfToken("primvars:displayColor"));
+            if (displayColorAttr) {
+                VtVec3fArray colorF;
+                if (displayColorAttr.Get(&colorF, timeCode) && !colorF.empty()) {
+                    (*outColor)[0] = static_cast<double>(colorF[0][0]);
+                    (*outColor)[1] = static_cast<double>(colorF[0][1]);
+                    (*outColor)[2] = static_cast<double>(colorF[0][2]);
+                    hasColor = true;
+                } else {
+                    VtVec3dArray colorD;
+                    if (displayColorAttr.Get(&colorD, timeCode) && !colorD.empty()) {
+                        (*outColor)[0] = colorD[0][0];
+                        (*outColor)[1] = colorD[0][1];
+                        (*outColor)[2] = colorD[0][2];
+                        hasColor = true;
+                    }
+                }
+            }
+            if (!hasColor) {
+                continue;
+            }
+
+            if (outOpacity) {
+                *outOpacity = 1.0;
+                const UsdAttribute displayOpacityAttr = current.GetAttribute(TfToken("primvars:displayOpacity"));
+                if (displayOpacityAttr) {
+                    VtFloatArray opacityF;
+                    if (displayOpacityAttr.Get(&opacityF, timeCode) && !opacityF.empty() && std::isfinite(opacityF[0])) {
+                        *outOpacity = static_cast<double>(opacityF[0]);
+                    } else {
+                        VtDoubleArray opacityD;
+                        if (displayOpacityAttr.Get(&opacityD, timeCode) && !opacityD.empty() && std::isfinite(opacityD[0])) {
+                            *outOpacity = opacityD[0];
+                        }
+                    }
+                }
+                *outOpacity = std::max(0.0, std::min(1.0, *outOpacity));
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    static std::string _ColorToHexString(std::array<double, 3> const& color) {
+        char buffer[7] = {0};
+        const int r = std::max(0, std::min(255, static_cast<int>(std::lround(color[0] * 255.0))));
+        const int g = std::max(0, std::min(255, static_cast<int>(std::lround(color[1] * 255.0))));
+        const int b = std::max(0, std::min(255, static_cast<int>(std::lround(color[2] * 255.0))));
+        std::snprintf(buffer, sizeof(buffer), "%02X%02X%02X", r, g, b);
+        return std::string(buffer);
+    }
+
+    static std::string _BuildDisplayColorMaterialId(
+        std::array<double, 3> const& color,
+        double opacity = 1.0) {
+        const int opacityByte = std::max(0, std::min(255, static_cast<int>(std::lround(std::max(0.0, std::min(1.0, opacity)) * 255.0))));
+        char opacityBuffer[3] = {0};
+        std::snprintf(opacityBuffer, sizeof(opacityBuffer), "%02X", opacityByte);
+        return std::string("/__viewer_snapshot_materials__/displayColor_")
+            + _ColorToHexString(color)
+            + std::string("_")
+            + std::string(opacityBuffer);
+    }
+
+    static emscripten::val _BuildDisplayColorMaterialRecord(
+        std::array<double, 3> const& color,
+        double opacity = 1.0) {
+        const std::string materialId = _BuildDisplayColorMaterialId(color, opacity);
+        emscripten::val record = emscripten::val::object();
+        record.set("materialId", materialId);
+        record.set("name", std::string("displayColor_") + _ColorToHexString(color));
+        record.set("color", _Vec3ToJsArray(color));
+        if (opacity < 1.0) {
+          record.set("opacity", std::max(0.0, std::min(1.0, opacity)));
+        }
+        return record;
+    }
+
+    static std::string _ResolveDisplayColorMaterialId(
+        UsdPrim const& prim,
+        UsdTimeCode const& timeCode) {
+        std::array<double, 3> color = {0.0, 0.0, 0.0};
+        double opacity = 1.0;
+        if (!_TryReadDisplayColor(prim, timeCode, &color, &opacity)) {
+            return std::string();
+        }
+        return _BuildDisplayColorMaterialId(color, opacity);
+    }
+
+    static std::string _ResolveBoundMaterialId(UsdPrim const& prim) {
+        if (!prim) return std::string();
+        UsdRelationship bindingRel;
+        const UsdShadeMaterial boundMaterial = UsdShadeMaterialBindingAPI(prim).ComputeBoundMaterial(
+            UsdShadeTokens->allPurpose,
+            &bindingRel,
+            true);
+        if (boundMaterial && boundMaterial.GetPrim()) {
+            return boundMaterial.GetPath().GetString();
+        }
+        return _ReadFirstRelationshipTargetPath(bindingRel);
+    }
+
+    static bool _IsUsableMaterialShaderPrim(UsdPrim const& shaderPrim) {
+        if (!shaderPrim) return false;
+
+        const std::string shaderType = _ToLowerAscii(shaderPrim.GetTypeName().GetString());
+        if (shaderType == "shader") return true;
+        if (!shaderType.empty() && shaderType != "shader") return false;
+
+        const TfTokenVector propertyNames = shaderPrim.GetPropertyNames();
+        if (propertyNames.empty()) return false;
+        for (TfToken const& propertyName : propertyNames) {
+            const std::string property = propertyName.GetString();
+            if (property == "info:id"
+                || TfStringStartsWith(property, "inputs:")
+                || TfStringStartsWith(property, "outputs:")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    UsdPrim _FindMaterialShaderPrim(UsdPrim const& materialPrim) const {
+        if (!materialPrim || !_stage) return UsdPrim();
+
+        const std::string materialPath = materialPrim.GetPath().GetString();
+        const std::string materialName = _GetPathBasename(materialPath);
+        std::vector<std::string> candidateNames;
+        auto addCandidate = [&candidateNames](std::string const& name) {
+            if (name.empty()) return;
+            if (std::find(candidateNames.begin(), candidateNames.end(), name) != candidateNames.end()) return;
+            candidateNames.push_back(name);
+        };
+
+        addCandidate("Shader");
+        addCandidate(_GetPreferredShaderName(materialName));
+        addCandidate(materialName);
+        addCandidate("PreviewSurface");
+        addCandidate("UsdPreviewSurface");
+        addCandidate("surfaceShader");
+        addCandidate("Surface");
+        addCandidate("PBRShader");
+        addCandidate("MtlxStandardSurface");
+        addCandidate("mtlxstandard_surface");
+        addCandidate("ND_standard_surface_surfaceshader");
+
+        for (std::string const& candidateName : candidateNames) {
+            const std::string shaderPath = materialPath + std::string("/") + candidateName;
+            const UsdPrim shaderPrim = _stage->GetPrimAtPath(SdfPath(shaderPath));
+            if (_IsUsableMaterialShaderPrim(shaderPrim)) {
+                return shaderPrim;
+            }
+        }
+
+        for (UsdPrim const& child : materialPrim.GetChildren()) {
+            if (_IsUsableMaterialShaderPrim(child)) {
+                return child;
+            }
+        }
+
+        return UsdPrim();
+    }
+
+    emscripten::val _BuildSnapshotMaterialRecord(
+        UsdPrim const& materialPrim,
+        UsdTimeCode const& timeCode) const {
+        emscripten::val record = emscripten::val::object();
+        if (!materialPrim) return record;
+
+        const std::string materialId = materialPrim.GetPath().GetString();
+        const std::string materialName = _GetPathBasename(materialId);
+        record.set("materialId", materialId);
+        record.set("name", materialName.empty() ? materialId : materialName);
+
+        std::array<double, 3> inferredColor = {0.0, 0.0, 0.0};
+        if (_TryInferColorFromMaterialName(materialName, &inferredColor)) {
+            record.set("color", _Vec3ToJsArray(inferredColor));
+        }
+
+        const UsdPrim shaderPrim = _FindMaterialShaderPrim(materialPrim);
+        if (!shaderPrim) {
+            return record;
+        }
+
+        const std::string shaderPath = shaderPrim.GetPath().GetString();
+        record.set("shaderPath", shaderPath);
+        record.set("shaderName", _GetPathBasename(shaderPath));
+
+        auto tryReadDoubleAny = [&](std::initializer_list<char const*> attributeNames, double* outValue) {
+            for (char const* attributeName : attributeNames) {
+                if (_TryReadDoubleAttr(shaderPrim, attributeName, timeCode, outValue)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        auto tryReadBoolAny = [&](std::initializer_list<char const*> attributeNames, bool* outValue) {
+            for (char const* attributeName : attributeNames) {
+                if (_TryReadBoolAttr(shaderPrim.GetAttribute(TfToken(attributeName)), timeCode, outValue)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        auto tryReadStringAny = [&](std::initializer_list<char const*> attributeNames, std::string* outValue) {
+            for (char const* attributeName : attributeNames) {
+                if (_TryReadStringAttr(shaderPrim.GetAttribute(TfToken(attributeName)), timeCode, outValue)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        auto tryReadVec3Any = [&](std::initializer_list<char const*> attributeNames, std::array<double, 3>* outValue) {
+            for (char const* attributeName : attributeNames) {
+                if (_TryReadVec3Attr(shaderPrim.GetAttribute(TfToken(attributeName)), timeCode, outValue)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        auto tryReadVec2Any = [&](std::initializer_list<char const*> attributeNames, std::array<double, 2>* outValue) {
+            for (char const* attributeName : attributeNames) {
+                if (_TryReadVec2Attr(shaderPrim.GetAttribute(TfToken(attributeName)), timeCode, outValue)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        auto tryReadTextureAny = [&](std::initializer_list<char const*> attributeNames, std::string* outValue) {
+            for (char const* attributeName : attributeNames) {
+                if (_TryReadTexturePathAttr(shaderPrim.GetAttribute(TfToken(attributeName)), timeCode, outValue)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        auto setScalar = [&](char const* fieldName, std::initializer_list<char const*> attributeNames, bool clamp01 = false, bool enforceMin = false, double minValue = 0.0) {
+            double value = 0.0;
+            if (!tryReadDoubleAny(attributeNames, &value) || !std::isfinite(value)) return false;
+            if (clamp01) {
+                value = std::max(0.0, std::min(1.0, value));
+            }
+            if (enforceMin) {
+                value = std::max(minValue, value);
+            }
+            record.set(fieldName, value);
+            return true;
+        };
+        auto setColor = [&](char const* fieldName, std::initializer_list<char const*> attributeNames) {
+            std::array<double, 3> value = {0.0, 0.0, 0.0};
+            if (!tryReadVec3Any(attributeNames, &value)) return false;
+            record.set(fieldName, _Vec3ToJsArray(value));
+            return true;
+        };
+        auto setVec2 = [&](char const* fieldName, std::initializer_list<char const*> attributeNames) {
+            std::array<double, 2> value = {0.0, 0.0};
+            if (!tryReadVec2Any(attributeNames, &value)) return false;
+            emscripten::val array = emscripten::val::array();
+            array.set(0, value[0]);
+            array.set(1, value[1]);
+            record.set(fieldName, array);
+            return true;
+        };
+        auto setTexture = [&](char const* fieldName, std::initializer_list<char const*> attributeNames) {
+            std::string texturePath;
+            if (!tryReadTextureAny(attributeNames, &texturePath) || texturePath.empty()) return false;
+            record.set(fieldName, texturePath);
+            return true;
+        };
+
+        std::string shaderInfoId;
+        if (tryReadStringAny({
+                "info:id",
+                "info:mdl:sourceAsset:subIdentifier",
+                "info:mdl:sourceAsset"
+            }, &shaderInfoId)) {
+            record.set("shaderInfoId", shaderInfoId);
+            if (_ToLowerAscii(shaderInfoId).find("omnipbr") != std::string::npos) {
+                record.set("isOmniPbr", true);
+            }
+        }
+
+        bool opacityEnabled = true;
+        if (tryReadBoolAny({ "inputs:enable_opacity", "inputs:enableOpacity" }, &opacityEnabled)) {
+            record.set("opacityEnabled", opacityEnabled);
+        }
+        bool opacityTextureEnabled = true;
+        if (tryReadBoolAny({ "inputs:enable_opacity_texture", "inputs:enableOpacityTexture" }, &opacityTextureEnabled)) {
+            record.set("opacityTextureEnabled", opacityTextureEnabled);
+        }
+        bool emissiveEnabled = true;
+        if (tryReadBoolAny({ "inputs:enable_emission", "inputs:enableEmission" }, &emissiveEnabled)) {
+            record.set("emissiveEnabled", emissiveEnabled);
+        }
+
+        const bool hasBaseColor = setColor("color", {
+            "inputs:diffuseColor",
+            "inputs:diffuse_color_constant",
+            "inputs:diffuse_color",
+            "inputs:baseColor",
+            "inputs:base_color",
+            "inputs:base_color_constant",
+            "inputs:albedo",
+            "inputs:albedo_constant",
+        });
+        (void)hasBaseColor;
+
+        const bool roughnessAssigned = setScalar("roughness", {
+            "inputs:roughness",
+            "inputs:roughness_constant",
+            "inputs:reflection_roughness",
+            "inputs:reflection_roughness_constant",
+            "inputs:specular_roughness",
+        }, true);
+        bool isOmniPbr = false;
+        try {
+            isOmniPbr = record["isOmniPbr"].as<bool>();
+        } catch (...) {
+            isOmniPbr = false;
+        }
+        if (!roughnessAssigned && isOmniPbr) {
+            record.set("roughness", 0.5);
+        }
+
+        setScalar("metalness", {
+            "inputs:metallic",
+            "inputs:metallic_constant",
+            "inputs:metalness",
+            "inputs:metalness_constant",
+        }, true);
+        setScalar("opacity", { "inputs:opacity", "inputs:opacity_constant" }, true);
+        setScalar("alphaTest", {
+            "inputs:opacityThreshold",
+            "inputs:opacity_threshold",
+            "inputs:alphaCutoff",
+            "inputs:alpha_cutoff",
+        }, true);
+        setScalar("clearcoat", { "inputs:clearcoat", "inputs:coat" }, true);
+        setScalar("clearcoatRoughness", {
+            "inputs:clearcoatRoughness",
+            "inputs:clearcoat_roughness",
+            "inputs:coat_roughness",
+        }, true);
+        setScalar("specularIntensity", {
+            "inputs:specular",
+            "inputs:specular_weight",
+            "inputs:specular_intensity",
+            "inputs:specularIntensity",
+        }, true);
+        setScalar("ior", { "inputs:ior", "inputs:indexOfRefraction" }, false, true, 1.0);
+        setScalar("transmission", { "inputs:transmission", "inputs:transmission_weight" }, true);
+        setScalar("thickness", { "inputs:thickness", "inputs:thickness_constant" }, false, true, 0.0);
+        setScalar("attenuationDistance", { "inputs:attenuationDistance", "inputs:attenuation_distance" }, false, true, 0.0);
+        setScalar("aoMapIntensity", { "inputs:ao_strength", "inputs:occlusion_strength", "inputs:occlusion" }, true);
+        setScalar("sheen", { "inputs:sheen", "inputs:sheen_weight" }, true);
+        setScalar("sheenRoughness", { "inputs:sheenRoughness", "inputs:sheen_roughness" }, true);
+        setScalar("iridescence", { "inputs:iridescence", "inputs:iridescence_weight" }, true);
+        setScalar("iridescenceIOR", { "inputs:iridescenceIOR", "inputs:iridescence_ior" }, false, true, 1.0);
+        setScalar("anisotropy", { "inputs:anisotropy", "inputs:anisotropy_level" }, true);
+        setScalar("anisotropyRotation", { "inputs:anisotropyRotation", "inputs:anisotropy_rotation" });
+        setScalar("emissiveIntensity", { "inputs:emissive_intensity" }, false, true, 0.0);
+
+        setColor("specularColor", { "inputs:specularColor", "inputs:specular_color" });
+        setColor("attenuationColor", { "inputs:attenuationColor", "inputs:attenuation_color" });
+        setColor("sheenColor", { "inputs:sheenColor", "inputs:sheen_color" });
+        setColor("emissive", {
+            "inputs:emissiveColor",
+            "inputs:emissive_color",
+            "inputs:emissive_color_constant",
+        });
+
+        setVec2("normalScale", { "inputs:normalScale", "inputs:normal_scale" });
+        setVec2("clearcoatNormalScale", { "inputs:clearcoatNormalScale", "inputs:clearcoat_normal_scale" });
+
+        setTexture("mapPath", {
+            "inputs:diffuseColor_texture",
+            "inputs:diffuse_color_texture",
+            "inputs:baseColor_texture",
+            "inputs:base_color_texture",
+            "inputs:albedo_texture",
+        });
+        setTexture("emissiveMapPath", {
+            "inputs:emissiveColor_texture",
+            "inputs:emissive_color_texture",
+            "inputs:emissive_texture",
+        });
+        setTexture("roughnessMapPath", {
+            "inputs:roughness_texture",
+            "inputs:reflection_roughness_texture",
+            "inputs:specular_roughness_texture",
+        });
+        setTexture("metalnessMapPath", {
+            "inputs:metallic_texture",
+            "inputs:metalness_texture",
+        });
+        setTexture("normalMapPath", {
+            "inputs:normal_texture",
+            "inputs:normalmap_texture",
+            "inputs:normal_map_texture",
+        });
+        setTexture("aoMapPath", {
+            "inputs:occlusion_texture",
+            "inputs:occlusion_map",
+            "inputs:ao_texture",
+        });
+        setTexture("alphaMapPath", {
+            "inputs:opacity_texture",
+            "inputs:opacity_mask_texture",
+            "inputs:opacityMask_texture",
+        });
+        setTexture("clearcoatMapPath", { "inputs:clearcoat_texture", "inputs:coat_texture" });
+        setTexture("clearcoatRoughnessMapPath", {
+            "inputs:clearcoatRoughness_texture",
+            "inputs:clearcoat_roughness_texture",
+            "inputs:coat_roughness_texture",
+        });
+        setTexture("clearcoatNormalMapPath", {
+            "inputs:clearcoatNormal_texture",
+            "inputs:clearcoat_normal_texture",
+        });
+        setTexture("specularColorMapPath", {
+            "inputs:specularColor_texture",
+            "inputs:specular_color_texture",
+        });
+        setTexture("specularIntensityMapPath", {
+            "inputs:specular_texture",
+            "inputs:specular_intensity_texture",
+        });
+        setTexture("transmissionMapPath", {
+            "inputs:transmission_texture",
+            "inputs:transmission_weight_texture",
+        });
+        setTexture("thicknessMapPath", { "inputs:thickness_texture" });
+        setTexture("sheenColorMapPath", {
+            "inputs:sheenColor_texture",
+            "inputs:sheen_color_texture",
+        });
+        setTexture("sheenRoughnessMapPath", {
+            "inputs:sheenRoughness_texture",
+            "inputs:sheen_roughness_texture",
+        });
+        setTexture("anisotropyMapPath", { "inputs:anisotropy_texture" });
+        setTexture("iridescenceMapPath", {
+            "inputs:iridescence_texture",
+            "inputs:iridescence_weight_texture",
+        });
+        setTexture("iridescenceThicknessMapPath", {
+            "inputs:iridescenceThickness_texture",
+            "inputs:iridescence_thickness_texture",
+        });
+
+        return record;
+    }
+
+    emscripten::val _BuildSnapshotMaterialRecords(UsdTimeCode const& timeCode) const {
+        emscripten::val records = emscripten::val::array();
+        if (!_stage) return records;
+
+        unsigned int index = 0;
+        std::unordered_set<std::string> seenMaterialIds;
+        for (UsdPrim const& prim : _stage->Traverse()) {
+            if (!prim) continue;
+            const std::string primType = _ToLowerAscii(prim.GetTypeName().GetString());
+            if (primType != "material") continue;
+            const emscripten::val record = _BuildSnapshotMaterialRecord(prim, timeCode);
+            std::string materialId;
+            try {
+                materialId = record["materialId"].as<std::string>();
+            } catch (...) {
+                materialId.clear();
+            }
+            if (!materialId.empty()) {
+                seenMaterialIds.insert(materialId);
+            }
+            records.set(index++, record);
+        }
+        for (UsdPrim const& prim : _stage->Traverse()) {
+            if (!prim) continue;
+            if (_GetSupportedPrimTypeName(prim).empty()) continue;
+            const std::string boundMaterialId = _ResolveBoundMaterialId(prim);
+            if (!boundMaterialId.empty()) continue;
+            std::array<double, 3> color = {0.0, 0.0, 0.0};
+            double opacity = 1.0;
+            if (!_TryReadDisplayColor(prim, timeCode, &color, &opacity)) continue;
+            const std::string syntheticMaterialId = _BuildDisplayColorMaterialId(color, opacity);
+            if (syntheticMaterialId.empty() || seenMaterialIds.count(syntheticMaterialId) > 0) continue;
+            seenMaterialIds.insert(syntheticMaterialId);
+            records.set(index++, _BuildDisplayColorMaterialRecord(color, opacity));
+        }
+        return records;
     }
 
     static bool _ContainsString(std::vector<std::string> const& values, std::string const& needle) {
@@ -1718,7 +3337,7 @@ private:
     static std::string _ReadAxisToken(
         UsdPrim const& prim,
         UsdTimeCode const& timeCode) {
-        std::string axis = "Z";
+        std::string axis = "X";
         const std::array<TfToken, 2> axisAttrNames = {
             TfToken("physics:axis"),
             TfToken("axis")
@@ -1742,7 +3361,8 @@ private:
         axis = _ToLowerAscii(axis);
         if (axis == "x") return "X";
         if (axis == "y") return "Y";
-        return "Z";
+        if (axis == "z") return "Z";
+        return "X";
     }
 
     static void _Matrix4dToFloat16(
@@ -1801,6 +3421,278 @@ private:
         return !outIndices->empty();
     }
 
+    static std::string _NormalizeSplitUvPrimvarName(std::string const& name) {
+        if (name.empty()) return {};
+
+        std::string normalized = name;
+        std::transform(
+            normalized.begin(),
+            normalized.end(),
+            normalized.begin(),
+            [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        return normalized;
+    }
+
+    static bool _TryGetSplitUvPrimvarOrdinal(std::string const& name, int* outOrdinal) {
+        if (outOrdinal) {
+            *outOrdinal = -1;
+        }
+
+        const std::string normalized = _NormalizeSplitUvPrimvarName(name);
+        if (normalized == "primvars:st" || normalized == "st") {
+            if (outOrdinal) {
+                *outOrdinal = 0;
+            }
+            return true;
+        }
+        if (normalized.rfind("primvars:st_", 0) != 0 && normalized.rfind("st_", 0) != 0) {
+            return false;
+        }
+
+        const size_t prefixLength = normalized.rfind("primvars:", 0) == 0 ? 12 : 3;
+        if (normalized.size() <= prefixLength) {
+            return false;
+        }
+
+        int ordinal = 0;
+        for (size_t index = prefixLength; index < normalized.size(); ++index) {
+            const char ch = normalized[index];
+            if (ch < '0' || ch > '9') {
+                return false;
+            }
+            ordinal = (ordinal * 10) + static_cast<int>(ch - '0');
+        }
+
+        if (ordinal <= 0) {
+            return false;
+        }
+        if (outOrdinal) {
+            *outOrdinal = ordinal;
+        }
+        return true;
+    }
+
+    static bool _TryTriangulateFaceVaryingVec2f(
+        VtIntArray const& faceVertexCounts,
+        VtVec2fArray const& sourceValues,
+        VtVec2fArray* outValues) {
+        if (!outValues) return false;
+        outValues->clear();
+        if (sourceValues.empty()) return false;
+
+        if (faceVertexCounts.empty()) {
+            *outValues = sourceValues;
+            return true;
+        }
+
+        size_t expectedSourceCount = 0;
+        size_t totalTriangleCount = 0;
+        for (const int countValue : faceVertexCounts) {
+            const size_t count = countValue > 0 ? static_cast<size_t>(countValue) : static_cast<size_t>(0);
+            expectedSourceCount += count;
+            if (count >= 3) {
+                totalTriangleCount += (count - 2);
+            }
+        }
+
+        if (expectedSourceCount == 0 || sourceValues.size() < expectedSourceCount || totalTriangleCount == 0) {
+            return false;
+        }
+
+        outValues->reserve(totalTriangleCount * 3);
+        size_t cursor = 0;
+        for (const int countValue : faceVertexCounts) {
+            const size_t count = countValue > 0 ? static_cast<size_t>(countValue) : static_cast<size_t>(0);
+            if (count >= 3) {
+                if (cursor + count > sourceValues.size()) {
+                    outValues->clear();
+                    return false;
+                }
+                const GfVec2f first = sourceValues[cursor];
+                for (size_t vertexIndex = 1; vertexIndex + 1 < count; ++vertexIndex) {
+                    outValues->push_back(first);
+                    outValues->push_back(sourceValues[cursor + vertexIndex]);
+                    outValues->push_back(sourceValues[cursor + vertexIndex + 1]);
+                }
+            }
+            cursor += count;
+            if (cursor >= sourceValues.size()) {
+                break;
+            }
+        }
+
+        return !outValues->empty();
+    }
+
+    static bool _TryReadSplitFaceVaryingUvPrimvars(
+        UsdPrim const& prim,
+        UsdTimeCode const& timeCode,
+        size_t expectedFaceVaryingCount,
+        VtVec2fArray* outValues) {
+        if (!outValues) return false;
+        outValues->clear();
+        if (!prim || expectedFaceVaryingCount == 0) return false;
+
+        struct SplitUvPrimvarRecord {
+            int ordinal = -1;
+            std::string name;
+        };
+
+        std::vector<SplitUvPrimvarRecord> splitUvPrimvars;
+        splitUvPrimvars.reserve(8);
+        bool hasSplitSuffix = false;
+        const TfTokenVector propertyNames = prim.GetPropertyNames();
+        for (TfToken const& propertyNameToken : propertyNames) {
+            const std::string propertyName = propertyNameToken.GetString();
+            int ordinal = -1;
+            if (!_TryGetSplitUvPrimvarOrdinal(propertyName, &ordinal)) {
+                continue;
+            }
+            if (ordinal > 0) {
+                hasSplitSuffix = true;
+            }
+            splitUvPrimvars.push_back({ordinal, propertyName});
+        }
+
+        if (splitUvPrimvars.size() <= 1 || !hasSplitSuffix) {
+            return false;
+        }
+
+        std::sort(
+            splitUvPrimvars.begin(),
+            splitUvPrimvars.end(),
+            [](SplitUvPrimvarRecord const& left, SplitUvPrimvarRecord const& right) {
+                if (left.ordinal != right.ordinal) {
+                    return left.ordinal < right.ordinal;
+                }
+                return left.name < right.name;
+            });
+
+        VtVec2fArray mergedValues;
+        mergedValues.reserve(expectedFaceVaryingCount);
+        for (SplitUvPrimvarRecord const& splitUvPrimvar : splitUvPrimvars) {
+            const UsdAttribute uvAttr = prim.GetAttribute(TfToken(splitUvPrimvar.name));
+            if (!uvAttr) {
+                return false;
+            }
+
+            VtVec2fArray uvF;
+            if (uvAttr.Get(&uvF, timeCode) && !uvF.empty()) {
+                for (GfVec2f const& uvValue : uvF) {
+                    mergedValues.push_back(uvValue);
+                }
+                continue;
+            }
+
+            VtVec2dArray uvD;
+            if (uvAttr.Get(&uvD, timeCode) && !uvD.empty()) {
+                for (GfVec2d const& uv : uvD) {
+                    mergedValues.push_back(GfVec2f(
+                        static_cast<float>(uv[0]),
+                        static_cast<float>(uv[1])));
+                }
+                continue;
+            }
+
+            return false;
+        }
+
+        if (mergedValues.size() != expectedFaceVaryingCount) {
+            return false;
+        }
+
+        *outValues = std::move(mergedValues);
+        return true;
+    }
+
+    static bool _BuildGeomSubsetSectionsFromPrim(
+        UsdPrim const& prim,
+        UsdTimeCode const& timeCode,
+        VtIntArray const& faceVertexCounts,
+        std::string const& fallbackMaterialId,
+        std::vector<WebRenderDelegate::GeomSubsetSection>* outSections) {
+        if (!outSections) return false;
+        outSections->clear();
+        if (!prim || faceVertexCounts.empty()) return false;
+
+        UsdShadeMaterialBindingAPI bindingApi(prim);
+        const std::vector<UsdGeomSubset> materialSubsets = bindingApi.GetMaterialBindSubsets();
+        if (materialSubsets.empty()) return false;
+
+        std::vector<int> triangleStartByFace(faceVertexCounts.size() + 1, 0);
+        for (size_t faceIndex = 0; faceIndex < faceVertexCounts.size(); ++faceIndex) {
+            const int vertexCount = std::max(0, static_cast<int>(faceVertexCounts[faceIndex]));
+            const int triangleIndexCount = vertexCount >= 3 ? ((vertexCount - 2) * 3) : 0;
+            triangleStartByFace[faceIndex + 1] = triangleStartByFace[faceIndex] + triangleIndexCount;
+        }
+
+        std::vector<int> sortedFaceIndices;
+        for (UsdGeomSubset const& subset : materialSubsets) {
+            if (!subset) continue;
+
+            VtIntArray subsetFaceIndices;
+            if (!subset.GetIndicesAttr().Get(&subsetFaceIndices, timeCode) || subsetFaceIndices.empty()) {
+                continue;
+            }
+
+            sortedFaceIndices.clear();
+            sortedFaceIndices.reserve(subsetFaceIndices.size());
+            for (int faceIndex : subsetFaceIndices) {
+                if (faceIndex < 0) continue;
+                const size_t faceIndexSize = static_cast<size_t>(faceIndex);
+                if (faceIndexSize >= faceVertexCounts.size()) continue;
+                sortedFaceIndices.push_back(faceIndex);
+            }
+            if (sortedFaceIndices.empty()) continue;
+
+            std::sort(sortedFaceIndices.begin(), sortedFaceIndices.end());
+            sortedFaceIndices.erase(
+                std::unique(sortedFaceIndices.begin(), sortedFaceIndices.end()),
+                sortedFaceIndices.end());
+
+            std::string materialId = _ReadFirstRelationshipTargetPath(
+                UsdShadeMaterialBindingAPI(subset.GetPrim()).GetDirectBindingRel(
+                    UsdShadeTokens->allPurpose));
+            if (materialId.empty()) {
+                materialId = _ResolveBoundMaterialId(subset.GetPrim());
+            }
+            if (materialId.empty()) {
+                materialId = fallbackMaterialId;
+            }
+
+            int currentStart = -1;
+            int currentLength = 0;
+            int previousFaceIndex = -2;
+            auto flushCurrentSection = [&]() {
+                if (currentStart < 0 || currentLength <= 0) return;
+                outSections->push_back({currentStart, currentLength, materialId});
+            };
+
+            for (int faceIndex : sortedFaceIndices) {
+                const int faceStart = triangleStartByFace[static_cast<size_t>(faceIndex)];
+                const int faceLength = triangleStartByFace[static_cast<size_t>(faceIndex + 1)] - faceStart;
+                if (faceLength <= 0) continue;
+
+                const bool isContiguousFace = (
+                    currentStart >= 0
+                    && faceIndex == (previousFaceIndex + 1)
+                    && (currentStart + currentLength) == faceStart);
+                if (!isContiguousFace) {
+                    flushCurrentSection();
+                    currentStart = faceStart;
+                    currentLength = faceLength;
+                } else {
+                    currentLength += faceLength;
+                }
+                previousFaceIndex = faceIndex;
+            }
+
+            flushCurrentSection();
+        }
+
+        return !outSections->empty();
+    }
+
     static bool _BuildMeshPayloadRecordFromPrim(
         UsdPrim const& prim,
         UsdTimeCode const& timeCode,
@@ -1840,24 +3732,49 @@ private:
         mesh.GetFaceVertexCountsAttr().Get(&faceVertexCounts, timeCode);
         _TryTriangulateFaceVertexIndices(faceVertexCounts, faceVertexIndices, &outRecord->indices);
 
-        const UsdAttribute uvAttr = prim.GetAttribute(TfToken("primvars:st"));
-        if (uvAttr) {
-            VtVec2fArray uvF;
-            if (uvAttr.Get(&uvF, timeCode) && !uvF.empty()) {
-                outRecord->uv.reserve(uvF.size() * 2);
-                for (GfVec2f const& uv : uvF) {
-                    outRecord->uv.push_back(uv[0]);
-                    outRecord->uv.push_back(uv[1]);
+        size_t expectedFaceVaryingCount = !faceVertexCounts.empty()
+            ? static_cast<size_t>(0)
+            : faceVertexIndices.size();
+        if (!faceVertexCounts.empty()) {
+            for (const int countValue : faceVertexCounts) {
+                if (countValue > 0) {
+                    expectedFaceVaryingCount += static_cast<size_t>(countValue);
                 }
-            } else {
-                VtVec2dArray uvD;
-                if (uvAttr.Get(&uvD, timeCode) && !uvD.empty()) {
-                    outRecord->uv.reserve(uvD.size() * 2);
-                    for (GfVec2d const& uv : uvD) {
-                        outRecord->uv.push_back(static_cast<float>(uv[0]));
-                        outRecord->uv.push_back(static_cast<float>(uv[1]));
+            }
+        }
+
+        VtVec2fArray uvValues;
+        if (!_TryReadSplitFaceVaryingUvPrimvars(prim, timeCode, expectedFaceVaryingCount, &uvValues)) {
+            const UsdAttribute uvAttr = prim.GetAttribute(TfToken("primvars:st"));
+            if (uvAttr) {
+                VtVec2fArray uvF;
+                if (uvAttr.Get(&uvF, timeCode) && !uvF.empty()) {
+                    uvValues = std::move(uvF);
+                } else {
+                    VtVec2dArray uvD;
+                    if (uvAttr.Get(&uvD, timeCode) && !uvD.empty()) {
+                        uvValues.reserve(uvD.size());
+                        for (GfVec2d const& uv : uvD) {
+                            uvValues.push_back(GfVec2f(
+                                static_cast<float>(uv[0]),
+                                static_cast<float>(uv[1])));
+                        }
                     }
                 }
+            }
+        }
+
+        if (!uvValues.empty()) {
+            VtVec2fArray triangulatedUvValues;
+            VtVec2fArray const* finalUvValues = &uvValues;
+            if (_TryTriangulateFaceVaryingVec2f(faceVertexCounts, uvValues, &triangulatedUvValues)) {
+                finalUvValues = &triangulatedUvValues;
+            }
+
+            outRecord->uv.reserve(finalUvValues->size() * 2);
+            for (GfVec2f const& uv : *finalUvValues) {
+                outRecord->uv.push_back(uv[0]);
+                outRecord->uv.push_back(uv[1]);
             }
         }
 
@@ -1885,6 +3802,16 @@ private:
         }
 
         _Matrix4dToFloat16(worldMatrix, &outRecord->transform);
+        outRecord->materialId = _ResolveBoundMaterialId(prim);
+        if (outRecord->materialId.empty()) {
+            outRecord->materialId = _ResolveDisplayColorMaterialId(prim, timeCode);
+        }
+        _BuildGeomSubsetSectionsFromPrim(
+            prim,
+            timeCode,
+            faceVertexCounts,
+            outRecord->materialId,
+            &outRecord->geomSubsetSections);
         outRecord->numVertices = static_cast<int>(outRecord->points.size() / 3);
         outRecord->numIndices = static_cast<int>(outRecord->indices.size());
         outRecord->numUVs = static_cast<int>(outRecord->uv.size() / 2);
@@ -1909,6 +3836,76 @@ private:
         out.set(1, value[1]);
         out.set(2, value[2]);
         out.set(3, value[3]);
+        return out;
+    }
+
+    static bool _HasSignificantDouble(double value, double epsilon = 1e-9) {
+        return std::isfinite(value) && std::abs(value) > epsilon;
+    }
+
+    static bool _HasSignificantVec3(
+        std::array<double, 3> const& value,
+        double epsilon = 1e-9) {
+        return _HasSignificantDouble(value[0], epsilon)
+            || _HasSignificantDouble(value[1], epsilon)
+            || _HasSignificantDouble(value[2], epsilon);
+    }
+
+    static bool _HasNonIdentityQuatWxyz(
+        std::array<double, 4> const& value,
+        double epsilon = 1e-9) {
+        if (!std::isfinite(value[0])
+            || !std::isfinite(value[1])
+            || !std::isfinite(value[2])
+            || !std::isfinite(value[3])) {
+            return false;
+        }
+
+        const double length = std::sqrt(
+            value[0] * value[0]
+            + value[1] * value[1]
+            + value[2] * value[2]
+            + value[3] * value[3]);
+        if (length <= epsilon) {
+            return false;
+        }
+
+        const double normalizedW = value[0] / length;
+        const double normalizedX = value[1] / length;
+        const double normalizedY = value[2] / length;
+        const double normalizedZ = value[3] / length;
+        return std::abs(normalizedX) > epsilon
+            || std::abs(normalizedY) > epsilon
+            || std::abs(normalizedZ) > epsilon
+            || std::abs(std::abs(normalizedW) - 1.0) > epsilon;
+    }
+
+    static bool _HasMeaningfulPhysicsDynamics(
+        bool hasMass,
+        double mass,
+        bool hasCenterOfMass,
+        std::array<double, 3> const& centerOfMassLocal,
+        bool hasDiagonalInertia,
+        std::array<double, 3> const& diagonalInertia,
+        bool hasPrincipalAxes,
+        std::array<double, 4> const& principalAxesLocalWxyz) {
+        return (hasMass && _HasSignificantDouble(mass))
+            || (hasCenterOfMass && _HasSignificantVec3(centerOfMassLocal))
+            || (hasDiagonalInertia && _HasSignificantVec3(diagonalInertia))
+            || (hasPrincipalAxes && _HasNonIdentityQuatWxyz(principalAxesLocalWxyz));
+    }
+
+    static emscripten::val _GeomSubsetSectionsToJsArray(
+        std::vector<WebRenderDelegate::GeomSubsetSection> const& sections) {
+        emscripten::val out = emscripten::val::array();
+        int index = 0;
+        for (WebRenderDelegate::GeomSubsetSection const& section : sections) {
+            emscripten::val sectionObject = emscripten::val::object();
+            sectionObject.set("start", section.start);
+            sectionObject.set("length", section.length);
+            sectionObject.set("materialId", section.materialId);
+            out.set(index++, sectionObject);
+        }
         return out;
     }
 
@@ -1991,7 +3988,167 @@ private:
         blob.set("transformPtr", _PointerToJsNumber(record.transform.data()));
         // Keep a small transform fallback in case pointer access is disabled.
         blob.set("transform", _Float16ToJsArray(record.transform));
+        blob.set("geomSubsetSections", _GeomSubsetSectionsToJsArray(record.geomSubsetSections));
         return blob;
+    }
+
+    bool _BuildSnapshotPrimOverrideDataFromPrim(
+        UsdPrim const& prim,
+        std::string const& primPath,
+        UsdTimeCode const& timeCode,
+        UsdGeomXformCache* xformCache,
+        SnapshotPrimOverrideData* out,
+        WebRenderDelegate::ProtoDataBlobRecord const* reusableMeshPayload = nullptr) const {
+        if (!out) return false;
+        *out = SnapshotPrimOverrideData();
+        if (!prim || primPath.empty() || !xformCache) return false;
+
+        const std::string primType = _GetSupportedPrimTypeName(prim);
+        if (primType.empty()) return false;
+
+        uint32_t dirtyMask = (
+            kFinalStageDirtyGeometryDescriptor
+            | kFinalStageDirtyWorldTransform
+            | kFinalStageDirtyResolvedPrimPath);
+        const GfMatrix4d worldMatrix = xformCache->GetLocalToWorldTransform(prim);
+
+        out->valid = true;
+        out->resolvedPrimPath = primPath;
+        out->primType = primType;
+        out->worldTransform = worldMatrix;
+
+        if (primType == "mesh") {
+            if (reusableMeshPayload
+                && reusableMeshPayload->valid
+                && reusableMeshPayload->numVertices > 0) {
+                out->hasMeshPayload = true;
+                out->meshPayload = *reusableMeshPayload;
+                _Matrix4dToFloat16(worldMatrix, &out->meshPayload.transform);
+                if (out->meshPayload.materialId.empty()) {
+                    out->meshPayload.materialId = _ResolveBoundMaterialId(prim);
+                    if (out->meshPayload.materialId.empty()) {
+                        out->meshPayload.materialId =
+                            _ResolveDisplayColorMaterialId(prim, timeCode);
+                    }
+                }
+            } else {
+                WebRenderDelegate::ProtoDataBlobRecord meshPayloadRecord;
+                if (_BuildMeshPayloadRecordFromPrim(
+                        prim,
+                        timeCode,
+                        worldMatrix,
+                        &meshPayloadRecord)) {
+                    out->hasMeshPayload = true;
+                    out->meshPayload = std::move(meshPayloadRecord);
+                }
+            }
+        }
+
+        if (_TryReadExtentSize(prim, timeCode, &out->extentSize)) {
+            out->hasExtentSize = true;
+            dirtyMask |= kFinalStageDirtyExtent;
+        }
+
+        if (primType == "cube") {
+            if (_TryReadDoubleAttr(prim, "size", timeCode, &out->size)) {
+                out->hasSize = true;
+                dirtyMask |= kFinalStageDirtyPrimitiveParams;
+            }
+        } else if (primType == "sphere" || primType == "cylinder" || primType == "capsule") {
+            if (_TryReadDoubleAttr(prim, "radius", timeCode, &out->radius)) {
+                out->hasRadius = true;
+                dirtyMask |= kFinalStageDirtyPrimitiveParams;
+            }
+            if (primType == "cylinder" || primType == "capsule") {
+                if (_TryReadDoubleAttr(prim, "height", timeCode, &out->height)) {
+                    out->hasHeight = true;
+                    dirtyMask |= kFinalStageDirtyPrimitiveParams;
+                }
+                out->axis = _ReadAxisToken(prim, timeCode);
+                dirtyMask |= kFinalStageDirtyPrimitiveParams;
+            }
+        }
+
+        out->dirtyMask = dirtyMask;
+        return out->valid;
+    }
+
+    bool _BuildCollisionSnapshotOverride(
+        std::string const& meshId,
+        UsdTimeCode const& timeCode,
+        UsdGeomXformCache* xformCache,
+        SnapshotPrimOverrideData* out,
+        CollisionCandidateMap const* candidateMap = nullptr,
+        WebRenderDelegate::ProtoDataBlobRecord const* reusableMeshPayload = nullptr) const {
+        if (!out) return false;
+        *out = SnapshotPrimOverrideData();
+        if (!_stage || !xformCache) return false;
+
+        const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(meshId);
+        if (!proto.valid || proto.sectionName != "collisions") return false;
+
+        UsdPrim resolvedPrim;
+        std::string resolvedPrimPath;
+        std::string ignoredResolvedPrimType;
+        if (!_ResolveCollisionProtoPrim(
+                proto,
+                &resolvedPrim,
+                &resolvedPrimPath,
+                &ignoredResolvedPrimType,
+                candidateMap)) {
+            return false;
+        }
+
+        if (!_BuildSnapshotPrimOverrideDataFromPrim(
+                resolvedPrim,
+                resolvedPrimPath,
+                timeCode,
+                xformCache,
+                out,
+                reusableMeshPayload)) {
+            return false;
+        }
+
+        return out->valid;
+    }
+
+    bool _BuildVisualSnapshotOverride(
+        std::string const& meshId,
+        UsdTimeCode const& timeCode,
+        UsdGeomXformCache* xformCache,
+        SnapshotPrimOverrideData* out,
+        VisualCandidateMap const* candidateMap = nullptr,
+        WebRenderDelegate::ProtoDataBlobRecord const* reusableMeshPayload = nullptr) const {
+        if (!out) return false;
+        *out = SnapshotPrimOverrideData();
+        if (!_stage || !xformCache) return false;
+
+        const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(meshId);
+        if (!proto.valid || proto.sectionName != "visuals") return false;
+
+        UsdPrim resolvedPrim;
+        std::string resolvedPrimPath;
+        std::string ignoredResolvedPrimType;
+        if (!_ResolveVisualProtoPrim(
+                proto,
+                &resolvedPrim,
+                &resolvedPrimPath,
+                &ignoredResolvedPrimType,
+                candidateMap)) {
+            return false;
+        }
+
+        if (!_BuildSnapshotPrimOverrideDataFromPrim(
+                resolvedPrim,
+                resolvedPrimPath,
+                timeCode,
+                xformCache,
+                out,
+                reusableMeshPayload)) {
+            return false;
+        }
+
+        return out->valid;
     }
 
     emscripten::val _BuildCollisionProtoOverride(
@@ -2003,18 +4160,39 @@ private:
         out.set("valid", false);
         if (!_stage || !xformCache) return out;
 
-        const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(meshId);
-        if (!proto.valid || proto.sectionName != "collisions") return out;
-
-        UsdPrim resolvedPrim;
-        std::string resolvedPrimPath;
-        std::string resolvedPrimType;
-        if (!_ResolveCollisionProtoPrim(proto, &resolvedPrim, &resolvedPrimPath, &resolvedPrimType, candidateMap)) {
+        SnapshotPrimOverrideData nativeOverride;
+        if (!_BuildCollisionSnapshotOverride(
+                meshId,
+                timeCode,
+                xformCache,
+                &nativeOverride,
+                candidateMap)) {
             return out;
         }
 
-        out = _BuildPrimOverrideDataFromPrim(resolvedPrim, resolvedPrimPath, timeCode, xformCache);
+        out = _BuildPrimOverrideDataFromPrim(
+            _stage->GetPrimAtPath(SdfPath(nativeOverride.resolvedPrimPath)),
+            nativeOverride.resolvedPrimPath,
+            timeCode,
+            xformCache);
         out.set("meshId", meshId);
+        if (nativeOverride.hasMeshPayload) {
+            try {
+                emscripten::val payload = out["meshPayload"];
+                if (!payload.isUndefined() && !payload.isNull()) {
+                    if (!nativeOverride.meshPayload.materialId.empty()) {
+                        payload.set("materialId", nativeOverride.meshPayload.materialId);
+                    }
+                    if (!nativeOverride.meshPayload.geomSubsetSections.empty()) {
+                        emscripten::val sections = _GeomSubsetSectionsToJsArray(
+                            nativeOverride.meshPayload.geomSubsetSections);
+                        payload.set("geomSubsetSections", sections);
+                        out.set("geomSubsetSections", sections);
+                    }
+                }
+            } catch (...) {
+            }
+        }
         return out;
     }
 
@@ -2027,18 +4205,39 @@ private:
         out.set("valid", false);
         if (!_stage || !xformCache) return out;
 
-        const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(meshId);
-        if (!proto.valid || proto.sectionName != "visuals") return out;
-
-        UsdPrim resolvedPrim;
-        std::string resolvedPrimPath;
-        std::string resolvedPrimType;
-        if (!_ResolveVisualProtoPrim(proto, &resolvedPrim, &resolvedPrimPath, &resolvedPrimType, candidateMap)) {
+        SnapshotPrimOverrideData nativeOverride;
+        if (!_BuildVisualSnapshotOverride(
+                meshId,
+                timeCode,
+                xformCache,
+                &nativeOverride,
+                candidateMap)) {
             return out;
         }
 
-        out = _BuildPrimOverrideDataFromPrim(resolvedPrim, resolvedPrimPath, timeCode, xformCache);
+        out = _BuildPrimOverrideDataFromPrim(
+            _stage->GetPrimAtPath(SdfPath(nativeOverride.resolvedPrimPath)),
+            nativeOverride.resolvedPrimPath,
+            timeCode,
+            xformCache);
         out.set("meshId", meshId);
+        if (nativeOverride.hasMeshPayload) {
+            try {
+                emscripten::val payload = out["meshPayload"];
+                if (!payload.isUndefined() && !payload.isNull()) {
+                    if (!nativeOverride.meshPayload.materialId.empty()) {
+                        payload.set("materialId", nativeOverride.meshPayload.materialId);
+                    }
+                    if (!nativeOverride.meshPayload.geomSubsetSections.empty()) {
+                        emscripten::val sections = _GeomSubsetSectionsToJsArray(
+                            nativeOverride.meshPayload.geomSubsetSections);
+                        payload.set("geomSubsetSections", sections);
+                        out.set("geomSubsetSections", sections);
+                    }
+                }
+            } catch (...) {
+            }
+        }
         return out;
     }
 
@@ -2049,79 +4248,67 @@ private:
         UsdGeomXformCache* xformCache) const {
         emscripten::val out = emscripten::val::object();
         out.set("valid", false);
-        if (!prim || primPath.empty() || !xformCache) return out;
+        SnapshotPrimOverrideData nativeOverride;
+        if (!_BuildSnapshotPrimOverrideDataFromPrim(
+                prim,
+                primPath,
+                timeCode,
+                xformCache,
+                &nativeOverride)) {
+            return out;
+        }
 
-        const std::string primType = _GetSupportedPrimTypeName(prim);
-        if (primType.empty()) return out;
-
-        uint32_t dirtyMask = (
-            kFinalStageDirtyGeometryDescriptor
-            | kFinalStageDirtyWorldTransform
-            | kFinalStageDirtyResolvedPrimPath);
-        const GfMatrix4d worldMatrix = xformCache->GetLocalToWorldTransform(prim);
         out.set("valid", true);
-        out.set("resolvedPrimPath", primPath);
-        out.set("primType", primType);
-        out.set("worldTransform", _Matrix4dToJsArray(worldMatrix));
+        out.set("resolvedPrimPath", nativeOverride.resolvedPrimPath);
+        out.set("primType", nativeOverride.primType);
+        out.set("worldTransform", _Matrix4dToJsArray(nativeOverride.worldTransform));
 
-        if (primType == "mesh") {
-            WebRenderDelegate::ProtoDataBlobRecord meshPayloadRecord;
-            if (_BuildMeshPayloadRecordFromPrim(prim, timeCode, worldMatrix, &meshPayloadRecord)) {
-                emscripten::val payload = emscripten::val::object();
-                {
-                    std::lock_guard<std::mutex> lock(_primOverrideMeshPayloadMutex);
-                    WebRenderDelegate::ProtoDataBlobRecord& cached = _primOverrideMeshPayloadCache[primPath];
-                    cached = std::move(meshPayloadRecord);
-                    payload = _ProtoDataBlobRecordToJsVal(cached);
+        if (nativeOverride.hasMeshPayload) {
+            emscripten::val payload = emscripten::val::object();
+            {
+                std::lock_guard<std::mutex> lock(_primOverrideMeshPayloadMutex);
+                WebRenderDelegate::ProtoDataBlobRecord& cached = _primOverrideMeshPayloadCache[primPath];
+                cached = std::move(nativeOverride.meshPayload);
+                payload = _ProtoDataBlobRecordToJsVal(cached);
+                if (!cached.geomSubsetSections.empty()) {
+                    out.set("geomSubsetSections", _GeomSubsetSectionsToJsArray(cached.geomSubsetSections));
                 }
-
-                out.set("meshPayload", payload);
-                // Keep flattened fields for compatibility with existing blob readers.
-                out.set("numVertices", payload["numVertices"]);
-                out.set("numIndices", payload["numIndices"]);
-                out.set("numUVs", payload["numUVs"]);
-                out.set("uvDimension", payload["uvDimension"]);
-                out.set("numNormals", payload["numNormals"]);
-                out.set("normalsDimension", payload["normalsDimension"]);
-                out.set("pointsPtr", payload["pointsPtr"]);
-                out.set("indicesPtr", payload["indicesPtr"]);
-                out.set("uvPtr", payload["uvPtr"]);
-                out.set("normalsPtr", payload["normalsPtr"]);
-                out.set("transformPtr", payload["transformPtr"]);
-                out.set("transform", payload["transform"]);
             }
+
+            out.set("meshPayload", payload);
+            // Keep flattened fields for compatibility with existing blob readers.
+            out.set("numVertices", payload["numVertices"]);
+            out.set("numIndices", payload["numIndices"]);
+            out.set("numUVs", payload["numUVs"]);
+            out.set("uvDimension", payload["uvDimension"]);
+            out.set("numNormals", payload["numNormals"]);
+            out.set("normalsDimension", payload["normalsDimension"]);
+            out.set("pointsPtr", payload["pointsPtr"]);
+            out.set("indicesPtr", payload["indicesPtr"]);
+            out.set("uvPtr", payload["uvPtr"]);
+            out.set("normalsPtr", payload["normalsPtr"]);
+            out.set("transformPtr", payload["transformPtr"]);
+            out.set("transform", payload["transform"]);
         }
 
-        std::array<double, 3> extentSize = {0.0, 0.0, 0.0};
-        if (_TryReadExtentSize(prim, timeCode, &extentSize)) {
-            out.set("extentSize", _Vec3ToJsArray(extentSize));
-            dirtyMask |= kFinalStageDirtyExtent;
+        if (nativeOverride.hasExtentSize) {
+            out.set("extentSize", _Vec3ToJsArray(nativeOverride.extentSize));
         }
 
-        if (primType == "cube") {
-            double size = 0.0;
-            if (_TryReadDoubleAttr(prim, "size", timeCode, &size)) {
-                out.set("size", size);
-                dirtyMask |= kFinalStageDirtyPrimitiveParams;
-            }
-        } else if (primType == "sphere" || primType == "cylinder" || primType == "capsule") {
-            double radius = 0.0;
-            if (_TryReadDoubleAttr(prim, "radius", timeCode, &radius)) {
-                out.set("radius", radius);
-                dirtyMask |= kFinalStageDirtyPrimitiveParams;
-            }
-            if (primType == "cylinder" || primType == "capsule") {
-                double height = 0.0;
-                if (_TryReadDoubleAttr(prim, "height", timeCode, &height)) {
-                    out.set("height", height);
-                    dirtyMask |= kFinalStageDirtyPrimitiveParams;
-                }
-                out.set("axis", _ReadAxisToken(prim, timeCode));
-                dirtyMask |= kFinalStageDirtyPrimitiveParams;
-            }
+        if (nativeOverride.hasSize) {
+            out.set("size", nativeOverride.size);
+        }
+        if (nativeOverride.hasRadius) {
+            out.set("radius", nativeOverride.radius);
+        }
+        if (nativeOverride.hasHeight) {
+            out.set("height", nativeOverride.height);
+        }
+        if (!nativeOverride.axis.empty()) {
+            out.set("axis", nativeOverride.axis);
         }
 
-        out.set("dirtyMask", static_cast<double>(dirtyMask));
+        out.set("dirtyMask", static_cast<double>(nativeOverride.dirtyMask));
         return out;
     }
 
@@ -2129,9 +4316,9 @@ private:
         UsdPrim const& prim,
         GfMatrix4d const& parentWorldMatrix,
         UsdTimeCode const& timeCode,
-        emscripten::val& worldMap,
-        emscripten::val& localMap,
-        size_t* primCount) {
+        std::vector<std::string>* primPaths,
+        std::vector<float>* worldValues,
+        std::vector<float>* localValues) {
         if (!prim) return;
 
         GfMatrix4d localMatrix(1.0);
@@ -2146,11 +4333,11 @@ private:
             : (parentWorldMatrix * localMatrix);
         const std::string primPath = prim.GetPath().GetString();
         if (!primPath.empty()) {
-            localMap.set(primPath, _Matrix4dToJsArray(localMatrix));
-            worldMap.set(primPath, _Matrix4dToJsArray(worldMatrix));
-            if (primCount) {
-                (*primCount)++;
+            if (primPaths) {
+                primPaths->push_back(primPath);
             }
+            _AppendMatrix4dRowMajor(localValues, localMatrix);
+            _AppendMatrix4dRowMajor(worldValues, worldMatrix);
         }
 
         for (UsdPrim const& child : prim.GetChildren()) {
@@ -2158,34 +4345,207 @@ private:
                 child,
                 worldMatrix,
                 timeCode,
-                worldMap,
-                localMap,
-                primCount);
+                primPaths,
+                worldValues,
+                localValues);
         }
+    }
+
+    static bool _StageRequiresSkinningBake(UsdStageRefPtr const& stage) {
+        if (!stage) return false;
+
+        for (UsdPrim const& prim : stage->Traverse()) {
+            if (!prim) continue;
+            if (prim.IsA<UsdSkelRoot>()
+                || prim.IsA<UsdSkelSkeleton>()
+                || prim.HasAPI<UsdSkelBindingAPI>()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     void _Init(UsdStageRefPtr const& usdStage,
                HdRprimCollection const &collection,
                SdfPath const &delegateId,
                TfTokenVector const &renderTags) {
+        DriverInitProfile initProfile;
+        const double initStartedAtMs = _NowSteadyMs();
+
+        const double renderIndexStartedAtMs = _NowSteadyMs();
         _renderIndex = HdRenderIndex::New(&_renderDelegate, HdDriverVector());
         TF_VERIFY(_renderIndex != nullptr);
-        _delegate = new UsdImagingDelegate(_renderIndex, delegateId);
+        initProfile.renderIndexCreateMs =
+            _NowSteadyMs() - renderIndexStartedAtMs;
 
+        const double delegateCreateStartedAtMs = _NowSteadyMs();
+        _delegate = new UsdImagingDelegate(_renderIndex, delegateId);
+        initProfile.delegateCreateMs =
+            _NowSteadyMs() - delegateCreateStartedAtMs;
+
+        const double stageAssignStartedAtMs = _NowSteadyMs();
         _stage = usdStage;
+        initProfile.stageAssignMs = _NowSteadyMs() - stageAssignStartedAtMs;
+
+        const double clearProtoCacheStartedAtMs = _NowSteadyMs();
         {
             std::lock_guard<std::mutex> lock(_primOverrideMeshPayloadMutex);
             _primOverrideMeshPayloadCache.clear();
         }
+        initProfile.clearProtoCacheMs =
+            _NowSteadyMs() - clearProtoCacheStartedAtMs;
 
-        UsdSkelBakeSkinning(_stage->Traverse());
-        _stage->Save();
+        const double skinningDetectStartedAtMs = _NowSteadyMs();
+        initProfile.stageHasSkinning = _StageRequiresSkinningBake(_stage);
+        initProfile.skinningDetectMs =
+            _NowSteadyMs() - skinningDetectStartedAtMs;
+
+        const double bakeSkinningStartedAtMs = _NowSteadyMs();
+        if (initProfile.stageHasSkinning) {
+            UsdSkelBakeSkinning(_stage->Traverse());
+        } else {
+            initProfile.bakeSkinningSkipped = true;
+        }
+        initProfile.bakeSkinningMs =
+            _NowSteadyMs() - bakeSkinningStartedAtMs;
+        initProfile.stageSaveSkipped = true;
+
+        const double populateStartedAtMs = _NowSteadyMs();
         _delegate->Populate(_stage->GetPseudoRoot());
+        initProfile.populateMs = _NowSteadyMs() - populateStartedAtMs;
 
+        const double geometryPassStartedAtMs = _NowSteadyMs();
         _geometryPass = HdRenderPassSharedPtr(
                        new Hd_UnitTestNullRenderPass(_renderIndex, collection));
+        initProfile.geometryPassMs =
+            _NowSteadyMs() - geometryPassStartedAtMs;
 
+        const double renderTagsStartedAtMs = _NowSteadyMs();
         _renderTags = renderTags;
+        initProfile.renderTagsMs = _NowSteadyMs() - renderTagsStartedAtMs;
+        initProfile.totalMs = _NowSteadyMs() - initStartedAtMs;
+        _lastInitProfile = initProfile;
+    }
+
+    static bool _ReadJsBooleanOption(
+        emscripten::val const& object,
+        char const* key,
+        bool fallback = false) {
+        try {
+            if (object.isUndefined() || object.isNull() || !key || !*key) {
+                return fallback;
+            }
+            emscripten::val value = object[key];
+            if (value.isUndefined() || value.isNull()) {
+                return fallback;
+            }
+
+            const std::string typeName = value.typeOf().as<std::string>();
+            if (typeName == "boolean") {
+                return value.as<bool>();
+            }
+            if (typeName == "number") {
+                return value.as<double>() != 0.0;
+            }
+            if (typeName == "string") {
+                std::string normalized = TfStringTrim(value.as<std::string>());
+                std::transform(
+                    normalized.begin(),
+                    normalized.end(),
+                    normalized.begin(),
+                    [](unsigned char c) {
+                        return static_cast<char>(std::tolower(c));
+                    });
+                if (normalized == "1"
+                    || normalized == "true"
+                    || normalized == "yes"
+                    || normalized == "on") {
+                    return true;
+                }
+                if (normalized == "0"
+                    || normalized == "false"
+                    || normalized == "no"
+                    || normalized == "off") {
+                    return false;
+                }
+            }
+        } catch (...) {
+        }
+        return fallback;
+    }
+
+    static bool _ShouldSkipSensorPayloadsOnOpen(
+        emscripten::val const& renderDelegateInterface) {
+        try {
+            if (renderDelegateInterface.isUndefined()
+                || renderDelegateInterface.isNull()) {
+                return false;
+            }
+            emscripten::val config = renderDelegateInterface["config"];
+            return _ReadJsBooleanOption(config, "skipSensorPayloadsOnOpen", false);
+        } catch (...) {
+            return false;
+        }
+    }
+
+    static bool _IsSkippableSensorPayloadPrim(UsdPrim const& prim) {
+        if (!prim || !prim.HasPayload()) {
+            return false;
+        }
+
+        const SdfPath primPath = prim.GetPath();
+        const std::string pathText = primPath.GetString();
+        if (pathText.find("{Sensor=Sensors}") != std::string::npos) {
+            return true;
+        }
+
+        try {
+            const std::string selection =
+                prim.GetVariantSets().GetVariantSelection("Sensor");
+            return selection == "Sensors";
+        } catch (...) {
+            return false;
+        }
+    }
+
+    static UsdStageRefPtr _OpenStageForPath(
+        emscripten::val const& renderDelegateInterface,
+        std::string const& usdFilePath) {
+        if (!_ShouldSkipSensorPayloadsOnOpen(renderDelegateInterface)) {
+            return UsdStage::Open(usdFilePath);
+        }
+
+        UsdStageRefPtr stage = UsdStage::Open(usdFilePath, UsdStage::LoadNone);
+        if (!stage) {
+            return stage;
+        }
+
+        SdfPathSet loadSet;
+        bool skippedSensorPayload = false;
+        for (UsdPrim const& prim : stage->Traverse()) {
+            if (!prim || !prim.HasPayload()) {
+                continue;
+            }
+            if (_IsSkippableSensorPayloadPrim(prim)) {
+                skippedSensorPayload = true;
+                continue;
+            }
+            loadSet.insert(prim.GetPath());
+        }
+
+        if (!skippedSensorPayload) {
+            return UsdStage::Open(usdFilePath);
+        }
+
+        try {
+            if (!loadSet.empty()) {
+                stage->LoadAndUnload(loadSet, SdfPathSet(), UsdLoadWithDescendants);
+            }
+        } catch (...) {
+            return UsdStage::Open(usdFilePath);
+        }
+        return stage;
     }
 };
 

@@ -1,7 +1,7 @@
 diff --git a/public/emHdBindings.js b/public/emHdBindings.js
 --- a/public/emHdBindings.js
 +++ b/public/emHdBindings.js
-@@ -11963,6 +11953,4 @@
+@@ -11963,4 +11953,6 @@
      Module["FS_unlink"] = FS.unlink;
      Module["PThread"] = PThread;
 +    Module["FS_readdir"] = FS.readdir;

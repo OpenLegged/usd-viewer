@@ -3,6 +3,7 @@ export type RenderRobotJointCatalogEntry = {
   jointPath: string | null;
   jointName: string;
   jointType: string;
+  jointTypeName?: string | null;
   parentLinkPath: string | null;
   axisToken: "X" | "Y" | "Z";
   axisLocal: [number, number, number];
@@ -34,6 +35,8 @@ export type RenderRobotMetadataSnapshot = {
 };
 
 function toFiniteNumber(value: any): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return null;
   return numeric;
@@ -77,6 +80,22 @@ function toQuaternionTuple(value: any, fallback: [number, number, number, number
   return [x, y, z, w];
 }
 
+function toQuaternionWxyzTupleAsXyzw(
+  value: any,
+  fallback: [number, number, number, number],
+): [number, number, number, number] {
+  const source = Array.isArray(value)
+    ? value
+    : (value && typeof value.length === "number" ? Array.from(value) : null);
+  if (!source || source.length < 4) return fallback;
+  const w = toFiniteNumber(source[0]);
+  const x = toFiniteNumber(source[1]);
+  const y = toFiniteNumber(source[2]);
+  const z = toFiniteNumber(source[3]);
+  if (x === null || y === null || z === null || w === null) return fallback;
+  return [x, y, z, w];
+}
+
 function toCollisionPrimitiveCounts(value: any): Record<string, number> {
   if (!value || typeof value !== "object") return {};
   const output: Record<string, number> = {};
@@ -96,11 +115,12 @@ export function normalizeRenderRobotMetadataSnapshot(raw: any): RenderRobotMetad
     ? (raw as any).jointCatalogEntries
     : [];
   for (const entry of rawJointCatalogEntries) {
-    const linkPath = normalizePath((entry as any)?.linkPath);
+    const linkPath = normalizePath((entry as any)?.linkPath || (entry as any)?.childLinkPath);
     if (!linkPath) continue;
     const jointPath = normalizePath((entry as any)?.jointPath);
     const jointName = String((entry as any)?.jointName || "").trim();
-    const jointType = String((entry as any)?.jointType || "PhysicsRevoluteJoint").trim() || "PhysicsRevoluteJoint";
+    const jointType = String((entry as any)?.jointType || "PhysicsJoint").trim() || "PhysicsJoint";
+    const jointTypeNameRaw = String((entry as any)?.jointTypeName || "").trim();
     const parentLinkPath = normalizePath((entry as any)?.parentLinkPath);
     const lowerLimitDeg = toFiniteNumber((entry as any)?.lowerLimitDeg);
     const upperLimitDeg = toFiniteNumber((entry as any)?.upperLimitDeg);
@@ -110,6 +130,7 @@ export function normalizeRenderRobotMetadataSnapshot(raw: any): RenderRobotMetad
       jointPath,
       jointName: jointName || (jointPath ? jointPath.split("/").pop() || "" : ""),
       jointType,
+      jointTypeName: jointTypeNameRaw || null,
       parentLinkPath,
       axisToken: toAxisToken((entry as any)?.axisToken),
       axisLocal: toVector3Tuple((entry as any)?.axisLocal, [1, 0, 0]),
@@ -138,7 +159,9 @@ export function normalizeRenderRobotMetadataSnapshot(raw: any): RenderRobotMetad
       mass,
       centerOfMassLocal: toVector3Tuple((entry as any)?.centerOfMassLocal, [0, 0, 0]),
       diagonalInertia,
-      principalAxesLocal: toQuaternionTuple((entry as any)?.principalAxesLocal, [0, 0, 0, 1]),
+      principalAxesLocal: Array.isArray((entry as any)?.principalAxesLocal)
+        ? toQuaternionTuple((entry as any)?.principalAxesLocal, [0, 0, 0, 1])
+        : toQuaternionWxyzTupleAsXyzw((entry as any)?.principalAxesLocalWxyz, [0, 0, 0, 1]),
     });
   }
 

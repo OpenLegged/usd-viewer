@@ -1,16 +1,20 @@
 {
   "name": "usd-viewer",
   "version": "0.1.0",
+  "private": true,
   "description": "OpenUSD WASM robot viewer with Hydra rendering and a fast load pipeline / 基于 OpenUSD WASM 的机器人模型 Viewer，支持 Hydra 渲染与快速加载链路",
-  "main": "server.ts",
+  "main": "server.js",
   "scripts": {
-    "build": "npm run build:usd-wasm && node node_modules/typescript/bin/tsc -p tsconfig.json && node scripts/sync-vendor.cjs",
+    "build": "npm run build:usd-text-parser && npm run build:usd-wasm && node node_modules/typescript/bin/tsc -p tsconfig.json && node scripts/sync-vendor.cjs",
     "build:usd-wasm": "node node_modules/typescript/bin/tsc -p usd-wasm/tsconfig.hydra.json",
     "rebuild:wasm:speed": "bash scripts/rebuild-wasm-speed.sh",
     "sync:openusd": "bash scripts/sync-openusd-source.sh",
     "start": "npm run build && node node_modules/typescript/bin/tsc server.ts --target ES2021 --module commonjs --noCheck --outDir . && node server.js",
     "accept": "npm run build && node node_modules/typescript/bin/tsc server.ts --target ES2021 --module commonjs --noCheck --outDir . && VALIDATE_ONLY=1 node server.js",
-    "cleanup": "node scripts/cleanup-headless.cjs"
+    "cleanup": "node scripts/cleanup-headless.cjs",
+    "build:usd-text-parser": "node node_modules/typescript/bin/tsc -p packages/usd-text-parser/tsconfig.json",
+    "check:usd-text-parser": "npm run build:usd-text-parser && node scripts/check-usd-text-parser-package.mjs",
+    "pack:usd-text-parser": "npm run build:usd-text-parser && npm pack ./packages/usd-text-parser"
   },
   "dependencies": {
     "@fastify/compress": "^7.0.3",
@@ -23,15 +27,23 @@
     "node": ">16.x"
   },
   "repository": {
-    "url": "https://glitch.com/edit/#!/usd-viewer"
+    "type": "git",
+    "url": "git+https://github.com/OpenLegged/usd-viewer.git"
   },
-  "license": "Apache 2.0 License",
+  "bugs": {
+    "url": "https://github.com/OpenLegged/usd-viewer/issues"
+  },
+  "homepage": "https://github.com/OpenLegged/usd-viewer",
+  "license": "Apache-2.0",
   "keywords": [
     "usd",
     "usdz",
-    "viewer"
+    "viewer",
+    "wasm",
+    "robotics"
   ],
   "devDependencies": {
+    "@types/node": "^24.6.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "playwright": "^1.58.2",

@@ -64,6 +64,10 @@ export function toTokenString(value) {
     return String(value ?? "");
 }
 export function toFiniteNumber(value) {
+    if (value === null || value === undefined)
+        return null;
+    if (typeof value === "string" && value.trim() === "")
+        return null;
     const numeric = Number(value);
     if (!Number.isFinite(numeric))
         return null;
@@ -194,6 +198,10 @@ export function isControllableRevoluteJointTypeName(typeName) {
     const normalized = String(typeName || "").trim().toLowerCase();
     if (!normalized)
         return false;
+    if (normalized === "revolute" || normalized === "continuous")
+        return true;
+    if (normalized.includes("continuousjoint") || normalized.endsWith("continuousjoint"))
+        return true;
     return normalized.includes("revolutejoint") || normalized === "revolutejoint" || normalized.endsWith("revolutejoint");
 }
 export function isPhysicsJointTypeName(typeName) {

@@ -1,20 +1,53 @@
 import { normalizeUsdPath } from "./path-utils.js";
 export function bindViewerUi(options) {
-    const { showLinkDynamics, showVisualMeshes, showCollisionMeshes, onToggleLinkDynamics, onToggleVisualMeshes, onToggleCollisionMeshes, onUploadedFileList, onSelectUsdFilePath, onFilePickerStateChange, } = options;
+    const { showLinkDynamics, showVisualMeshes, showCollisionMeshes, onToggleLinkDynamics, onToggleVisualMeshes, onToggleCollisionMeshes, onExportRoundtripUsd, onUploadedFileList, onSelectUsdFilePath, onFilePickerStateChange, } = options;
+    const cleanupHandlers = [];
+    const bind = (target, eventName, handler, options) => {
+        if (!target)
+            return;
+        target.addEventListener(eventName, handler, options);
+        cleanupHandlers.push(() => {
+            target.removeEventListener(eventName, handler, options);
+        });
+    };
     const toggleLinkDynamics = document.getElementById("toggle-link-dynamics");
     if (toggleLinkDynamics) {
         toggleLinkDynamics.checked = showLinkDynamics;
-        toggleLinkDynamics.addEventListener("change", () => onToggleLinkDynamics(toggleLinkDynamics.checked));
+        const handleChange = () => {
+            void onToggleLinkDynamics(toggleLinkDynamics.checked);
+        };
+        bind(toggleLinkDynamics, "change", handleChange);
     }
     const toggleVisuals = document.getElementById("toggle-visuals");
     if (toggleVisuals) {
         toggleVisuals.checked = showVisualMeshes;
-        toggleVisuals.addEventListener("change", () => onToggleVisualMeshes(toggleVisuals.checked));
+        const handleChange = () => {
+            void onToggleVisualMeshes(toggleVisuals.checked);
+        };
+        bind(toggleVisuals, "change", handleChange);
     }
     const toggleCollisions = document.getElementById("toggle-collisions");
     if (toggleCollisions) {
         toggleCollisions.checked = showCollisionMeshes;
-        toggleCollisions.addEventListener("change", () => onToggleCollisionMeshes(toggleCollisions.checked));
+        const handleChange = () => {
+            void onToggleCollisionMeshes(toggleCollisions.checked);
+        };
+        bind(toggleCollisions, "change", handleChange);
+    }
+    const exportRoundtripButton = document.getElementById("export-roundtrip-usd");
+    if (exportRoundtripButton && onExportRoundtripUsd) {
+        const handleClick = async () => {
+            if (exportRoundtripButton.disabled)
+                return;
+            exportRoundtripButton.disabled = true;
+            try {
+                await onExportRoundtripUsd();
+            }
+            finally {
+                exportRoundtripButton.disabled = false;
+            }
+        };
+        bind(exportRoundtripButton, "click", handleClick);
     }
     const fileInput = document.getElementById("file-input");
     if (fileInput) {
@@ -31,11 +64,9 @@ export function bindViewerUi(options) {
             pickerOpen = false;
             onFilePickerStateChange?.(false);
         };
-        fileInput.addEventListener("click", openPicker);
-        fileInput.addEventListener("cancel", closePicker);
-        fileInput.addEventListener("blur", () => setTimeout(closePicker, 0));
-        window.addEventListener("focus", () => setTimeout(closePicker, 0));
-        fileInput.addEventListener("change", async () => {
+        const handleBlur = () => setTimeout(closePicker, 0);
+        const handleWindowFocus = () => setTimeout(closePicker, 0);
+        const handleChange = async () => {
             try {
                 if (!fileInput.files?.length)
                     return;
@@ -45,7 +76,12 @@ export function bindViewerUi(options) {
                 fileInput.value = "";
                 setTimeout(closePicker, 0);
             }
-        });
+        };
+        bind(fileInput, "click", openPicker);
+        bind(fileInput, "cancel", closePicker);
+        bind(fileInput, "blur", handleBlur);
+        bind(window, "focus", handleWindowFocus);
+        bind(fileInput, "change", handleChange);
     }
     const folderInput = document.getElementById("folder-input");
     if (folderInput) {
@@ -62,11 +98,9 @@ export function bindViewerUi(options) {
             pickerOpen = false;
             onFilePickerStateChange?.(false);
         };
-        folderInput.addEventListener("click", openPicker);
-        folderInput.addEventListener("cancel", closePicker);
-        folderInput.addEventListener("blur", () => setTimeout(closePicker, 0));
-        window.addEventListener("focus", () => setTimeout(closePicker, 0));
-        folderInput.addEventListener("change", async () => {
+        const handleBlur = () => setTimeout(closePicker, 0);
+        const handleWindowFocus = () => setTimeout(closePicker, 0);
+        const handleChange = async () => {
             try {
                 if (!folderInput.files?.length)
                     return;
@@ -76,10 +110,15 @@ export function bindViewerUi(options) {
                 folderInput.value = "";
                 setTimeout(closePicker, 0);
             }
-        });
+        };
+        bind(folderInput, "click", openPicker);
+        bind(folderInput, "cancel", closePicker);
+        bind(folderInput, "blur", handleBlur);
+        bind(window, "focus", handleWindowFocus);
+        bind(folderInput, "change", handleChange);
     }
     for (const link of document.querySelectorAll("a.file")) {
-        link.addEventListener("click", async (event) => {
+        const handleClick = async (event) => {
             event.preventDefault();
             const href = event.currentTarget.href;
             if (!href)
@@ -89,6 +128,16 @@ export function bindViewerUi(options) {
             if (!requestedFile)
                 return;
             await onSelectUsdFilePath(requestedFile);
-        });
+        };
+        bind(link, "click", handleClick);
     }
+    return () => {
+        while (cleanupHandlers.length > 0) {
+            const cleanup = cleanupHandlers.pop();
+            try {
+                cleanup?.();
+            }
+            catch { }
+        }
+    };
 }

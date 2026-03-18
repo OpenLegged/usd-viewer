@@ -1,4 +1,8 @@
 function toFiniteNumber(value) {
+    if (value === null || value === undefined)
+        return null;
+    if (typeof value === "string" && value.trim() === "")
+        return null;
     const numeric = Number(value);
     if (!Number.isFinite(numeric))
         return null;
@@ -45,6 +49,20 @@ function toQuaternionTuple(value, fallback) {
         return fallback;
     return [x, y, z, w];
 }
+function toQuaternionWxyzTupleAsXyzw(value, fallback) {
+    const source = Array.isArray(value)
+        ? value
+        : (value && typeof value.length === "number" ? Array.from(value) : null);
+    if (!source || source.length < 4)
+        return fallback;
+    const w = toFiniteNumber(source[0]);
+    const x = toFiniteNumber(source[1]);
+    const y = toFiniteNumber(source[2]);
+    const z = toFiniteNumber(source[3]);
+    if (x === null || y === null || z === null || w === null)
+        return fallback;
+    return [x, y, z, w];
+}
 function toCollisionPrimitiveCounts(value) {
     if (!value || typeof value !== "object")
         return {};
@@ -65,12 +83,13 @@ export function normalizeRenderRobotMetadataSnapshot(raw) {
         ? raw.jointCatalogEntries
         : [];
     for (const entry of rawJointCatalogEntries) {
-        const linkPath = normalizePath(entry?.linkPath);
+        const linkPath = normalizePath(entry?.linkPath || entry?.childLinkPath);
         if (!linkPath)
             continue;
         const jointPath = normalizePath(entry?.jointPath);
         const jointName = String(entry?.jointName || "").trim();
-        const jointType = String(entry?.jointType || "PhysicsRevoluteJoint").trim() || "PhysicsRevoluteJoint";
+        const jointType = String(entry?.jointType || "PhysicsJoint").trim() || "PhysicsJoint";
+        const jointTypeNameRaw = String(entry?.jointTypeName || "").trim();
         const parentLinkPath = normalizePath(entry?.parentLinkPath);
         const lowerLimitDeg = toFiniteNumber(entry?.lowerLimitDeg);
         const upperLimitDeg = toFiniteNumber(entry?.upperLimitDeg);
@@ -80,6 +99,7 @@ export function normalizeRenderRobotMetadataSnapshot(raw) {
             jointPath,
             jointName: jointName || (jointPath ? jointPath.split("/").pop() || "" : ""),
             jointType,
+            jointTypeName: jointTypeNameRaw || null,
             parentLinkPath,
             axisToken: toAxisToken(entry?.axisToken),
             axisLocal: toVector3Tuple(entry?.axisLocal, [1, 0, 0]),
@@ -108,7 +128,9 @@ export function normalizeRenderRobotMetadataSnapshot(raw) {
             mass,
             centerOfMassLocal: toVector3Tuple(entry?.centerOfMassLocal, [0, 0, 0]),
             diagonalInertia,
-            principalAxesLocal: toQuaternionTuple(entry?.principalAxesLocal, [0, 0, 0, 1]),
+            principalAxesLocal: Array.isArray(entry?.principalAxesLocal)
+                ? toQuaternionTuple(entry?.principalAxesLocal, [0, 0, 0, 1])
+                : toQuaternionWxyzTupleAsXyzw(entry?.principalAxesLocalWxyz, [0, 0, 0, 1]),
         });
     }
     const meshCountsByLinkPathRaw = raw.meshCountsByLinkPath;

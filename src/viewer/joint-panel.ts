@@ -57,6 +57,17 @@ export class JointPanelController {
     this.renderStatus("No joint data loaded.");
   }
 
+  dispose(): void {
+    this.clear();
+    if (this.header) {
+      this.header.removeEventListener("pointerdown", this.handlePointerDown);
+    }
+    window.removeEventListener("pointermove", this.handlePointerMove);
+    window.removeEventListener("pointerup", this.handlePointerUp);
+    window.removeEventListener("pointercancel", this.handlePointerUp);
+    this.dragging = false;
+  }
+
   async refresh(): Promise<void> {
     if (!this.list) return;
     this.renderStatus("Loading joints...");

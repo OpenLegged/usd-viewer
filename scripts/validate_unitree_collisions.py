@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,7 +104,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def _run_command(command: list[str], cwd: Path) -> None:
-    subprocess.run(command, cwd=str(cwd), check=True)
+    env = os.environ.copy()
+    node_modules_path = cwd / "node_modules"
+    if node_modules_path.exists():
+        existing_node_path = env.get("NODE_PATH", "").strip()
+        env["NODE_PATH"] = (
+            f"{node_modules_path}{os.pathsep}{existing_node_path}"
+            if existing_node_path
+            else str(node_modules_path)
+        )
+    subprocess.run(command, cwd=str(cwd), check=True, env=env)
 
 
 def _supports_node_strip_types(workspace: Path) -> bool:
@@ -118,6 +128,13 @@ def _supports_node_strip_types(workspace: Path) -> bool:
     except Exception:
         return False
     return completed.returncode == 0
+
+
+def _summarize_path(path: Path, workspace: Path) -> str:
+    try:
+        return str(path.relative_to(workspace))
+    except ValueError:
+        return str(path)
 
 
 def _resolve_typescript_runner(workspace: Path, output_dir: Path, script_relative_path: str) -> list[str]:
@@ -393,13 +410,13 @@ def main() -> None:
             "mesh_pass": mesh_pass,
             "joint_pass": joint_pass,
             "inertial_pass": inertial_pass,
-            "collision_report": str(collision_report_output.relative_to(workspace)),
-            "mesh_report": str(mesh_report_output.relative_to(workspace)),
-            "joint_report": str(joint_report_output.relative_to(workspace)),
-            "inertial_report": str(inertial_report_output.relative_to(workspace)),
-            "viewer_visual_dump": str(viewer_visual_output.relative_to(workspace)),
-            "viewer_collision_dump": str(viewer_collision_output.relative_to(workspace)),
-            "viewer_joint_dump": str(viewer_joint_output.relative_to(workspace)),
+            "collision_report": _summarize_path(collision_report_output, workspace),
+            "mesh_report": _summarize_path(mesh_report_output, workspace),
+            "joint_report": _summarize_path(joint_report_output, workspace),
+            "inertial_report": _summarize_path(inertial_report_output, workspace),
+            "viewer_visual_dump": _summarize_path(viewer_visual_output, workspace),
+            "viewer_collision_dump": _summarize_path(viewer_collision_output, workspace),
+            "viewer_joint_dump": _summarize_path(viewer_joint_output, workspace),
             "collision_failed_count": int(collision_summary.get("failed_count", 0)),
             "mesh_failed_count": int(mesh_summary.get("failed_count", 0)),
             "joint_failed_count": int(joint_summary.get("failed_count", 0)),

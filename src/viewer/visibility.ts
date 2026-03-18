@@ -1,5 +1,8 @@
 import { Mesh, Material } from "three";
 
+const VISUAL_SEGMENT_PATTERN = /(?:^|\/)visuals?(?:$|[/.])/i;
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
+
 type HydraMeshLike = {
   _mesh?: Mesh;
   ensureProtoReadyForVisibility?: () => boolean;
@@ -8,17 +11,12 @@ type RenderInterfaceLike = { meshes?: Record<string, HydraMeshLike> } | null | u
 
 function matchesVisualIdentifier(value = ""): boolean {
   const source = String(value || "").toLowerCase();
-  return source.includes("/visuals.") || source.includes("/visuals/") || source.includes("/visual.");
+  return VISUAL_SEGMENT_PATTERN.test(source);
 }
 
 function matchesCollisionIdentifier(value = ""): boolean {
   const source = String(value || "").toLowerCase();
-  return (
-    source.includes("/collisions.") ||
-    source.includes("/collisions/") ||
-    source.includes("/collision.") ||
-    source.includes("/collision/")
-  );
+  return COLLISION_SEGMENT_PATTERN.test(source);
 }
 
 export function isVisualMeshId(meshId: string, meshName = ""): boolean {

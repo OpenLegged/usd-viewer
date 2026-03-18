@@ -163,10 +163,12 @@ def _extract_truth_joints(truth: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "joint_path": _normalize_path(entry.get("path")),
                 "joint_name": str(entry.get("name") or "").strip(),
+                "joint_type": str(entry.get("joint_type") or entry.get("jointType") or "").strip().lower(),
                 "axis_token": _normalize_axis_token(entry.get("axis")),
                 "body1_path": _normalize_path(entry.get("body1_path")),
                 "lower_limit_deg": _to_finite_float(entry.get("lower_limit_deg")),
                 "upper_limit_deg": _to_finite_float(entry.get("upper_limit_deg")),
+                "local_rot0_wxyz": _to_quaternion_wxyz(entry.get("local_rot0_wxyz")),
                 "local_rot1_wxyz": _to_quaternion_wxyz(entry.get("local_rot1_wxyz")),
             }
         )
@@ -188,7 +190,13 @@ def _extract_viewer_joints(viewer: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "joint_path": _normalize_path(entry.get("jointPath") or entry.get("joint_path")),
                 "joint_name": str(entry.get("jointName") or entry.get("joint_name") or "").strip(),
-                "link_path": _normalize_path(entry.get("linkPath") or entry.get("link_path")),
+                "joint_type": str(entry.get("jointType") or entry.get("joint_type") or "").strip().lower(),
+                "link_path": _normalize_path(
+                    entry.get("linkPath")
+                    or entry.get("childLinkPath")
+                    or entry.get("link_path")
+                    or entry.get("child_link_path")
+                ),
                 "axis_token": _normalize_axis_token(entry.get("axisToken") or entry.get("axis")),
                 "axis_local": _to_vector3(entry.get("axisLocal") or entry.get("axis_local")),
                 "lower_limit_deg": _to_finite_float(entry.get("lowerLimitDeg") or entry.get("lower_limit_deg")),
@@ -197,7 +205,6 @@ def _extract_viewer_joints(viewer: dict[str, Any]) -> list[dict[str, Any]]:
         )
     output.sort(key=lambda item: (item.get("joint_path", ""), item.get("link_path", "")))
     return output
-
 
 def main() -> None:
     args = parse_args()
@@ -210,6 +217,7 @@ def main() -> None:
     viewer = _load_json(viewer_path)
     truth_joints = _extract_truth_joints(truth)
     viewer_joints = _extract_viewer_joints(viewer)
+    expected_axis_frame = "local_rot1_wxyz"
 
     viewer_by_joint_path: dict[str, dict[str, Any]] = {}
     viewer_by_link_path: dict[str, list[dict[str, Any]]] = {}
@@ -229,6 +237,7 @@ def main() -> None:
     for truth_joint in truth_joints:
         truth_joint_path = str(truth_joint.get("joint_path") or "")
         truth_joint_name = str(truth_joint.get("joint_name") or "")
+        truth_joint_type = str(truth_joint.get("joint_type") or "").strip().lower()
         truth_body1_path = str(truth_joint.get("body1_path") or "")
         truth_axis_token = _normalize_axis_token(truth_joint.get("axis_token"))
 
@@ -249,13 +258,16 @@ def main() -> None:
             matched_viewer_keys.add(viewer_key)
 
         viewer_axis_token = _normalize_axis_token(viewer_joint.get("axis_token"))
-        axis_token_match = (viewer_axis_token == truth_axis_token) and bool(truth_axis_token)
+        viewer_joint_type = str(viewer_joint.get("joint_type") or "").strip().lower()
+        axis_token_match = not truth_axis_token or viewer_axis_token == truth_axis_token
 
-        expected_axis_local = _axis_vector_from_token(truth_axis_token or "X")
-        expected_axis_local = _rotate_vector_by_quaternion_wxyz(
-            expected_axis_local,
-            _to_quaternion_wxyz(truth_joint.get("local_rot1_wxyz")),
-        )
+        expected_axis_local = None
+        if truth_axis_token:
+            expected_axis_local = _axis_vector_from_token(truth_axis_token or "X")
+            expected_axis_local = _rotate_vector_by_quaternion_wxyz(
+                expected_axis_local,
+                _to_quaternion_wxyz(truth_joint.get(expected_axis_frame)),
+            )
         viewer_axis_local = _to_vector3(viewer_joint.get("axis_local"))
         axis_angle_error_deg = _angle_deg_between_vectors(viewer_axis_local, expected_axis_local)
 
@@ -292,12 +304,15 @@ def main() -> None:
             "joint_name": truth_joint_name,
             "truth_joint_path": truth_joint_path or None,
             "truth_body1_path": truth_body1_path or None,
+            "truth_joint_type": truth_joint_type or None,
             "viewer_joint_path": viewer_joint.get("joint_path"),
             "viewer_link_path": viewer_joint.get("link_path"),
+            "viewer_joint_type": viewer_joint_type or None,
             "matched_by": matched_by,
             "truth_axis_token": truth_axis_token,
             "viewer_axis_token": viewer_axis_token,
             "axis_token_match": axis_token_match,
+            "expected_axis_frame": expected_axis_frame,
             "viewer_axis_local": viewer_axis_local,
             "expected_axis_local": expected_axis_local,
             "axis_angle_error_deg": axis_angle_error_deg,
@@ -346,6 +361,12 @@ def main() -> None:
     report = {
         "source_truth": str(truth_path),
         "source_viewer": str(viewer_path),
+        "viewer_snapshot_source": str(
+            viewer.get("snapshot_source")
+            or viewer.get("snapshotSource")
+            or viewer.get("source")
+            or ""
+        ),
         "thresholds": {
             "axis_angle_threshold_deg": float(args.axis_angle_threshold_deg),
             "limit_threshold_deg": float(args.limit_threshold_deg),

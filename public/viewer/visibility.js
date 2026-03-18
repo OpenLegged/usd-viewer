@@ -1,13 +1,12 @@
+const VISUAL_SEGMENT_PATTERN = /(?:^|\/)visuals?(?:$|[/.])/i;
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
 function matchesVisualIdentifier(value = "") {
     const source = String(value || "").toLowerCase();
-    return source.includes("/visuals.") || source.includes("/visuals/") || source.includes("/visual.");
+    return VISUAL_SEGMENT_PATTERN.test(source);
 }
 function matchesCollisionIdentifier(value = "") {
     const source = String(value || "").toLowerCase();
-    return (source.includes("/collisions.") ||
-        source.includes("/collisions/") ||
-        source.includes("/collision.") ||
-        source.includes("/collision/"));
+    return COLLISION_SEGMENT_PATTERN.test(source);
 }
 export function isVisualMeshId(meshId, meshName = "") {
     return matchesVisualIdentifier(meshId) || matchesVisualIdentifier(meshName);

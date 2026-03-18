@@ -59,9 +59,58 @@ function buildConfigurationFileIndex(rootDir: string) {
 }
 
 const unitreeModelRoot = path.join(__dirname, "unitree_model");
-const configurationFileIndex = buildConfigurationFileIndex(unitreeModelRoot);
 const piperIsaacSimRoot = path.join(__dirname, "piper_isaac_sim");
 const robotsRoot = path.join(__dirname, "Robots");
+const usdTextParserDistRoot = path.join(__dirname, "packages/usd-text-parser/dist");
+const unitreeConfigurationFileIndex = buildConfigurationFileIndex(unitreeModelRoot);
+const piperConfigurationFileIndex = buildConfigurationFileIndex(piperIsaacSimRoot);
+const robotsConfigurationFileIndex = buildConfigurationFileIndex(robotsRoot);
+const configurationFileIndex = new Map<string, string>(unitreeConfigurationFileIndex);
+for (const [fileName, filePath] of piperConfigurationFileIndex) {
+  if (!configurationFileIndex.has(fileName)) {
+    configurationFileIndex.set(fileName, filePath);
+  }
+}
+for (const [fileName, filePath] of robotsConfigurationFileIndex) {
+  if (!configurationFileIndex.has(fileName)) {
+    configurationFileIndex.set(fileName, filePath);
+  }
+}
+const exportRoots = [
+  { virtualPrefix: "/unitree_model", diskRoot: unitreeModelRoot },
+  { virtualPrefix: "/piper_isaac_sim", diskRoot: piperIsaacSimRoot },
+  { virtualPrefix: "/Robots", diskRoot: robotsRoot },
+];
+
+function normalizeVirtualExportPath(rawPath: unknown): string {
+  const normalized = String(rawPath || "").trim().replaceAll("\\", "/");
+  if (!normalized.startsWith("/")) return "";
+  if (normalized.includes("..")) return "";
+  return normalized;
+}
+
+function resolveExportDiskPath(virtualPath: string): { virtualPath: string; diskPath: string } | null {
+  const normalizedVirtualPath = normalizeVirtualExportPath(virtualPath);
+  if (!normalizedVirtualPath) return null;
+  if (!/\.(usd|usda|usdc)$/i.test(normalizedVirtualPath)) return null;
+
+  for (const { virtualPrefix, diskRoot } of exportRoots) {
+    if (!normalizedVirtualPath.startsWith(`${virtualPrefix}/`)) continue;
+    const relativePath = normalizedVirtualPath.slice(virtualPrefix.length + 1);
+    if (!relativePath) return null;
+    const resolvedDiskPath = path.resolve(diskRoot, relativePath);
+    const normalizedDiskRoot = `${path.resolve(diskRoot)}${path.sep}`;
+    if (resolvedDiskPath !== path.resolve(diskRoot) && !resolvedDiskPath.startsWith(normalizedDiskRoot)) {
+      return null;
+    }
+    return {
+      virtualPath: normalizedVirtualPath,
+      diskPath: resolvedDiskPath,
+    };
+  }
+
+  return null;
+}
 
 fastify.register(require("@fastify/compress"), {
   // Prioritize smaller transfer size for large WASM/data assets.
@@ -98,20 +147,89 @@ fastify.register(require("@fastify/static"), {
   decorateReply: false,
 });
 
-fastify.get("/configuration/:fileName", async (request: any, reply: any) => {
-  const fileName = String(request.params?.fileName || "");
+fastify.register(require("@fastify/static"), {
+  root: usdTextParserDistRoot,
+  prefix: "/packages/usd-text-parser/dist",
+  setHeaders,
+  decorateReply: false,
+});
+
+function buildConfigurationPlaceholderUsd(fileName: string): string | null {
+  if (!/^[a-zA-Z0-9_.-]+$/.test(fileName)) return null;
+  if (!/_(base|physics|robot|sensor)\.usd$/i.test(fileName)) return null;
+  const defaultPrimName = /_sensor\.usd$/i.test(fileName) ? "Sensors" : "Config";
+  return [
+    "#usda 1.0",
+    "(",
+    `    defaultPrim = "${defaultPrimName}"`,
+    ")",
+    "",
+    `def Xform "${defaultPrimName}"`,
+    "{",
+    "}",
+    "",
+  ].join("\n");
+}
+
+function sendIndexedConfigurationFile(reply: any, fileName: string) {
   if (!/^[a-zA-Z0-9_.-]+$/.test(fileName)) {
     return reply.code(400).send("Invalid configuration path");
   }
 
   const filePath = configurationFileIndex.get(fileName);
   if (!filePath) {
-    return reply.code(404).send("Not Found");
+    const placeholderUsd = buildConfigurationPlaceholderUsd(fileName);
+    if (!placeholderUsd) {
+      return reply.code(404).send("Not Found");
+    }
+    reply.header("Content-Type", "application/octet-stream");
+    reply.header("X-Usd-Placeholder", "1");
+    return reply.send(placeholderUsd);
   }
 
   setHeaders(reply.raw, filePath, null);
   reply.header("Content-Type", "application/octet-stream");
   return reply.send(fs.createReadStream(filePath));
+}
+
+fastify.get("/Robots/:vendor/:model/configuration/:fileName", async (request: any, reply: any) => {
+  const fileName = String(request.params?.fileName || "");
+  return sendIndexedConfigurationFile(reply, fileName);
+});
+
+fastify.get("/configuration/:fileName", async (request: any, reply: any) => {
+  const fileName = String(request.params?.fileName || "");
+  return sendIndexedConfigurationFile(reply, fileName);
+});
+
+fastify.post("/api/write-usd-export", async (request: any, reply: any) => {
+  const virtualPath = String(request.body?.virtualPath || "");
+  const content = request.body?.content;
+  const overwrite = request.body?.overwrite !== false;
+  const resolved = resolveExportDiskPath(virtualPath);
+
+  if (!resolved) {
+    return reply.code(400).send({
+      ok: false,
+      error: "Invalid export path. Expected /unitree_model, /piper_isaac_sim, or /Robots USD path.",
+    });
+  }
+  if (typeof content !== "string" || content.length <= 0) {
+    return reply.code(400).send({ ok: false, error: "Missing export content." });
+  }
+  if (!overwrite && fs.existsSync(resolved.diskPath)) {
+    return reply.code(409).send({ ok: false, error: "Export path already exists.", virtualPath: resolved.virtualPath });
+  }
+
+  fs.mkdirSync(path.dirname(resolved.diskPath), { recursive: true });
+  fs.writeFileSync(resolved.diskPath, content, "utf-8");
+
+  return {
+    ok: true,
+    virtualPath: resolved.virtualPath,
+    filePath: resolved.diskPath,
+    bytesWritten: Buffer.byteLength(content, "utf-8"),
+  };
 });
 
 fastify.register(require("@fastify/static"), {

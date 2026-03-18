@@ -122,6 +122,8 @@ export function toTokenString(value: any): string {
 }
 
 export function toFiniteNumber(value: any): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return null;
   return numeric;
@@ -254,6 +256,8 @@ export function safeGetPrimTypeName(prim: RevoluteJointPrimLike | null): string 
 export function isControllableRevoluteJointTypeName(typeName: string): boolean {
   const normalized = String(typeName || "").trim().toLowerCase();
   if (!normalized) return false;
+  if (normalized === "revolute" || normalized === "continuous") return true;
+  if (normalized.includes("continuousjoint") || normalized.endsWith("continuousjoint")) return true;
   return normalized.includes("revolutejoint") || normalized === "revolutejoint" || normalized.endsWith("revolutejoint");
 }
 

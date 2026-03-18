@@ -25,6 +25,11 @@ Optional:
 
 Environment:
   JOBS=<n>              Parallel build workers (default: detected CPU cores)
+  EMSCRIPTEN_OPT_LEVEL=-O3
+                        C/C++ compile/link optimization level for hdEmscripten
+                        targets (default: -O3)
+  EMSCRIPTEN_ENABLE_SIMD=1
+                        Enable wasm SIMD in the compiler/linker flags
   WASM_OPT_LEVEL=-O3    wasm-opt optimization level (default: -O3)
 
 Example:
@@ -70,6 +75,8 @@ SIZE_OPT=0
 ROBOT_TRIM=0
 STRIP_DEBUG=1
 JOBS="${JOBS:-$(detect_cpu_count)}"
+EMSCRIPTEN_OPT_LEVEL="${EMSCRIPTEN_OPT_LEVEL:--O3}"
+EMSCRIPTEN_ENABLE_SIMD="${EMSCRIPTEN_ENABLE_SIMD:-1}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -127,7 +134,13 @@ if [[ -z "$USD_REPO" || -z "$BUILD_DIR" ]]; then
 fi
 
 if [[ "$SIZE_OPT" -eq 1 ]]; then
+  EMSCRIPTEN_OPT_LEVEL="-Oz"
   WASM_OPT_LEVEL="-Oz"
+fi
+
+EMSCRIPTEN_ENABLE_SIMD_CMAKE="ON"
+if [[ "${EMSCRIPTEN_ENABLE_SIMD}" == "0" ]]; then
+  EMSCRIPTEN_ENABLE_SIMD_CMAKE="OFF"
 fi
 
 if [[ -n "$EMSDK_ENV" ]]; then
@@ -169,6 +182,7 @@ build_usd_runner_script="${build_usd_script}"
 build_usd_args=(
   --build-target wasm
   --prefer-speed-over-safety
+  --cmake-build-args "-DPXR_HD_EMSCRIPTEN_OPT_LEVEL=${EMSCRIPTEN_OPT_LEVEL} -DPXR_HD_EMSCRIPTEN_ENABLE_SIMD=${EMSCRIPTEN_ENABLE_SIMD_CMAKE}"
 )
 if [[ "$BUILD_VARIANT" == "debug" ]]; then
   build_usd_args+=(
@@ -238,7 +252,7 @@ apply_patch_file() {
     echo "  - skip ${label}: patch not found (${patch_file})"
     return
   fi
-  if patch --batch --forward --silent "$BINDINGS_JS" < "$patch_file"; then
+  if patch --batch --forward --silent -r /dev/null "$BINDINGS_JS" < "$patch_file" >/dev/null 2>&1; then
     echo "  - applied ${label}"
   else
     echo "  - skipped ${label} (already applied or no matching hunk)"
@@ -253,59 +267,102 @@ apply_patch_file "${PATCH_DIR}/fileSystem.patch" "fileSystem"
 
 python3 - "$BINDINGS_JS" <<'PY'
 from pathlib import Path
+import re
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
 changed = False
 
+def replace_first(text: str, candidates, replacement: str):
+    for candidate in candidates:
+        if candidate in text:
+            return text.replace(candidate, replacement, 1), True
+    return text, False
+
+def replace_last(text: str, candidates, replacement: str):
+    for candidate in candidates:
+        index = text.rfind(candidate)
+        if index >= 0:
+            return text[:index] + replacement + text[index + len(candidate):], True
+    return text, False
+
 if "var getUsdModule = (() => {" in text:
     text = text.replace("var getUsdModule = (() => {", "var getUsdModule = ((args) => {", 1)
     changed = True
 
-if "return function (moduleArg = {}) {" in text:
-    text = text.replace(
-        "return function (moduleArg = {}) {",
-        """return function (
-    moduleArg = {
-      // module overrides can be supplied here
-      locateFile: (path, prefix) => {
-        if (!prefix && _scriptDir)
-          prefix = _scriptDir.substr(0, _scriptDir.lastIndexOf("/") + 1);
-        return prefix + path;
-      },
-      ...args,
-      urlModifier: args?.urlModifier,
-    },
-  ) {""",
-        1,
+if "urlModifier: args?.urlModifier" not in text:
+    text, did_replace = replace_first(
+        text,
+        (
+            "var Module=moduleArg;",
+            "var Module = moduleArg;",
+        ),
+        """var Module=moduleArg;
+Module = {
+  locateFile: (path, prefix) => {
+    if (!prefix && _scriptDir)
+      prefix = _scriptDir.substr(0, _scriptDir.lastIndexOf("/") + 1);
+    return prefix + path;
+  },
+  ...args,
+  urlModifier: args?.urlModifier,
+  ...Module,
+};
+moduleArg = Module;""",
     )
-    changed = True
+    changed = changed or did_replace
 
 old_abort = """      what = "Aborted(" + what + ")";
       err(what);
       ABORT = true;
 """
-if old_abort in text and "// ABORT = true;" not in text:
-    text = text.replace(
-        old_abort,
-        """      what = "Aborted(" + what + ")";
+minified_abort = 'err(what);ABORT=true;EXITSTATUS=1;'
+if "allow continued loading after one failed asset" not in text:
+    if old_abort in text:
+        text = text.replace(
+            old_abort,
+            """      what = "Aborted(" + what + ")";
       err(what);
       // ABORT = true; // allow continued loading after one failed asset
 """,
-        1,
-    )
+            1,
+        )
+        changed = True
+    elif minified_abort in text:
+        text = text.replace(
+            minified_abort,
+            'err(what);/* allow continued loading after one failed asset */EXITSTATUS=1;',
+            1,
+        )
+        changed = True
+
+cleaned_text = re.sub(
+    r'\s*Module\["FS_readdir"\]\s*=\s*FS\.readdir;\s*Module\["FS_analyzePath"\]\s*=\s*FS\.analyzePath;\s*$',
+    '\n',
+    text,
+    count=1,
+)
+if cleaned_text != text:
+    text = cleaned_text
     changed = True
 
-if 'Module["FS_readdir"] = FS.readdir;' not in text and 'Module["PThread"] = PThread;' in text:
-    text = text.replace(
-        'Module["PThread"] = PThread;',
-        """Module["PThread"] = PThread;
-    Module["FS_readdir"] = FS.readdir;
-    Module["FS_analyzePath"] = FS.analyzePath;""",
-        1,
+has_fs_exports = re.search(
+    r'Module\["PThread"\]\s*=\s*PThread;\s*Module\["FS_readdir"\]\s*=\s*FS\.readdir;\s*Module\["FS_analyzePath"\]\s*=\s*FS\.analyzePath;',
+    text,
+)
+if not has_fs_exports:
+    text, did_replace = replace_last(
+        text,
+        (
+            'Module["PThread"]=PThread;',
+            'Module["PThread"] = PThread;',
+        ),
+        """Module["PThread"]=PThread;
+Module["FS_readdir"]=FS.readdir;
+Module["FS_analyzePath"]=FS.analyzePath;""",
     )
-    changed = True
+    changed = changed or did_replace
 
 if 'globalThis["USD_WASM_MODULE"] = getUsdModule;' not in text:
     export_anchor = "if (typeof exports === 'object' && typeof module === 'object')"

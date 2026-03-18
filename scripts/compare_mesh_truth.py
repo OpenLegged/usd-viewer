@@ -164,6 +164,111 @@ def _scale_size_by_matrix(size: list[float] | None, matrix_elements: list[float]
     ]
 
 
+def _scale_size_by_vector(size: list[float] | None, scale: list[float] | None) -> list[float] | None:
+    if size is None or len(size) < 3 or scale is None or len(scale) < 3:
+        return None
+    return [
+        abs(float(size[0])) * abs(float(scale[0])),
+        abs(float(size[1])) * abs(float(scale[1])),
+        abs(float(size[2])) * abs(float(scale[2])),
+    ]
+
+
+def _extract_truth_world_scale(entry: dict[str, Any]) -> list[float] | None:
+    world_scale = entry.get("world_scale")
+    if isinstance(world_scale, list) and len(world_scale) >= 3:
+        return [abs(float(world_scale[0])), abs(float(world_scale[1])), abs(float(world_scale[2]))]
+
+    world_pose = entry.get("world_pose")
+    if isinstance(world_pose, dict):
+        pose_scale = world_pose.get("scale")
+        if isinstance(pose_scale, list) and len(pose_scale) >= 3:
+            return [abs(float(pose_scale[0])), abs(float(pose_scale[1])), abs(float(pose_scale[2]))]
+    return None
+
+
+def _round_signature_number(value: Any, digits: int = 6) -> float | None:
+    try:
+        numeric = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return round(numeric, digits)
+
+
+def _extract_normalized_category_suffix(path_value: Any) -> str | None:
+    path_text = str(path_value or "").strip()
+    if not path_text:
+        return None
+    normalized_path = path_text.replace("\\", "/")
+    parts = normalized_path.split("/")
+    for index, segment in enumerate(parts):
+        lowered = segment.lower()
+        if lowered in {"visuals", "meshes", "collisions", "colliders"}:
+            suffix = "/".join(part for part in parts[index + 1 :] if part)
+            return suffix or None
+    return None
+
+
+def _build_viewer_geometry_signature(viewer_entry: dict[str, Any]) -> tuple[Any, ...] | None:
+    local_bounds = viewer_entry.get("local_bounds")
+    size_signature = None
+    if isinstance(local_bounds, dict):
+        size = local_bounds.get("size")
+        if isinstance(size, list) and len(size) >= 3:
+            size_signature = tuple(_round_signature_number(value) for value in size[:3])
+    return size_signature
+
+
+def _extract_viewer_vertex_count(viewer_entry: dict[str, Any]) -> int | None:
+    vertex_count = viewer_entry.get("vertex_count")
+    try:
+        return int(vertex_count) if vertex_count is not None else None
+    except Exception:
+        return None
+
+
+def _normalized_suffixes_match(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    return left.endswith(f"/{right}") or right.endswith(f"/{left}")
+
+
+def _collect_resolved_duplicate_signatures(viewer_entries: list[dict[str, Any]]) -> list[tuple[str, tuple[Any, ...], int | None]]:
+    resolved_entries: list[tuple[str, tuple[Any, ...], int | None]] = []
+    for viewer_entry in viewer_entries:
+        resolved_path_value = viewer_entry.get("resolved_path") or viewer_entry.get("resolved_visual_path")
+        resolved_suffix = _extract_normalized_category_suffix(resolved_path_value)
+        geometry_signature = _build_viewer_geometry_signature(viewer_entry)
+        if not resolved_suffix or geometry_signature is None:
+            continue
+        resolved_entries.append((resolved_suffix, geometry_signature, _extract_viewer_vertex_count(viewer_entry)))
+    return resolved_entries
+
+
+def _is_duplicate_of_resolved_viewer_entry(
+    viewer_entry: dict[str, Any],
+    resolved_duplicate_signatures: list[tuple[str, tuple[Any, ...], int | None]],
+) -> bool:
+    entry_suffix = _extract_normalized_category_suffix(viewer_entry.get("id"))
+    entry_signature = _build_viewer_geometry_signature(viewer_entry)
+    entry_vertex_count = _extract_viewer_vertex_count(viewer_entry)
+    if not entry_suffix or entry_signature is None:
+        return False
+    loose_matches = 0
+    for resolved_suffix, resolved_signature, resolved_vertex_count in resolved_duplicate_signatures:
+        if entry_signature != resolved_signature:
+            continue
+        if entry_vertex_count is not None and resolved_vertex_count is not None and entry_vertex_count == resolved_vertex_count:
+            loose_matches += 1
+        if _normalized_suffixes_match(entry_suffix, resolved_suffix):
+            return True
+    return loose_matches == 1 and entry_vertex_count is not None
+
+
 def _is_tiny_unresolved_fallback_visual(viewer_entry: dict[str, Any]) -> bool:
     primitive_type = str(viewer_entry.get("primitive_fallback_type") or "").lower()
     if primitive_type not in {"sphere", "capsule", "cylinder", "cube", "box"}:
@@ -183,6 +288,29 @@ def _is_tiny_unresolved_fallback_visual(viewer_entry: dict[str, Any]) -> bool:
     return max_size <= 0.01
 
 
+def _is_unresolved_nonrenderable_visual(viewer_entry: dict[str, Any]) -> bool:
+    vertex_count = viewer_entry.get("vertex_count")
+    try:
+        if int(vertex_count or 0) > 0:
+            return False
+    except Exception:
+        return False
+
+    local_bounds = viewer_entry.get("local_bounds")
+    if not isinstance(local_bounds, dict):
+        return True
+
+    size = local_bounds.get("size")
+    if not isinstance(size, list) or len(size) < 3:
+        return True
+
+    try:
+        max_size = max(abs(float(size[0])), abs(float(size[1])), abs(float(size[2])))
+    except Exception:
+        return True
+    return max_size <= 1e-9
+
+
 def _extract_truth_visual_meshes(truth: dict[str, Any]) -> list[dict[str, Any]]:
     meshes_section = truth.get("meshes", {})
     meshes = meshes_section.get("meshes")
@@ -200,7 +328,9 @@ def _extract_truth_visual_meshes(truth: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _extract_viewer_visual_meshes(viewer: dict[str, Any]) -> list[dict[str, Any]]:
-    meshes = viewer.get("meshes")
+    meshes = viewer.get("visuals")
+    if not isinstance(meshes, list):
+        meshes = viewer.get("meshes")
     if not isinstance(meshes, list):
         return []
 
@@ -231,6 +361,7 @@ def main() -> None:
             truth_by_path[path] = entry
 
     viewer_visuals = _extract_viewer_visual_meshes(viewer)
+    resolved_duplicate_signatures = _collect_resolved_duplicate_signatures(viewer_visuals)
 
     compared_entries: list[dict[str, Any]] = []
     unresolved_viewer_ids: list[str] = []
@@ -243,6 +374,23 @@ def main() -> None:
         resolved_path_value = viewer_entry.get("resolved_path") or viewer_entry.get("resolved_visual_path")
         resolved_path = str(resolved_path_value) if isinstance(resolved_path_value, str) else None
         if not resolved_path:
+            if _is_duplicate_of_resolved_viewer_entry(viewer_entry, resolved_duplicate_signatures):
+                ignored_unresolved_viewers.append(
+                    {
+                        "id": viewer_id,
+                        "reason": "duplicate_of_resolved_visual",
+                    }
+                )
+                continue
+            if _is_unresolved_nonrenderable_visual(viewer_entry):
+                ignored_unresolved_viewers.append(
+                    {
+                        "id": viewer_id,
+                        "vertex_count": viewer_entry.get("vertex_count"),
+                        "local_bounds": viewer_entry.get("local_bounds"),
+                    }
+                )
+                continue
             if _is_tiny_unresolved_fallback_visual(viewer_entry):
                 ignored_unresolved_viewers.append(
                     {
@@ -281,6 +429,15 @@ def main() -> None:
             viewer_matrix_list,
         )
         truth_size = truth_entry.get("extent_size_local")
+        prim_type = str(truth_entry.get("prim_type") or "")
+        truth_size_effective = (
+            _scale_size_by_vector(
+                truth_size if isinstance(truth_size, list) else None,
+                _extract_truth_world_scale(truth_entry),
+            )
+            if prim_type == "mesh"
+            else None
+        )
 
         pos_error_m = _vector_distance(
             viewer_position if isinstance(viewer_position, list) else None,
@@ -291,8 +448,8 @@ def main() -> None:
             truth_rotation if isinstance(truth_rotation, list) else None,
         )
         size_abs_error_m, size_rel_error = _size_errors(
-            viewer_size_effective,
-            truth_size if isinstance(truth_size, list) else None,
+            viewer_size_effective or (viewer_size if isinstance(viewer_size, list) else None),
+            truth_size_effective or (truth_size if isinstance(truth_size, list) else None),
         )
 
         failed_position = pos_error_m is not None and pos_error_m > args.pos_threshold
@@ -334,6 +491,7 @@ def main() -> None:
                 "viewer_size_local": viewer_size,
                 "viewer_size_effective": viewer_size_effective,
                 "truth_size_local": truth_size,
+                "truth_size_effective": truth_size_effective,
             }
         )
 

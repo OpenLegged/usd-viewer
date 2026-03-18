@@ -65,6 +65,16 @@ export class JointPanelController {
         this.clearSliderInputHandlers();
         this.renderStatus("No joint data loaded.");
     }
+    dispose() {
+        this.clear();
+        if (this.header) {
+            this.header.removeEventListener("pointerdown", this.handlePointerDown);
+        }
+        window.removeEventListener("pointermove", this.handlePointerMove);
+        window.removeEventListener("pointerup", this.handlePointerUp);
+        window.removeEventListener("pointercancel", this.handlePointerUp);
+        this.dragging = false;
+    }
     async refresh() {
         if (!this.list)
             return;

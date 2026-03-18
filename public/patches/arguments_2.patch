@@ -1,7 +1,7 @@
 diff --git a/public/emHdBindings.js b/public/emHdBindings.js
 --- a/public/emHdBindings.js
 +++ b/public/emHdBindings.js
-@@ -5,7 +5,15 @@
+@@ -5,6 +5,14 @@
        : undefined;
    if (typeof __filename !== "undefined") _scriptDir = _scriptDir || __filename;
 -  return function (moduleArg = {}) {

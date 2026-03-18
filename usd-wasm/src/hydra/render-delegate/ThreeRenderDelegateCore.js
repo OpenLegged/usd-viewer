@@ -40,6 +40,9 @@ export class ThreeRenderDelegateCore {
         this.enableProtoBlobFastPath = safeConfig.enableProtoBlobFastPath !== false;
         this.preferProtoBlobOverHydraPayload = safeConfig.preferProtoBlobOverHydraPayload !== false;
         this.preferFinalStageOverrideBatchInProtoSync = safeConfig.preferFinalStageOverrideBatchInProtoSync !== false;
+        // Strict one-shot loads must finish scene payload resolution before reveal.
+        // Keep legacy per-mesh bridge fetches disabled until snapshot caches exist.
+        this.strictOneShotSceneLoad = safeConfig.strictOneShotSceneLoad === true;
         // Keep first visual frame fast: hidden collision proto meshes can defer
         // expensive sync until they become visible.
         this.deferHiddenCollisionProtoSyncInCommit = safeConfig.deferHiddenCollisionProtoSyncInCommit !== false;
@@ -49,7 +52,7 @@ export class ThreeRenderDelegateCore {
         this.autoBatchPrimTransformsOnFirstAccess = safeConfig.autoBatchPrimTransformsOnFirstAccess !== false;
         this.autoBatchCollisionProtoOverridesOnFirstAccess = safeConfig.autoBatchCollisionProtoOverridesOnFirstAccess !== false;
         this.autoBatchVisualProtoOverridesOnFirstAccess = safeConfig.autoBatchVisualProtoOverridesOnFirstAccess !== false;
-        this.allowJsRobotMetadataFallback = safeConfig.allowJsRobotMetadataFallback !== false;
+        this.allowDriverStageLookup = safeConfig.allowDriverStageLookup === true;
         // Avoid expensive driver.GetStage() calls inside high-frequency Hydra sync callbacks.
         // Stage-dependent fallback passes still run later once stage metadata is ready.
         this.deferDriverStageLookupInSyncHotPath = safeConfig.deferDriverStageLookupInSyncHotPath !== false;
@@ -88,6 +91,9 @@ export class ThreeRenderDelegateCore {
         this._xformOpFallbackMapByStageSource = new Map();
         this._rootLayerXformOpFallbackMapByStageSource = new Map();
         this._stageFallbackMaterialCache = new Map();
+        this._snapshotMaterialRecordById = new Map();
+        this._snapshotMaterialIdsByStageSource = new Map();
+        this._snapshotFallbackMaterialCache = new Map();
         this._linkVisualTransformCache = new Map();
         this._visualMeshIdByLinkPath = new Map();
         this._meshIdByLinkPath = new Map();
@@ -114,6 +120,7 @@ export class ThreeRenderDelegateCore {
         this._urdfVisualFallbackDecisionCache = new Map();
         this._urdfVisualFallbackLinkDecisionCache = new Map();
         this._robotMetadataSnapshotByStageSource = new Map();
+        this._robotSceneSnapshotByStageSource = new Map();
         this._robotMetadataBuildPromisesByStageSource = new Map();
         this._preferredVisualMaterialByLinkCache = new Map();
         this._resolvedDriverStage = null;
@@ -414,6 +421,12 @@ export class ThreeRenderDelegateCore {
             return null;
         return this._robotMetadataSnapshotByStageSource.get(normalizedStagePath) || null;
     }
+    getCachedRobotSceneSnapshot(stageSourcePath = null) {
+        const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0];
+        if (!normalizedStagePath)
+            return null;
+        return this._robotSceneSnapshotByStageSource.get(normalizedStagePath) || null;
+    }
     emitRobotMetadataSnapshotReady(snapshot) {
         if (!snapshot || typeof snapshot !== 'object')
             return;
@@ -428,6 +441,170 @@ export class ThreeRenderDelegateCore {
             }
             catch { }
         }
+    }
+    emitRobotSceneSnapshotReady(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object')
+            return;
+        if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function')
+            return;
+        try {
+            window.dispatchEvent(new CustomEvent('usd:robot-scene-ready', { detail: snapshot }));
+        }
+        catch {
+            try {
+                window.dispatchEvent(new Event('usd:robot-scene-ready'));
+            }
+            catch { }
+        }
+    }
+    resolveRoundtripUsdVirtualPath(stageSourcePath = null, options = {}) {
+        const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0];
+        if (!normalizedStagePath || !normalizedStagePath.startsWith('/'))
+            return null;
+        const lastSlash = normalizedStagePath.lastIndexOf('/');
+        const directory = lastSlash >= 0 ? normalizedStagePath.slice(0, lastSlash) : '';
+        const fileName = lastSlash >= 0 ? normalizedStagePath.slice(lastSlash + 1) : normalizedStagePath;
+        if (!fileName)
+            return null;
+        const dotIndex = fileName.lastIndexOf('.');
+        const baseName = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+        const extension = dotIndex > 0 ? fileName.slice(dotIndex) : '.usd';
+        const suggestedFileName = String(options?.outputFileName || '').trim();
+        const outputFileName = suggestedFileName || `${baseName}.viewer_roundtrip${extension || '.usd'}`;
+        return directory ? `${directory}/${outputFileName}` : `/${outputFileName}`;
+    }
+    async writeUsdExportToServer(virtualPath, content, options = {}) {
+        const normalizedVirtualPath = String(virtualPath || '').trim();
+        if (!normalizedVirtualPath || !normalizedVirtualPath.startsWith('/')) {
+            return { ok: false, error: 'invalid-export-path' };
+        }
+        if (typeof fetch !== 'function') {
+            return { ok: false, error: 'fetch-unavailable' };
+        }
+        let response = null;
+        let payload = null;
+        try {
+            response = await fetch('/api/write-usd-export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    virtualPath: normalizedVirtualPath,
+                    content: String(content || ''),
+                    overwrite: options?.overwrite !== false,
+                }),
+            });
+            payload = await response.json().catch(() => null);
+        }
+        catch (error) {
+            return {
+                ok: false,
+                error: error instanceof Error ? error.message : String(error || 'write-usd-export-failed'),
+            };
+        }
+        if (!response?.ok || payload?.ok !== true) {
+            return {
+                ok: false,
+                error: String(payload?.error || `write-usd-export-${Number(response?.status || 0)}`),
+                status: Number(response?.status || 0),
+                payload: payload || null,
+            };
+        }
+        return {
+            ok: true,
+            virtualPath: String(payload.virtualPath || normalizedVirtualPath),
+            filePath: String(payload.filePath || ''),
+            bytesWritten: Number(payload.bytesWritten || 0),
+        };
+    }
+    async exportLoadedStageSnapshot(options = {}) {
+        const activeDriver = options?.driver || this.config?.driver?.() || globalThis?.driver || null;
+        const stageSourcePath = String(options?.stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0];
+        const flattenStage = options?.flattenStage === true;
+        const emptyResult = {
+            ok: false,
+            error: 'export-unavailable',
+            stageSourcePath: stageSourcePath || null,
+            outputVirtualPath: null,
+        };
+        let exportPayload = null;
+        if (activeDriver && typeof activeDriver.ExportLoadedStageSnapshot === 'function') {
+            try {
+                exportPayload = activeDriver.ExportLoadedStageSnapshot({
+                    flattenStage,
+                    stageSourcePath,
+                });
+            }
+            catch {
+                exportPayload = null;
+            }
+        }
+        if ((!exportPayload || exportPayload.ok !== true) && typeof this.getStage === 'function') {
+            const stage = this.getStage();
+            const rootLayer = stage?.GetRootLayer?.() || null;
+            if (rootLayer && typeof rootLayer.ExportToString === 'function') {
+                try {
+                    const content = rootLayer.ExportToString();
+                    exportPayload = {
+                        ok: !!content,
+                        flattened: false,
+                        content: typeof content === 'string' ? content : String(content || ''),
+                        stageSourcePath,
+                        rootLayerIdentifier: rootLayer?.identifier || null,
+                        defaultPrimPath: stage?.GetDefaultPrim?.()?.GetPath?.()?.pathString || null,
+                        outputFileName: null,
+                        exportMode: 'root-layer-js-fallback',
+                    };
+                }
+                catch {
+                    exportPayload = null;
+                }
+            }
+        }
+        if (!exportPayload || exportPayload.ok !== true) {
+            return emptyResult;
+        }
+        const content = typeof exportPayload.content === 'string'
+            ? exportPayload.content
+            : String(exportPayload.content || '');
+        if (!content) {
+            return {
+                ...emptyResult,
+                error: 'empty-export-content',
+            };
+        }
+        const outputVirtualPath = String(options?.outputVirtualPath
+            || this.resolveRoundtripUsdVirtualPath(stageSourcePath, { outputFileName: exportPayload.outputFileName })
+            || '').trim();
+        const result = {
+            ok: true,
+            flattened: exportPayload.flattened === true,
+            content,
+            stageSourcePath: String(exportPayload.stageSourcePath || stageSourcePath || '').trim() || null,
+            rootLayerIdentifier: exportPayload.rootLayerIdentifier || null,
+            defaultPrimPath: exportPayload.defaultPrimPath || null,
+            outputFileName: exportPayload.outputFileName || null,
+            outputVirtualPath: outputVirtualPath || null,
+            exportMode: exportPayload.exportMode || (flattenStage ? 'flattened-stage' : 'root-layer'),
+        };
+        if (options?.persistToServer === false) {
+            return result;
+        }
+        if (!outputVirtualPath) {
+            return {
+                ...result,
+                ok: false,
+                error: 'unsupported-export-path',
+            };
+        }
+        const persisted = await this.writeUsdExportToServer(outputVirtualPath, content, options);
+        return {
+            ...result,
+            persisted,
+            ok: persisted.ok === true,
+            error: persisted.ok === true ? null : persisted.error || 'write-usd-export-failed',
+            filePath: persisted.filePath || null,
+            bytesWritten: Number(persisted.bytesWritten || 0),
+        };
     }
     tryBuildRobotMetadataSnapshotFromDriver(stageSourcePath, sortedLinkPaths, meshCountsByLinkPath) {
         if (!Array.isArray(sortedLinkPaths) || sortedLinkPaths.length <= 0) {
@@ -477,7 +654,18 @@ export class ThreeRenderDelegateCore {
     }
     buildRobotMetadataSnapshotForStage(stageSourcePath, truth) {
         const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0] || null;
-        const stage = this.getStage?.() || null;
+        const allowJsStageFallback = false;
+        const shouldReadStageDataInJs = !!truth || allowJsStageFallback;
+        let resolvedStage = null;
+        let resolvedStageInitialized = false;
+        const getStageForMetadataFallback = () => {
+            if (resolvedStageInitialized) {
+                return resolvedStage;
+            }
+            resolvedStageInitialized = true;
+            resolvedStage = shouldReadStageDataInJs ? (this.getStage?.() || null) : null;
+            return resolvedStage;
+        };
         let metadataLayerTexts = [];
         const meshCountsByLinkPath = {};
         const linkPathSet = new Set();
@@ -554,6 +742,10 @@ export class ThreeRenderDelegateCore {
                 || Math.abs(Number(vector3Tuple[1] || 0)) > epsilon
                 || Math.abs(Number(vector3Tuple[2] || 0)) > epsilon);
         };
+        const hasSignificantMassValue = (value, epsilon = 1e-8) => {
+            const mass = Number(value);
+            return Number.isFinite(mass) && Math.abs(mass) > epsilon;
+        };
         const hasNonIdentityQuaternionWxyz = (quaternionWxyz, epsilon = 1e-6) => {
             if (!Array.isArray(quaternionWxyz) || quaternionWxyz.length < 4)
                 return false;
@@ -582,11 +774,52 @@ export class ThreeRenderDelegateCore {
                 return null;
             }
         };
-        const isControllableStageJointType = (jointTypeName) => {
-            const normalized = String(jointTypeName || '').trim().toLowerCase();
+        const normalizeStageJointType = (jointTypeName) => {
+            const raw = String(jointTypeName || '').trim();
+            const normalized = raw.toLowerCase();
             if (!normalized)
-                return false;
-            return normalized.includes('revolute') || normalized.includes('continuous');
+                return 'joint';
+            if (normalized === 'revolute' || normalized.includes('revolute') || normalized === 'continuous' || normalized.includes('continuous')) {
+                return 'revolute';
+            }
+            if (normalized === 'prismatic' || normalized.includes('prismatic'))
+                return 'prismatic';
+            if (normalized === 'fixed' || normalized.includes('fixed'))
+                return 'fixed';
+            if (normalized === 'distance' || normalized.includes('distance'))
+                return 'distance';
+            if (normalized === 'spherical' || normalized.includes('spherical') || normalized.includes('ball'))
+                return 'spherical';
+            if (normalized === 'd6' || normalized.includes('d6'))
+                return 'd6';
+            return raw || 'joint';
+        };
+        const isControllableStageJointType = (jointTypeName) => {
+            return normalizeStageJointType(jointTypeName) === 'revolute';
+        };
+        const isNonRotationalStageJointType = (jointTypeName) => {
+            const type = normalizeStageJointType(jointTypeName);
+            return type === 'fixed' || type === 'prismatic' || type === 'distance';
+        };
+        const normalizeStageJointLimits = (jointTypeName, lowerLimitDeg, upperLimitDeg) => {
+            const lower = Number(lowerLimitDeg);
+            const upper = Number(upperLimitDeg);
+            const hasLower = Number.isFinite(lower);
+            const hasUpper = Number.isFinite(upper);
+            if (!hasLower && !hasUpper) {
+                if (isNonRotationalStageJointType(jointTypeName)) {
+                    return { lower: 0, upper: 0 };
+                }
+                return { lower: -180, upper: 180 };
+            }
+            let normalizedLower = hasLower ? lower : (isNonRotationalStageJointType(jointTypeName) ? 0 : -180);
+            let normalizedUpper = hasUpper ? upper : (isNonRotationalStageJointType(jointTypeName) ? 0 : 180);
+            if (normalizedLower > normalizedUpper) {
+                const midpoint = (normalizedLower + normalizedUpper) * 0.5;
+                normalizedLower = midpoint;
+                normalizedUpper = midpoint;
+            }
+            return { lower: normalizedLower, upper: normalizedUpper };
         };
         const collisionPrimitiveTypeFromProto = (protoType) => {
             const normalizedType = String(protoType || '').trim().toLowerCase();
@@ -674,9 +907,228 @@ export class ThreeRenderDelegateCore {
             }
         }
         const sortedLinkPaths = Array.from(linkPathSet).sort((left, right) => left.localeCompare(right));
+        const mergeMissingJointCatalogEntriesFromDriver = (snapshot) => {
+            if (!snapshot || typeof snapshot !== 'object')
+                return snapshot;
+            if (!Array.isArray(sortedLinkPaths) || sortedLinkPaths.length <= 0)
+                return snapshot;
+            const activeDriver = typeof window !== 'undefined' ? window?.driver : null;
+            if (!activeDriver || typeof activeDriver.GetPhysicsJointRecords !== 'function') {
+                return snapshot;
+            }
+            let rawJointRecords = [];
+            try {
+                rawJointRecords = activeDriver.GetPhysicsJointRecords();
+            }
+            catch {
+                rawJointRecords = [];
+            }
+            const driverJointRecords = (rawJointRecords && typeof rawJointRecords.length === 'number'
+                ? Array.from(rawJointRecords)
+                : []);
+            if (driverJointRecords.length <= 0)
+                return snapshot;
+            const linkPathSetForMerge = new Set(sortedLinkPaths);
+            const runtimeLinkPathsByNameForMerge = new Map();
+            const rootPathSetForMerge = new Set();
+            const rootPathsForMerge = [];
+            for (const linkPath of sortedLinkPaths) {
+                const linkName = getPathBasename(linkPath);
+                if (linkName) {
+                    const existing = runtimeLinkPathsByNameForMerge.get(linkName) || [];
+                    existing.push(linkPath);
+                    runtimeLinkPathsByNameForMerge.set(linkName, existing);
+                }
+                const rootPath = getRootPathFromPrimPath(linkPath);
+                if (rootPath && !rootPathSetForMerge.has(rootPath)) {
+                    rootPathSetForMerge.add(rootPath);
+                    rootPathsForMerge.push(rootPath);
+                }
+            }
+            rootPathsForMerge.sort((left, right) => left.localeCompare(right));
+            const sortByPreferredRootForMerge = (paths, preferredRootPath = null) => {
+                const deduped = Array.from(new Set(paths.filter(Boolean)));
+                deduped.sort((left, right) => left.localeCompare(right));
+                if (!preferredRootPath)
+                    return deduped;
+                return deduped.sort((left, right) => {
+                    const leftPreferred = getRootPathFromPrimPath(left) === preferredRootPath ? 0 : 1;
+                    const rightPreferred = getRootPathFromPrimPath(right) === preferredRootPath ? 0 : 1;
+                    if (leftPreferred !== rightPreferred)
+                        return leftPreferred - rightPreferred;
+                    return left.localeCompare(right);
+                });
+            };
+            const resolveRuntimeLinkPathsFromSourcePathForMerge = (sourcePath, preferredRootPath = null) => {
+                const source = String(sourcePath || '').trim();
+                if (!source)
+                    return [];
+                const normalizedSourcePath = normalizeUsdPathToken(source);
+                const matches = [];
+                const addMatch = (candidatePath) => {
+                    if (!candidatePath)
+                        return;
+                    if (!linkPathSetForMerge.has(candidatePath))
+                        return;
+                    if (matches.includes(candidatePath))
+                        return;
+                    matches.push(candidatePath);
+                };
+                addMatch(normalizedSourcePath);
+                const linkName = getPathBasename(normalizedSourcePath || source.replace(/[<>]/g, ''));
+                if (linkName) {
+                    for (const candidatePath of runtimeLinkPathsByNameForMerge.get(linkName) || []) {
+                        addMatch(candidatePath);
+                    }
+                }
+                if (normalizedSourcePath) {
+                    const sourceWithoutRoot = getPathWithoutRoot(normalizedSourcePath);
+                    if (sourceWithoutRoot && sourceWithoutRoot !== '/') {
+                        if (preferredRootPath) {
+                            addMatch(`${preferredRootPath}${sourceWithoutRoot}`);
+                        }
+                        for (const rootPath of rootPathsForMerge) {
+                            if (preferredRootPath && rootPath === preferredRootPath)
+                                continue;
+                            addMatch(`${rootPath}${sourceWithoutRoot}`);
+                        }
+                    }
+                }
+                return sortByPreferredRootForMerge(matches, preferredRootPath);
+            };
+            const normalizeEntryChildLinkPath = (entry) => {
+                return normalizeUsdPathToken(String(entry?.linkPath || entry?.childLinkPath || entry?.body1Path || '')) || null;
+            };
+            const existingJointCatalogEntries = Array.isArray(snapshot.jointCatalogEntries)
+                ? snapshot.jointCatalogEntries.slice()
+                : [];
+            const existingEntryByChildLinkPath = new Map();
+            for (const entry of existingJointCatalogEntries) {
+                const childLinkPath = normalizeEntryChildLinkPath(entry);
+                if (!childLinkPath)
+                    continue;
+                if (!linkPathSetForMerge.has(childLinkPath))
+                    continue;
+                if (existingEntryByChildLinkPath.has(childLinkPath))
+                    continue;
+                existingEntryByChildLinkPath.set(childLinkPath, entry);
+            }
+            const existingLinkParentPairs = Array.isArray(snapshot.linkParentPairs)
+                ? snapshot.linkParentPairs.slice()
+                : [];
+            const existingPairKeySet = new Set();
+            for (const pair of existingLinkParentPairs) {
+                if (!Array.isArray(pair) || pair.length <= 0)
+                    continue;
+                const childLinkPath = normalizeUsdPathToken(String(pair[0] || '')) || null;
+                if (!childLinkPath)
+                    continue;
+                const parentLinkPath = normalizeUsdPathToken(String(pair[1] || '')) || null;
+                existingPairKeySet.add(`${childLinkPath}|${parentLinkPath || ''}`);
+            }
+            let mutated = false;
+            for (const jointRecord of driverJointRecords) {
+                const body1Path = normalizeUsdPathToken(String(jointRecord?.body1Path || '')) || null;
+                if (!body1Path)
+                    continue;
+                const body0Path = normalizeUsdPathToken(String(jointRecord?.body0Path || '')) || null;
+                const jointPath = normalizeUsdPathToken(String(jointRecord?.jointPath || jointRecord?.path || '')) || null;
+                const fallbackJointName = jointPath ? getPathBasename(jointPath) : '';
+                const jointName = String(jointRecord?.jointName || fallbackJointName || '').trim();
+                const jointTypeName = String(jointRecord?.jointTypeName || jointRecord?.jointType || '').trim();
+                const jointType = normalizeStageJointType(jointTypeName);
+                const axisToken = normalizeAxisToken(jointRecord?.axisToken || jointRecord?.axis || 'X');
+                const localPos1 = normalizeVector3(jointRecord?.localPos1 || [0, 0, 0], [0, 0, 0]);
+                const localRot1Wxyz = normalizeQuaternionWxyz(jointRecord?.localRot1Wxyz || jointRecord?.localRot1 || [1, 0, 0, 0], [1, 0, 0, 0]);
+                const axisLocal = rotateAxisByQuaternionWxyz(axisToken, localRot1Wxyz);
+                const limits = normalizeStageJointLimits(jointTypeName || jointType, Number(jointRecord?.lowerLimitDeg), Number(jointRecord?.upperLimitDeg));
+                const childLinkPaths = resolveRuntimeLinkPathsFromSourcePathForMerge(body1Path);
+                for (const childLinkPath of childLinkPaths) {
+                    if (!childLinkPath)
+                        continue;
+                    const preferredRootPath = getRootPathFromPrimPath(childLinkPath);
+                    const parentCandidates = resolveRuntimeLinkPathsFromSourcePathForMerge(body0Path, preferredRootPath);
+                    const parentLinkPath = parentCandidates[0] || null;
+                    const pairKey = `${childLinkPath}|${parentLinkPath || ''}`;
+                    if (!existingPairKeySet.has(pairKey)) {
+                        existingPairKeySet.add(pairKey);
+                        existingLinkParentPairs.push([childLinkPath, parentLinkPath]);
+                        mutated = true;
+                    }
+                    const existingEntry = existingEntryByChildLinkPath.get(childLinkPath) || null;
+                    if (existingEntry) {
+                        if (!existingEntry.parentLinkPath && parentLinkPath) {
+                            existingEntry.parentLinkPath = parentLinkPath;
+                            mutated = true;
+                        }
+                        if (!existingEntry.jointPath && jointPath) {
+                            existingEntry.jointPath = jointPath;
+                            mutated = true;
+                        }
+                        if (!existingEntry.jointName && jointName) {
+                            existingEntry.jointName = jointName;
+                            mutated = true;
+                        }
+                        if (!existingEntry.jointTypeName && jointTypeName) {
+                            existingEntry.jointTypeName = jointTypeName;
+                            mutated = true;
+                        }
+                        if (!existingEntry.jointType && jointType) {
+                            existingEntry.jointType = jointType;
+                            mutated = true;
+                        }
+                        if (isNonRotationalStageJointType(jointTypeName || jointType)) {
+                            const existingLowerLimit = Number(existingEntry.lowerLimitDeg);
+                            const existingUpperLimit = Number(existingEntry.upperLimitDeg);
+                            const hasExistingLimits = Number.isFinite(existingLowerLimit) && Number.isFinite(existingUpperLimit);
+                            const looksLikeLegacyDefaultLimits = hasExistingLimits
+                                && Math.abs(existingLowerLimit + 180) <= 1e-6
+                                && Math.abs(existingUpperLimit - 180) <= 1e-6;
+                            if (!hasExistingLimits || looksLikeLegacyDefaultLimits) {
+                                existingEntry.lowerLimitDeg = limits.lower;
+                                existingEntry.upperLimitDeg = limits.upper;
+                                mutated = true;
+                            }
+                        }
+                        continue;
+                    }
+                    const fallbackRootPath = getRootPathFromPrimPath(childLinkPath);
+                    const fallbackJointNameForPath = jointName || `${getPathBasename(childLinkPath) || 'link'}_joint`;
+                    const resolvedJointPath = jointPath
+                        || (fallbackRootPath
+                            ? `${fallbackRootPath}/joints/${fallbackJointNameForPath}`
+                            : `/joints/${fallbackJointNameForPath}`);
+                    const newEntry = {
+                        linkPath: childLinkPath,
+                        childLinkPath: childLinkPath,
+                        jointPath: resolvedJointPath,
+                        jointName: fallbackJointNameForPath,
+                        jointType: jointType,
+                        jointTypeName: jointTypeName || null,
+                        parentLinkPath,
+                        axisToken,
+                        axisLocal,
+                        lowerLimitDeg: limits.lower,
+                        upperLimitDeg: limits.upper,
+                        localPivotInLink: localPos1,
+                    };
+                    existingJointCatalogEntries.push(newEntry);
+                    existingEntryByChildLinkPath.set(childLinkPath, newEntry);
+                    mutated = true;
+                }
+            }
+            if (!mutated)
+                return snapshot;
+            existingLinkParentPairs.sort((left, right) => String(left?.[0] || '').localeCompare(String(right?.[0] || '')));
+            return {
+                ...snapshot,
+                linkParentPairs: existingLinkParentPairs,
+                jointCatalogEntries: existingJointCatalogEntries,
+            };
+        };
         if (!truth) {
-            const allowJsStageFallback = this.allowJsRobotMetadataFallback === true;
-            const cxxSnapshot = this.tryBuildRobotMetadataSnapshotFromDriver(normalizedStagePath, sortedLinkPaths, meshCountsByLinkPath);
+            let cxxSnapshot = this.tryBuildRobotMetadataSnapshotFromDriver(normalizedStagePath, sortedLinkPaths, meshCountsByLinkPath);
+            cxxSnapshot = mergeMissingJointCatalogEntriesFromDriver(cxxSnapshot);
             if (cxxSnapshot) {
                 const cxxLinkParentCount = Array.isArray(cxxSnapshot.linkParentPairs)
                     ? cxxSnapshot.linkParentPairs.length
@@ -689,6 +1141,7 @@ export class ThreeRenderDelegateCore {
                     : 0;
                 const cxxHasCompleteStageMetadata = cxxJointCount > 0 && cxxDynamicsCount > 0;
                 const cxxHasAnyStageMetadata = cxxLinkParentCount > 0 || cxxJointCount > 0 || cxxDynamicsCount > 0;
+                const stage = allowJsStageFallback ? getStageForMetadataFallback() : null;
                 if (cxxHasCompleteStageMetadata || (!stage && cxxHasAnyStageMetadata) || !allowJsStageFallback) {
                     return cxxSnapshot;
                 }
@@ -704,6 +1157,7 @@ export class ThreeRenderDelegateCore {
                     meshCountsByLinkPath,
                 };
             }
+            const stage = getStageForMetadataFallback();
             metadataLayerTexts = this.getStageMetadataLayerTexts(stage);
         }
         const jointCatalogEntries = [];
@@ -784,9 +1238,9 @@ export class ThreeRenderDelegateCore {
                 const fallbackJointName = jointPath ? getPathBasename(jointPath) : '';
                 const jointName = String(jointRecord?.jointName || fallbackJointName || '').trim();
                 const jointTypeName = String(jointRecord?.jointTypeName || jointRecord?.jointType || '').trim();
+                const jointType = normalizeStageJointType(jointTypeName);
                 const axisToken = normalizeAxisToken(jointRecord?.axisToken || jointRecord?.axis || 'X');
-                const lowerLimitDeg = Number(jointRecord?.lowerLimitDeg);
-                const upperLimitDeg = Number(jointRecord?.upperLimitDeg);
+                const limits = normalizeStageJointLimits(jointTypeName || jointType, Number(jointRecord?.lowerLimitDeg), Number(jointRecord?.upperLimitDeg));
                 const localPos1 = normalizeVector3(jointRecord?.localPos1 || [0, 0, 0], [0, 0, 0]);
                 const localRot1Wxyz = normalizeQuaternionWxyz(jointRecord?.localRot1Wxyz || jointRecord?.localRot1 || [1, 0, 0, 0], [1, 0, 0, 0]);
                 const key = `${jointName}|${body0Path || ''}|${body1Path}`;
@@ -803,20 +1257,18 @@ export class ThreeRenderDelegateCore {
                     if (!linkParentPathByChildLinkPath.has(childLinkPath)) {
                         linkParentPathByChildLinkPath.set(childLinkPath, parentLinkPath);
                     }
-                    if (!isControllableStageJointType(jointTypeName))
-                        continue;
                     if (stageJointRecordByChildLinkPath.has(childLinkPath))
                         continue;
                     stageJointRecordByChildLinkPath.set(childLinkPath, {
                         jointName,
                         jointPath,
                         jointTypeName,
-                        jointType: jointTypeName,
+                        jointType: jointType,
                         body0Path,
                         body1Path,
                         axisToken,
-                        lowerLimitDeg: Number.isFinite(lowerLimitDeg) ? lowerLimitDeg : null,
-                        upperLimitDeg: Number.isFinite(upperLimitDeg) ? upperLimitDeg : null,
+                        lowerLimitDeg: limits.lower,
+                        upperLimitDeg: limits.upper,
                         localPos1,
                         localRot1Wxyz,
                         parentLinkPath,
@@ -824,7 +1276,7 @@ export class ThreeRenderDelegateCore {
                 }
             }
         };
-        if (!truth) {
+        if (!truth && allowJsStageFallback) {
             const driverRecords = (() => {
                 try {
                     const activeDriver = typeof window !== 'undefined' ? window?.driver : null;
@@ -860,7 +1312,7 @@ export class ThreeRenderDelegateCore {
                 const centerOfMassLocal = normalizeVector3(dynamicsRecord?.centerOfMassLocal, [0, 0, 0]);
                 const diagonalInertiaTuple = toFiniteVector3Tuple(dynamicsRecord?.diagonalInertia);
                 const principalAxesLocalWxyz = normalizeQuaternionWxyz(dynamicsRecord?.principalAxesLocalWxyz, [1, 0, 0, 0]);
-                const hasDynamicsData = (massValue !== undefined
+                const hasDynamicsData = (hasSignificantMassValue(massValue)
                     || hasSignificantVector3(centerOfMassLocal)
                     || (Array.isArray(diagonalInertiaTuple) && hasSignificantVector3(diagonalInertiaTuple))
                     || hasNonIdentityQuaternionWxyz(principalAxesLocalWxyz));
@@ -920,6 +1372,7 @@ export class ThreeRenderDelegateCore {
         }
         const jointByChildLinkName = truth?.jointByChildLinkName;
         const inertialByLinkName = truth?.inertialByLinkName;
+        const stage = shouldReadStageDataInJs ? getStageForMetadataFallback() : null;
         for (const linkPath of sortedLinkPaths) {
             const linkName = getPathBasename(linkPath);
             const rootPath = getRootPathFromPrimPath(linkPath);
@@ -940,8 +1393,9 @@ export class ThreeRenderDelegateCore {
                 if (!linkParentPathByChildLinkPath.has(linkPath)) {
                     linkParentPathByChildLinkPath.set(linkPath, parentLinkPath || null);
                 }
-                const lowerLimitDeg = Number(jointEntry.lowerLimitDeg);
-                const upperLimitDeg = Number(jointEntry.upperLimitDeg);
+                const jointTypeName = String(jointEntry.jointTypeName || jointEntry.jointType || '').trim();
+                const jointType = normalizeStageJointType(jointTypeName);
+                const limits = normalizeStageJointLimits(jointTypeName || jointType, Number(jointEntry.lowerLimitDeg), Number(jointEntry.upperLimitDeg));
                 const localPivotInLink = Array.isArray(jointEntry.originXyz)
                     ? normalizeVector3(jointEntry.originXyz, [0, 0, 0])
                     : (Array.isArray(jointEntry.localPos1) ? normalizeVector3(jointEntry.localPos1, [0, 0, 0]) : null);
@@ -949,12 +1403,13 @@ export class ThreeRenderDelegateCore {
                     linkPath,
                     jointPath: rootPath ? `${rootPath}/joints/${jointName}` : `/joints/${jointName}`,
                     jointName,
-                    jointType: String(jointEntry.jointType || jointEntry.jointTypeName || 'PhysicsRevoluteJoint'),
+                    jointType: jointType,
+                    jointTypeName: jointTypeName || null,
                     parentLinkPath,
                     axisToken,
                     axisLocal,
-                    lowerLimitDeg: Number.isFinite(lowerLimitDeg) ? lowerLimitDeg : -180,
-                    upperLimitDeg: Number.isFinite(upperLimitDeg) ? upperLimitDeg : 180,
+                    lowerLimitDeg: limits.lower,
+                    upperLimitDeg: limits.upper,
                     localPivotInLink,
                 });
             }
@@ -983,7 +1438,7 @@ export class ThreeRenderDelegateCore {
                 const principalAxesWxyz = inertialEntry
                     ? normalizeQuaternionWxyz(inertialEntry.principalAxesLocalWxyz, [1, 0, 0, 0])
                     : normalizeQuaternionWxyz(stageDynamicsRecord?.principalAxesLocalWxyz || principalAxesTupleFromPrim || stagePatch?.principalAxesLocalWxyz, [1, 0, 0, 0]);
-                const hasDynamicsData = (massValue !== null
+                const hasDynamicsData = (hasSignificantMassValue(massValue)
                     || hasSignificantVector3(centerOfMassLocal)
                     || hasSignificantVector3(diagonalInertia)
                     || hasNonIdentityQuaternionWxyz(principalAxesWxyz));
@@ -1034,7 +1489,7 @@ export class ThreeRenderDelegateCore {
         }
         const force = options?.force === true;
         const skipIdleWait = options?.skipIdleWait === true;
-        const skipUrdfTruthFallback = options?.skipUrdfTruthFallback === true;
+        const skipUrdfTruthFallback = true;
         const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0];
         if (!normalizedStagePath)
             return Promise.resolve(null);

@@ -56,5 +56,9 @@ export function isTopLevelVirtualFilePath(filePath = ""): boolean {
 export function isLikelyNonRenderableUsdConfig(pathToFile = ""): boolean {
   const normalized = String(pathToFile || "").toLowerCase();
   if (!normalized.includes("/configuration/")) return false;
-  return normalized.endsWith("_sensor.usd") || normalized.endsWith("h1_2_handless_robot.usd");
+  return (
+    normalized.endsWith("_sensor.usd")
+    || normalized.endsWith("_robot.usd")
+    || normalized.endsWith("h1_2_handless_robot.usd")
+  );
 }

@@ -186,8 +186,9 @@ def _extract_viewer_inertials(viewer: dict[str, Any]) -> list[dict[str, Any]]:
                 "mass": _to_finite_float(entry.get("mass")),
                 "center_of_mass_local": _to_vector3(entry.get("centerOfMassLocal") or entry.get("center_of_mass_local")),
                 "diagonal_inertia": _to_vector3(entry.get("diagonalInertia") or entry.get("diagonal_inertia")),
-                "principal_axes_local_wxyz": _to_quaternion_xyzw_as_wxyz(
-                    entry.get("principalAxesLocal") or entry.get("principal_axes_local")
+                "principal_axes_local_wxyz": (
+                    _to_quaternion_wxyz(entry.get("principalAxesLocalWxyz") or entry.get("principal_axes_local_wxyz"))
+                    or _to_quaternion_xyzw_as_wxyz(entry.get("principalAxesLocal") or entry.get("principal_axes_local"))
                 ),
             }
         )
